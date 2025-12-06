@@ -460,7 +460,11 @@ private fun GoTickyRoot() {
             )
         },
         bottomBar = {
-            BottomBar(navItems = navItems, current = currentScreen) { tapped -> currentScreen = tapped }
+            BottomBar(
+                navItems = navItems,
+                current = currentScreen,
+                chromeAlpha = fabAlpha,
+            ) { tapped -> currentScreen = tapped }
         }
     ) { inner ->
         val layoutDirection = LocalLayoutDirection.current
@@ -1044,13 +1048,20 @@ private fun TicketsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(GoTickyGradients.CardGlow)
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            TopBar(title = "My Tickets", onBack = null, actions = {
-                NeonTextButton(text = "Checkout", onClick = { onCheckout() })
-            })
+            GlowCard(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                TopBar(
+                    title = "My Tickets",
+                    onBack = null,
+                    actions = { NeonTextButton(text = "Checkout", onClick = { onCheckout() }) },
+                    backgroundColor = Color.Transparent
+                )
+            }
         }
         if (loading) {
             items(2) { _ ->
@@ -1106,10 +1117,17 @@ private fun ProfileScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        TopBar(title = "Profile & preferences", onBack = null, actions = null)
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Profile & preferences",
+                onBack = null,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
         GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -1227,10 +1245,17 @@ private fun OrganizerDashboardScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        TopBar(title = "Organizer dashboard", onBack = onBack, actions = null)
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Organizer dashboard",
+                onBack = onBack,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1500,12 +1525,17 @@ private fun AlertsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        TopBar(title = "Alerts & drops", onBack = onBack, actions = {
-            NeonTextButton(text = "Create", onClick = { onCreateAlert() })
-        })
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Alerts & drops",
+                onBack = onBack,
+                actions = { NeonTextButton(text = "Create", onClick = { onCreateAlert() }) },
+                backgroundColor = Color.Transparent
+            )
+        }
         SectionHeader(title = "Price alerts", action = { NeonTextButton(text = "Manage", onClick = { alertToAdjust = alerts.firstOrNull() }) })
         alerts.forEach {
             AlertCard(
@@ -1665,11 +1695,18 @@ private fun PlaceholderScreen(title: String, onBack: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TopBar(title = title, onBack = onBack, actions = null)
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = title,
+                onBack = onBack,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
         Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(12.dp))
         NeonTextButton(text = "Back to Discover", onClick = { onBack() })
@@ -1692,15 +1729,22 @@ private fun EventDetailScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        TopBar(title = event.title, onBack = onBack, actions = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                NeonTextButton(text = "Alerts", onClick = { onAlert() })
-                NeonTextButton(text = "Report", onClick = { showReport = true })
-            }
-        })
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = event.title,
+                onBack = onBack,
+                actions = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        NeonTextButton(text = "Alerts", onClick = { onAlert() })
+                        NeonTextButton(text = "Report", onClick = { showReport = true })
+                    }
+                },
+                backgroundColor = Color.Transparent
+            )
+        }
         GlowCard(
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -1839,10 +1883,17 @@ private fun CreateEventScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        TopBar(title = "Create event", onBack = onBack, actions = null)
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Create event",
+                onBack = onBack,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
         GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -2004,6 +2055,7 @@ private fun CreateEventScreen(
 private fun BottomBar(
     navItems: List<NavItem>,
     current: MainScreen,
+    chromeAlpha: Float,
     onSelected: (MainScreen) -> Unit,
 ) {
     BoxWithConstraints(
@@ -2014,7 +2066,9 @@ private fun BottomBar(
         val slotWidth = maxWidth / navItems.size
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer(alpha = chromeAlpha),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -2038,6 +2092,26 @@ private fun BottomBar(
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard),
                     label = "navLabel-${item.label}"
                 )
+                val chipHighlightAlpha by animateFloatAsState(
+                    targetValue = if (selected) 0.42f else 0.22f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "navChipHighlight-${item.label}"
+                )
+                val chipSurfaceAlpha by animateFloatAsState(
+                    targetValue = if (selected) 0.98f else 0.8f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "navChipSurface-${item.label}"
+                )
+                val borderAlpha by animateFloatAsState(
+                    targetValue = if (selected) 0.9f else 0.35f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "navChipBorder-${item.label}"
+                )
+                val borderWidth by animateDpAsState(
+                    targetValue = if (selected) 1.dp else 0.5.dp,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "navChipBorderWidth-${item.label}"
+                )
 
                 Column(
                     modifier = Modifier
@@ -2049,15 +2123,26 @@ private fun BottomBar(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    val chipBrush = Brush.linearGradient(
+                        colors = listOf(
+                            highlight.copy(alpha = chipHighlightAlpha),
+                            MaterialTheme.colorScheme.surface.copy(alpha = chipSurfaceAlpha)
+                        )
+                    )
+                    val labelBaseColor = if (selected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                     Box(
                         modifier = Modifier
                             .size(46.dp)
                             .graphicsLayer(scaleX = selectedScale * pressScale, scaleY = selectedScale * pressScale)
                             .clip(CircleShape)
-                            .background(Color.Transparent)
+                            .background(chipBrush)
                             .border(
-                                width = if (selected) 0.5.dp else 0.dp,
-                                color = highlight.copy(alpha = 0.4f),
+                                width = borderWidth,
+                                color = highlight.copy(alpha = borderAlpha),
                                 shape = CircleShape
                             )
                             .padding(10.dp),
@@ -2069,7 +2154,7 @@ private fun BottomBar(
                     }
                     Text(
                         text = item.label,
-                        color = highlight.copy(alpha = labelAlpha),
+                        color = labelBaseColor.copy(alpha = labelAlpha),
                         style = MaterialTheme.typography.labelMedium
                     )
                 }

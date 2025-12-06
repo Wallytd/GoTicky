@@ -79,10 +79,17 @@ fun TicketDetailScreen(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        TopBar(title = ticket.eventTitle, onBack = onBack, actions = null)
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = ticket.eventTitle,
+                onBack = onBack,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
         GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(ticket.venue, style = MaterialTheme.typography.titleMedium)
@@ -143,10 +150,17 @@ fun CheckoutScreen(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        TopBar(title = "Checkout", onBack = onBack, actions = null)
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Checkout",
+                onBack = onBack,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
         GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Review", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
