@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -164,6 +165,21 @@ fun FabGlow(
         modifier = modifier
             .size(64.dp)
             .graphicsLayer(scaleX = scale, scaleY = scale)
+            .drawBehind {
+                val radius = size.minDimension / 1.1f
+                val haloBrush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.55f),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = radius
+                )
+                drawCircle(
+                    brush = haloBrush,
+                    radius = radius
+                )
+            }
             .clip(CircleShape)
             .background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)))
             .border(1.dp, GoTickyGradients.EdgeHalo, CircleShape)

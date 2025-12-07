@@ -68,8 +68,8 @@ object GoTickyGradients {
     // Glass/overlay wash for banners or elevated surfaces
     val GlassWash = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = 0.06f),
-            Color.White.copy(alpha = 0.02f),
+            Color.Black.copy(alpha = 0.78f),
+            Color.Black.copy(alpha = 0.52f),
             Color.Transparent
         )
     )
@@ -85,7 +85,7 @@ object GoTickyGradients {
 
 object GoTickyTextures {
     // Subtle grain tint to layer on dark glass; use with low alpha drawBehind.
-    val GrainTint: Color = Color.White.copy(alpha = 0.035f)
+    val GrainTint: Color = Color.Black.copy(alpha = 0.08f)
     // Soft shadow spot color for elevated cards.
     val ShadowSpot: Color = Color(0x44000000)
 }

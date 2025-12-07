@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -426,6 +427,11 @@ private fun GoTickyRoot() {
         )
     }
 
+    val showRootChrome = currentScreen == MainScreen.Home &&
+        !showCheckout &&
+        selectedTicket == null &&
+        detailEvent == null
+
 	LaunchedEffect(currentScreen) {
 		Analytics.log(
 			AnalyticsEvent(
@@ -453,18 +459,28 @@ private fun GoTickyRoot() {
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
         floatingActionButton = {
-            FabGlow(
-                modifier = Modifier.graphicsLayer(alpha = fabAlpha),
-                icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
-                onClick = { currentScreen = MainScreen.Alerts }
-            )
+            if (showRootChrome) {
+                FabGlow(
+                    modifier = Modifier.graphicsLayer(alpha = fabAlpha),
+                    icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
+                    onClick = { currentScreen = MainScreen.Alerts }
+                )
+            }
         },
         bottomBar = {
-            BottomBar(
-                navItems = navItems,
-                current = currentScreen,
-                chromeAlpha = fabAlpha,
-            ) { tapped -> currentScreen = tapped }
+            if (showRootChrome) {
+                Box(
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(bottom = 15.dp)
+                ) {
+                    BottomBar(
+                        navItems = navItems,
+                        current = currentScreen,
+                        chromeAlpha = fabAlpha,
+                    ) { tapped -> currentScreen = tapped }
+                }
+            }
         }
     ) { inner ->
         val layoutDirection = LocalLayoutDirection.current
@@ -2088,7 +2104,7 @@ private fun BottomBar(
                     label = "navPressScale-${item.label}"
                 )
                 val labelAlpha by animateFloatAsState(
-                    targetValue = if (selected) 1f else 0.66f,
+                    targetValue = if (selected) 1f else 0.92f,
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard),
                     label = "navLabel-${item.label}"
                 )
@@ -2113,50 +2129,74 @@ private fun BottomBar(
                     label = "navChipBorderWidth-${item.label}"
                 )
 
-                Column(
-                    modifier = Modifier
-                        .width(slotWidth)
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = null
-                        ) { onSelected(item.screen) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Box(
+                    modifier = Modifier.width(slotWidth),
+                    contentAlignment = Alignment.Center
                 ) {
-                    val chipBrush = Brush.linearGradient(
-                        colors = listOf(
-                            highlight.copy(alpha = chipHighlightAlpha),
-                            MaterialTheme.colorScheme.surface.copy(alpha = chipSurfaceAlpha)
-                        )
-                    )
-                    val labelBaseColor = if (selected) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+                    val mistStrength = if (selected) 0.9f else 0.6f
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
-                            .graphicsLayer(scaleX = selectedScale * pressScale, scaleY = selectedScale * pressScale)
-                            .clip(CircleShape)
-                            .background(chipBrush)
-                            .border(
-                                width = borderWidth,
-                                color = highlight.copy(alpha = borderAlpha),
-                                shape = CircleShape
-                            )
-                            .padding(10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CompositionLocalProvider(LocalContentColor provides highlight) {
-                            item.icon()
-                        }
-                    }
-                    Text(
-                        text = item.label,
-                        color = labelBaseColor.copy(alpha = labelAlpha),
-                        style = MaterialTheme.typography.labelMedium
+                            .fillMaxSize()
+                            .drawBehind {
+                                val radius = size.minDimension / 1.05f
+                                val haloBrush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = mistStrength),
+                                        Color.Transparent
+                                    ),
+                                    center = center,
+                                    radius = radius
+                                )
+                                drawCircle(
+                                    brush = haloBrush,
+                                    radius = radius
+                                )
+                            }
                     )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null
+                            ) { onSelected(item.screen) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val chipBrush = Brush.linearGradient(
+                            colors = listOf(
+                                highlight.copy(alpha = chipHighlightAlpha),
+                                MaterialTheme.colorScheme.surface.copy(alpha = chipSurfaceAlpha)
+                            )
+                        )
+                        val labelBaseColor = MaterialTheme.colorScheme.onSurface
+                        val labelStyle = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .graphicsLayer(scaleX = selectedScale * pressScale, scaleY = selectedScale * pressScale)
+                                .clip(CircleShape)
+                                .background(chipBrush)
+                                .border(
+                                    width = borderWidth,
+                                    color = highlight.copy(alpha = borderAlpha),
+                                    shape = CircleShape
+                                )
+                                .padding(10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CompositionLocalProvider(LocalContentColor provides highlight) {
+                                item.icon()
+                            }
+                        }
+                        Text(
+                            text = item.label,
+                            color = labelBaseColor.copy(alpha = labelAlpha),
+                            style = labelStyle
+                        )
+                    }
                 }
             }
         }
