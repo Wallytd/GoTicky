@@ -26,8 +26,8 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,6 +42,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Event
@@ -127,6 +128,7 @@ import org.example.project.ui.components.PrimaryButton
 import org.example.project.ui.components.TicketCard
 import org.example.project.ui.components.TicketDetailScreen
 import org.example.project.ui.components.TopBar
+import org.example.project.ui.components.ProfileAvatar
 import org.example.project.ui.components.GoTickyMotion
 import org.example.project.ui.components.infinitePulseAmplitude
 import org.example.project.ui.components.pressAnimated
@@ -148,6 +150,49 @@ private enum class MainScreen {
     Home, Browse, Tickets, Alerts, Profile, Organizer
 }
 
+@Composable
+private fun HeroPagerIndicator(
+    count: Int,
+    listState: LazyListState,
+    modifier: Modifier = Modifier,
+) {
+    if (count <= 1) return
+    val layoutInfo = listState.layoutInfo
+    val viewportWidth = layoutInfo.viewportSize.width
+    val viewportCenter = layoutInfo.viewportStartOffset + viewportWidth / 2
+    val currentIndex = layoutInfo.visibleItemsInfo.minByOrNull { info ->
+        val itemCenter = info.offset + info.size / 2
+        abs(itemCenter - viewportCenter)
+    }?.index ?: listState.firstVisibleItemIndex
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(count) { i ->
+            val active = i == currentIndex
+            val width by animateDpAsState(
+                targetValue = if (active) 24.dp else 10.dp,
+                animationSpec = tween(260),
+                label = "heroDotWidth-$i"
+            )
+            val dotAlpha by animateFloatAsState(
+                targetValue = if (active) 1f else 0.45f,
+                animationSpec = tween(260),
+                label = "heroDotAlpha-$i"
+            )
+            Box(
+                modifier = Modifier
+                    .height(8.dp)
+                    .width(width)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f * dotAlpha))
+            )
+        }
+    }
+}
+
 private data class NavItem(
     val screen: MainScreen,
     val label: String,
@@ -157,6 +202,16 @@ private data class NavItem(
 
 private data class PersonalizationPrefs(val genres: List<String>, val city: String)
 private data class LaunchCheck(val id: String, val title: String, val desc: String)
+private data class HeroSlide(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val cta: String,
+    val tag: String,
+    val accent: Color,
+    val imageHint: String, // descriptive hint for the “image background”
+    val location: String,
+)
 
 private val launchChecklist = listOf(
     LaunchCheck("palette", "Palette frozen", "Final brand + semantic tokens locked in Color.kt; icon tints distinct."),
@@ -164,6 +219,39 @@ private val launchChecklist = listOf(
     LaunchCheck("screens", "MVP screens compile", "Home, Search/Filters, Detail, Seat stub, Checkout, Tickets, Alerts, Profile, Organizer stub."),
     LaunchCheck("analytics", "Analytics + flags", "Key events logged; payments guarded by feature flag."),
     LaunchCheck("backend", "Firestore draft", "Schemas/rules drafted for events/tickets/orders/alerts/recs.")
+)
+
+private val heroSlides = listOf(
+    HeroSlide(
+        id = "hero1",
+        title = "Vic Falls Midnight Lights",
+        subtitle = "NYE mega festival under the spray • DJs + fireworks on the gorge deck.",
+        cta = "Book premium",
+        tag = "Event of the Year",
+        accent = Color(0xFF5CF0FF),
+        imageHint = "Victoria Falls bridge at night with fireworks and crowd silhouettes",
+        location = "Victoria Falls, ZW"
+    ),
+    HeroSlide(
+        id = "hero2",
+        title = "Harare Jazz Nights",
+        subtitle = "Golden Circle early birds: 20% off until Friday • Smooth & soul live.",
+        cta = "Unlock early bird",
+        tag = "Early Bird",
+        accent = Color(0xFFF5C94C),
+        imageHint = "Harare skyline dusk with intimate jazz stage lighting",
+        location = "Harare, ZW"
+    ),
+    HeroSlide(
+        id = "hero3",
+        title = "Bulawayo Food & Arts Market",
+        subtitle = "Night market • street eats, live mural painting, vinyl DJ courtyard.",
+        cta = "Explore lineup",
+        tag = "Culture",
+        accent = Color(0xFF9C7BFF),
+        imageHint = "Bulawayo street market with food stalls and neon art",
+        location = "Bulawayo, ZW"
+    ),
 )
 
 private val PersonalizationPrefsSaver = listSaver<PersonalizationPrefs, Any>(
@@ -776,6 +864,7 @@ private fun HomeScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filters = remember { mutableStateListOf("Concerts", "Sports", "Family") }
+    var heroDetail by remember { mutableStateOf<HeroSlide?>(null) }
     var showNewsList by remember { mutableStateOf(false) }
     var newsDetail by remember { mutableStateOf<EntertainmentNewsItem?>(null) }
     Column(
@@ -793,12 +882,25 @@ private fun HomeScreen(
             TopBar(
                 title = "GoTicky Live",
                 onBack = null,
-                actions = { NeonTextButton(text = "Alerts", onClick = { onOpenAlerts() }) },
+                actions = {
+                    ProfileAvatar(initials = "TG", onClick = { onOpenAlerts() })
+                },
                 backgroundBrush = null,
                 backgroundColor = Color.Transparent
             )
         }
-        HeroSection()
+        HeroCarousel(
+            slides = heroSlides,
+            onCta = { slide ->
+                heroDetail = slide
+                Analytics.log(
+                    AnalyticsEvent(
+                        name = "hero_cta",
+                        params = mapOf("slide_id" to slide.id)
+                    )
+                )
+            },
+        )
         QuickSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
@@ -896,76 +998,209 @@ private fun HomeScreen(
             }
         )
     }
+
+    heroDetail?.let { slide ->
+        AlertDialog(
+            onDismissRequest = { heroDetail = null },
+            title = { Text(slide.title) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(slide.subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(slide.location, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Imagery hint: ${slide.imageHint}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GhostButton(text = "Close") { heroDetail = null }
+                    PrimaryButton(text = slide.cta) { heroDetail = null }
+                }
+            }
+        )
+    }
 }
 
 @Composable
-private fun HeroSection() {
-	val transition = rememberInfiniteTransition(label = "heroCtaPulse")
-	val primaryPulse by transition.animateFloat(
-		initialValue = 0.97f,
-		targetValue = 1.03f,
-		animationSpec = infiniteRepeatable(
-			animation = tween(durationMillis = 2600, easing = LinearEasing)
-		),
-		label = "heroPrimaryPulse"
-	)
-	val secondaryPulse by transition.animateFloat(
-		initialValue = 1.02f,
-		targetValue = 0.98f,
-		animationSpec = infiniteRepeatable(
-			animation = tween(durationMillis = 3800, easing = LinearEasing)
-		),
-		label = "heroSecondaryPulse"
-	)
+private fun HeroCarousel(
+    slides: List<HeroSlide>,
+    onCta: (HeroSlide) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (slides.isEmpty()) return
+
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+
+    LaunchedEffect(slides.size) {
+        if (slides.size <= 1) return@LaunchedEffect
+        var direction = 1
+        val lastIndex = slides.lastIndex
+        while (true) {
+            delay(5200)
+            val current = listState.firstVisibleItemIndex
+            val candidate = current + direction
+            val next = candidate.coerceIn(0, lastIndex)
+            listState.animateScrollToItem(next)
+            if (next == 0 || next == lastIndex) {
+                direction *= -1
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier.padding(top = 20.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+        ) {
+            val cardWidth = maxWidth * 0.9f
+            val sidePadding = (maxWidth - cardWidth) / 2f
+            LazyRow(
+                state = listState,
+                contentPadding = PaddingValues(horizontal = sidePadding),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                itemsIndexed(slides) { index, slide ->
+                    val layoutInfo = listState.layoutInfo
+                    val visibleInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+                    val viewportWidth = layoutInfo.viewportSize.width
+                    val viewportCenter = layoutInfo.viewportStartOffset + viewportWidth / 2
+
+                    var scaleTarget = 1f
+                    var rotationYTarget = 0f
+                    var translationXTarget = 0f
+                    var alphaTarget = 0.85f
+                    var z = 0f
+
+                    if (visibleInfo != null && viewportWidth > 0) {
+                        val itemCenter = visibleInfo.offset + visibleInfo.size / 2
+                        val distance = (itemCenter - viewportCenter).toFloat()
+                        val normalized = (distance / (viewportWidth / 2f)).coerceIn(-1f, 1f)
+                        val absNorm = abs(normalized)
+
+                        // Keep subtle 3D rotation/translation but avoid zooming the cards
+                        scaleTarget = 1f
+                        rotationYTarget = -normalized * 18f
+                        translationXTarget = -normalized * with(density) { 14.dp.toPx() }
+                        alphaTarget = 0.55f + (1f - absNorm) * 0.45f
+                        z = 1f - absNorm
+                    }
+
+                    val scale by animateFloatAsState(scaleTarget, animationSpec = tween(220), label = "heroScale-$index")
+                    val rotationYAnim by animateFloatAsState(rotationYTarget, animationSpec = tween(320), label = "heroRot-$index")
+                    val translationXPx by animateFloatAsState(translationXTarget, animationSpec = tween(320), label = "heroTx-$index")
+                    val alpha by animateFloatAsState(alphaTarget, animationSpec = tween(240), label = "heroAlpha-$index")
+
+                    Box(
+                        modifier = Modifier
+                            .width(cardWidth)
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                rotationY = rotationYAnim
+                                translationX = translationXPx
+                                cameraDistance = 18f * density.density
+                                this.alpha = alpha
+                            }
+                            .zIndex(z)
+                    ) {
+                        HeroCard(slide = slide, onCta = { onCta(slide) })
+                    }
+                }
+            }
+        }
+        HeroPagerIndicator(
+            count = slides.size,
+            listState = listState,
+            modifier = Modifier
+                .padding(top = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun HeroCard(slide: HeroSlide, onCta: () -> Unit) {
+    val accent = slide.accent
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .shadow(16.dp, goTickyShapes.extraLarge)
+            .height(240.dp)
             .clip(goTickyShapes.extraLarge)
-            .background(GoTickyGradients.Hero)
-            .padding(18.dp)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        accent.copy(alpha = 0.22f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    )
+                )
+            )
+            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+            .pressAnimated()
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(
-                    imageVector = Icons.Rounded.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier
-                        .size(28.dp)
-                        .graphicsLayer(
-                            scaleX = 0.8f,
-                            scaleY = 0.8f,
-                            rotationZ = -45f
+        // Pseudo “image” layer using hint text and overlay shapes to suggest photography
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer(alpha = 0.28f)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            accent.copy(alpha = 0.35f),
+                            Color.Black.copy(alpha = 0.55f)
                         )
-                        .clip(CircleShape)
+                    )
+                )
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Pill(
+                    text = slide.tag,
+                    color = accent.copy(alpha = 0.18f),
+                    textColor = accent
                 )
                 Text(
-                    "GoTicky",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onPrimary
+                    slide.location,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                 )
             }
-            Text(
-                text = "Experience events like never before",
-                style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold),
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-            Text(
-                text = "Discover and book tickets to concerts, sports, comedy, family shows and more.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PrimaryButton(
-                    text = "Find events",
-                    modifier = Modifier.graphicsLayer(scaleX = primaryPulse, scaleY = primaryPulse),
-                    onClick = { /* TODO */ }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = slide.title,
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
-                GhostButton(
-                    text = "I'm feeling lucky",
-                    modifier = Modifier.graphicsLayer(scaleX = secondaryPulse, scaleY = secondaryPulse),
-                    onClick = { /* TODO */ }
+                Text(
+                    text = slide.subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                )
+            }
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = slide.imageHint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.65f),
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryButton(
+                    text = slide.cta,
+                    onClick = onCta
                 )
             }
         }
@@ -1461,54 +1696,6 @@ private fun ProfileScreen(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onOpenOrganizer
                 )
-            }
-        }
-        GlowCard {
-            val completed = checklistState.values.count { it }
-            val total = launchChecklist.size
-            val progress = if (total == 0) 0f else (completed.toFloat() / total).coerceIn(0f, 1f)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Launch checklist (Stage 10)",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Pill(
-                        text = "$completed/$total",
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        textColor = MaterialTheme.colorScheme.primary
-                    )
-                }
-                AnimatedProgressBar(progress = progress, modifier = Modifier.fillMaxWidth())
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    launchChecklist.forEach { item ->
-                        val checked = checklistState[item.id] == true
-                        Row(
-                            modifier = Modifier
-                                .clip(goTickyShapes.medium)
-                                .background(
-                                    if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                    else MaterialTheme.colorScheme.surfaceVariant
-                                )
-                                .pressAnimated()
-                                .clickable { onToggleCheck(item.id) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (checked) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                                contentDescription = null,
-                                tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(item.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                                Text(item.desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                }
             }
         }
         GlowCard {
