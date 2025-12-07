@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -34,8 +35,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -87,11 +90,14 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import org.example.project.data.TicketPass
 import org.example.project.data.Recommendation
 import org.example.project.data.PriceAlert
@@ -102,6 +108,8 @@ import org.example.project.data.sampleOrder
 import org.example.project.data.sampleRecommendations
 import org.example.project.data.sampleTickets
 import org.example.project.data.sampleOrganizerEvents
+import org.example.project.data.EntertainmentNewsItem
+import org.example.project.data.sampleEntertainmentNews
 import org.example.project.analytics.Analytics
 import org.example.project.analytics.AnalyticsEvent
 import org.example.project.ui.components.AnimatedProgressBar
@@ -134,6 +142,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.example.project.GoTickyFeatures
 import androidx.compose.runtime.mutableStateMapOf
+import kotlin.math.abs
 
 private enum class MainScreen {
     Home, Browse, Tickets, Alerts, Profile, Organizer
@@ -427,7 +436,14 @@ private fun GoTickyRoot() {
         )
     }
 
-    val showRootChrome = currentScreen == MainScreen.Home &&
+    val showChromeOnScreen = currentScreen in setOf(
+        MainScreen.Home,
+        MainScreen.Browse,
+        MainScreen.Tickets,
+        MainScreen.Alerts,
+        MainScreen.Profile,
+    )
+    val showRootChrome = showChromeOnScreen &&
         !showCheckout &&
         selectedTicket == null &&
         detailEvent == null
@@ -760,6 +776,8 @@ private fun HomeScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filters = remember { mutableStateListOf("Concerts", "Sports", "Family") }
+    var showNewsList by remember { mutableStateOf(false) }
+    var newsDetail by remember { mutableStateOf<EntertainmentNewsItem?>(null) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -798,11 +816,17 @@ private fun HomeScreen(
             }
         )
         CategoryRow()
+        EntertainmentNewsSection(
+            items = sampleEntertainmentNews,
+            onViewAll = { showNewsList = true },
+            onReadMore = { newsDetail = it }
+        )
         SectionHeader(title = "Tonight's heat", action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) })
         HighlightCard()
         NeonBanner(
             title = "VIP Drop",
-            subtitle = "Exclusive pre-sale seats with transparent fees."
+            subtitle = "Exclusive pre-sale seats with transparent fees.",
+            modifier = Modifier.align(Alignment.CenterHorizontally)
         )
         SectionHeader(title = "For you", action = { NeonTextButton(text = "Personalize", onClick = { onOpenAlerts() }) })
         RecommendationsRow(
@@ -825,6 +849,52 @@ private fun HomeScreen(
         
         SectionHeader("Progress preview", action = null)
         LoadingRow(Modifier.fillMaxWidth())
+    }
+
+    if (showNewsList) {
+        AlertDialog(
+            onDismissRequest = { showNewsList = false },
+            title = { Text("Entertainment News") },
+            text = {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(sampleEntertainmentNews) { item ->
+                        GlowCard {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(item.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                Text(item.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Text("${item.minutesAgo} min ago • ${item.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    NeonTextButton(text = "Read more", onClick = { newsDetail = item })
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { showNewsList = false })
+            }
+        )
+    }
+
+    newsDetail?.let { detail ->
+        AlertDialog(
+            onDismissRequest = { newsDetail = null },
+            title = { Text(detail.title) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(detail.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text("${detail.minutesAgo} min ago • ${detail.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Tag: ${detail.tag}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GhostButton(text = "Close") { newsDetail = null }
+                    PrimaryButton(text = "Continue") { newsDetail = null }
+                }
+            }
+        )
     }
 }
 
@@ -1029,6 +1099,222 @@ private fun HighlightCard() {
                 GhostButton(text = "Price alerts", onClick = { /* TODO */ })
             }
         }
+    }
+}
+
+@Composable
+private fun EntertainmentNewsSection(
+    items: List<EntertainmentNewsItem>,
+    onViewAll: () -> Unit,
+    onReadMore: (EntertainmentNewsItem) -> Unit
+) {
+    if (items.isEmpty()) return
+
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+
+    // Slow auto-scroll to mimic a gentle news ticker while keeping it interactive.
+    LaunchedEffect(items.size) {
+        if (items.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(5200)
+            val target = (listState.firstVisibleItemIndex + 1).mod(items.size)
+            listState.animateScrollToItem(target)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SectionHeader(
+            title = "Entertainment News",
+            action = { NeonTextButton(text = "View all", onClick = { onViewAll() }) }
+        )
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp)
+                .padding(bottom = 16.dp)
+        ) {
+            val cardWidth = maxWidth * 0.78f
+            val sidePadding = (maxWidth - cardWidth) / 2f
+            val accentSwatches = items.take(5).map { IconCategoryColors[it.category] ?: MaterialTheme.colorScheme.secondary }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp)
+            ) {
+                NewsCollageBackdrop(colors = accentSwatches)
+            }
+            LazyRow(
+                state = listState,
+                contentPadding = PaddingValues(horizontal = sidePadding),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                itemsIndexed(items) { index, item ->
+                    val layoutInfo = listState.layoutInfo
+                    val visibleInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+                    val viewportWidth = layoutInfo.viewportSize.width
+                    val viewportCenter = layoutInfo.viewportStartOffset + viewportWidth / 2
+
+                    var scale = 0.9f
+                    var rotationY = 0f
+                    var translationXPx = 0f
+                    var alpha = 0.8f
+                    var z = 0f
+
+                    if (visibleInfo != null && viewportWidth > 0) {
+                        val itemCenter = visibleInfo.offset + visibleInfo.size / 2
+                        val distance = (itemCenter - viewportCenter).toFloat()
+                        val normalized = (distance / (viewportWidth / 2f)).coerceIn(-1f, 1f)
+                        val absNorm = abs(normalized)
+
+                        scale = 0.9f + (1f - absNorm) * 0.22f
+                        rotationY = -normalized * 22f
+                        translationXPx = -normalized * with(density) { 18.dp.toPx() }
+                        alpha = 0.5f + (1f - absNorm) * 0.5f
+                        z = 1f - absNorm
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .width(cardWidth)
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                rotationY = rotationY
+                                translationX = translationXPx
+                                cameraDistance = 18f * density.density
+                                this.alpha = alpha
+                            }
+                            .zIndex(z)
+                    ) {
+                        EntertainmentNewsCard(
+                            item = item,
+                            isPrimary = z > 0.9f,
+                            onReadMore = { onReadMore(item) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EntertainmentNewsCard(
+    item: EntertainmentNewsItem,
+    isPrimary: Boolean,
+    onReadMore: () -> Unit,
+) {
+    val accent = IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.secondary
+
+    GlowCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(184.dp)
+            .pressAnimated(scaleDown = 0.94f)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(accent)
+                )
+                Text(
+                    text = item.tag.uppercase(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = accent
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "${item.minutesAgo} min ago",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = if (isPrimary) 2 else 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = item.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (isPrimary) 3 else 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = item.source,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                NeonTextButton(text = "Read more", onClick = { onReadMore() })
+            }
+        }
+    }
+}
+
+@Composable
+private fun NewsCollageBackdrop(colors: List<Color>) {
+    val strips = if (colors.isNotEmpty()) colors else listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.tertiary
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(goTickyShapes.extraLarge)
+            .background(GoTickyGradients.CardGlow)
+            .graphicsLayer(alpha = 0.32f)
+            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            strips.forEachIndexed { idx, color ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(goTickyShapes.large)
+                        .background(color.copy(alpha = 0.25f))
+                        .graphicsLayer(
+                            rotationZ = if (idx % 2 == 0) -2.5f else 2.5f,
+                            alpha = 0.85f
+                        )
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.22f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
     }
 }
 

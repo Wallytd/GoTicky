@@ -5,7 +5,7 @@ import androidx.compose.runtime.Composable
 
 @Composable
 fun GoTickyTheme(
-    darkTheme: Boolean = true,
+    @Suppress("UNUSED_PARAMETER") darkTheme: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     // Force dark mode across the app; keep the parameter for previews/testing overrides.

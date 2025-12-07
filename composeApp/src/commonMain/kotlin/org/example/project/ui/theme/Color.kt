@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 // Stage 9: richer visual tokens (palette, gradients, texture/halo cues) driven by the GoTicky web art direction.
+@Suppress("unused")
 private object BrandPalette {
     // Core neon hero + CTA (find events / sign up)
     val neonPrimary = Color(0xFFD6FF1F)
@@ -83,6 +84,7 @@ object GoTickyGradients {
     )
 }
 
+@Suppress("unused")
 object GoTickyTextures {
     // Subtle grain tint to layer on dark glass; use with low alpha drawBehind.
     val GrainTint: Color = Color.White.copy(alpha = 0.035f)
@@ -110,6 +112,7 @@ fun goTickyDarkColors(): ColorScheme = darkColorScheme(
     onError = Color.White,
 )
 
+@Suppress("unused")
 fun goTickyLightColors(): ColorScheme = lightColorScheme(
     primary = BrandPalette.neonPrimary,
     onPrimary = BrandPalette.onNeonPrimary,
