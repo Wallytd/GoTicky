@@ -11,6 +11,7 @@ data class EventItem(
     val category: IconCategory,
     val badge: String? = null,
     val tag: String? = null,
+    val month: String = "January",
 )
 
 val sampleEvents = listOf(
@@ -22,7 +23,8 @@ val sampleEvents = listOf(
         priceFrom = "From $68",
         category = IconCategory.Discover,
         badge = "Hot",
-        tag = "EDM"
+        tag = "EDM",
+        month = "January",
     ),
     EventItem(
         id = "2",
@@ -32,7 +34,8 @@ val sampleEvents = listOf(
         priceFrom = "From $120",
         category = IconCategory.Calendar,
         badge = "Limited",
-        tag = "Basketball"
+        tag = "Basketball",
+        month = "January",
     ),
     EventItem(
         id = "3",
@@ -42,7 +45,8 @@ val sampleEvents = listOf(
         priceFrom = "From $42",
         category = IconCategory.Alerts,
         badge = "Trending",
-        tag = "Comedy"
+        tag = "Comedy",
+        month = "February",
     ),
     EventItem(
         id = "4",
@@ -52,6 +56,7 @@ val sampleEvents = listOf(
         priceFrom = "From $30",
         category = IconCategory.Profile,
         badge = "Family",
-        tag = "Outdoors"
+        tag = "Outdoors",
+        month = "March",
     )
 )

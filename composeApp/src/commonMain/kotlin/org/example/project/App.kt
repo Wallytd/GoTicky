@@ -43,6 +43,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Event
@@ -85,6 +86,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -867,6 +869,10 @@ private fun HomeScreen(
     var heroDetail by remember { mutableStateOf<HeroSlide?>(null) }
     var showNewsList by remember { mutableStateOf(false) }
     var newsDetail by remember { mutableStateOf<EntertainmentNewsItem?>(null) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+    var showDateDialog by remember { mutableStateOf(false) }
+    var showQueryDialog by remember { mutableStateOf(false) }
+    var selectedMonth by remember { mutableStateOf<String?>(null) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -886,7 +892,43 @@ private fun HomeScreen(
                     ProfileAvatar(initials = "TG", onClick = { onOpenAlerts() })
                 },
                 backgroundBrush = null,
-                backgroundColor = Color.Transparent
+                backgroundColor = Color.Transparent,
+                contentPadding = PaddingValues(start = 12.dp, top = 1.dp, end = 1.dp, bottom = 1.dp),
+                titleContent = {
+                    val liveTranslationY = with(LocalDensity.current) { 3.dp.toPx() }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "GoTicky",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                shadow = Shadow(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                    offset = Offset(0f, 1.2f),
+                                    blurRadius = 4f
+                                )
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Live",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                shadow = Shadow(
+                                    color = Color(0xFF8A0015).copy(alpha = 0.9f),
+                                    offset = Offset(0f, 3.5f),
+                                    blurRadius = 11f
+                                )
+                            ),
+                            color = Color(0xFFff4b5c),
+                            modifier = Modifier.graphicsLayer(
+                                rotationX = 12f,
+                                rotationY = -10f,
+                                translationY = liveTranslationY
+                            )
+                        )
+                    }
+                }
             )
         }
         HeroCarousel(
@@ -905,17 +947,9 @@ private fun HomeScreen(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
             filters = filters,
-            onSearch = {
-                Analytics.log(
-                    AnalyticsEvent(
-                        name = "search",
-                        params = mapOf(
-                            "query" to searchQuery,
-                            "filters" to filters.joinToString(",")
-                        )
-                    )
-                )
-            }
+            onLocationClick = { showLocationDialog = true },
+            onDateClick = { showDateDialog = true },
+            onQueryFieldClick = { showQueryDialog = true }
         )
         CategoryRow()
         EntertainmentNewsSection(
@@ -1015,6 +1049,239 @@ private fun HomeScreen(
                     GhostButton(text = "Close") { heroDetail = null }
                     PrimaryButton(text = slide.cta) { heroDetail = null }
                 }
+            }
+        )
+    }
+
+    if (showLocationDialog) {
+        AlertDialog(
+            onDismissRequest = { showLocationDialog = false },
+            title = { Text("Pick location or venue") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "mapDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GlowCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(190.dp)
+                            .graphicsLayer(scaleX = scale, scaleY = scale)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(GoTickyGradients.CardGlow)
+                                .drawBehind { drawRect(GoTickyTextures.GrainTint) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "Map preview • Zimbabwe",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                AnimatedProgressBar(progress = 0.4f, modifier = Modifier.fillMaxWidth(0.86f))
+                                Text(
+                                    text = "Tap pins in future versions to jump straight into events.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Events in your country",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 220.dp)
+                    ) {
+                        items(sampleEvents) { event ->
+                            GlowCard {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("${event.city} • ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { showLocationDialog = false })
+            }
+        )
+    }
+
+    if (showDateDialog) {
+        AlertDialog(
+            onDismissRequest = { showDateDialog = false },
+            title = { Text("Filter by month") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.94f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "monthDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+                val activeMonth = selectedMonth ?: months.first()
+                val monthEvents = sampleEvents.filter { it.month.equals(activeMonth, ignoreCase = true) }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(months) { month ->
+                            val selected = month == activeMonth
+                            val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant
+                            val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            Row(
+                                modifier = Modifier
+                                    .graphicsLayer(scaleX = scale, scaleY = scale)
+                                    .pressAnimated(scaleDown = 0.9f)
+                                    .clip(goTickyShapes.medium)
+                                    .background(bg)
+                                    .clickable { selectedMonth = month },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(tint)
+                                )
+                                Text(month, style = MaterialTheme.typography.labelMedium, color = tint)
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Events in $activeMonth",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (monthEvents.isEmpty()) {
+                        Text(
+                            text = "No events yet for this month in the sample data.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 220.dp)
+                        ) {
+                            items(monthEvents) { event ->
+                                GlowCard {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                        Text("${event.city} • ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { showDateDialog = false })
+            }
+        )
+    }
+
+    if (showQueryDialog) {
+        // AlertDialog(
+        //     onDismissRequest = { showQueryDialog = false },
+        //     title = { Text("Search events") },
+        //     text = {
+        //         var visible by remember { mutableStateOf(false) }
+        //         val scale by animateFloatAsState(
+        //             targetValue = if (visible) 1f else 0.9f,
+        //             animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        //             label = "queryDialogScale"
+        //         )
+        //         LaunchedEffect(Unit) { visible = true }
+        AlertDialog(
+            onDismissRequest = { showQueryDialog = false },
+            title = { Text("Search events") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "queryDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                val filtered = sampleEvents.filter {
+                    searchQuery.isNotBlank() && (it.title.contains(searchQuery, ignoreCase = true) || it.city.contains(searchQuery, true))
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = if (searchQuery.isBlank()) "Type to search across events" else "Searching for \"$searchQuery\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "Search") },
+                        placeholder = { Text("Search events, artists, venues") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer(scaleX = scale, scaleY = scale),
+                        singleLine = true,
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    if (filtered.isNotEmpty()) {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 220.dp)
+                        ) {
+                            items(filtered) { event ->
+                                GlowCard(
+                                    modifier = Modifier.pressAnimated(scaleDown = 0.95f)
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                        Text("${event.city} • ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(
+                    text = "Done",
+                    onClick = {
+                        Analytics.log(
+                            AnalyticsEvent(
+                                name = "search",
+                                params = mapOf(
+                                    "query" to searchQuery,
+                                    "filters" to filters.joinToString(",")
+                                )
+                            )
+                        )
+                        showQueryDialog = false
+                    }
+                )
             }
         )
     }
@@ -1263,7 +1530,9 @@ private fun QuickSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     filters: MutableList<String>,
-    onSearch: () -> Unit,
+    onLocationClick: () -> Unit,
+    onDateClick: () -> Unit,
+    onQueryFieldClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1280,16 +1549,26 @@ private fun QuickSearchBar(
             color = MaterialTheme.colorScheme.onSurface
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            SearchChip("Location or venue", leadingIcon = { Icon(Icons.Outlined.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary) })
-            SearchChip("Date", leadingIcon = { Icon(Icons.Outlined.Event, contentDescription = null, tint = MaterialTheme.colorScheme.primary) })
-            PrimaryButton(text = "Find events", onClick = { onSearch() })
+            SearchChip(
+                label = "Location or venue",
+                leadingIcon = { Icon(Icons.Outlined.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = onLocationClick
+            )
+            SearchChip(
+                label = "Date",
+                leadingIcon = { Icon(Icons.Outlined.Event, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = onDateClick
+            )
         }
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "Search") },
             placeholder = { Text("Search events, artists, venues") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onQueryFieldClick() },
+            readOnly = true,
             singleLine = true,
             shape = goTickyShapes.medium,
             colors = OutlinedTextFieldDefaults.colors(

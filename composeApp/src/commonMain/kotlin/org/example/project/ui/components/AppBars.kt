@@ -3,6 +3,7 @@ package org.example.project.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +32,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.example.project.ui.theme.GoTickyGradients
 import org.example.project.ui.theme.goTickyShapes
 
 @Composable
@@ -40,6 +43,8 @@ fun TopBar(
     actions: (@Composable () -> Unit)? = null,
     backgroundBrush: Brush? = null,
     backgroundColor: Color = MaterialTheme.colorScheme.background,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+    titleContent: (@Composable () -> Unit)? = null,
 ) {
     val appliedModifier = if (backgroundBrush != null) {
         modifier.background(backgroundBrush)
@@ -48,18 +53,22 @@ fun TopBar(
     }
     Row(
         modifier = appliedModifier
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(contentPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (onBack != null) {
             AnimatedBackButton(onClick = onBack)
         }
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        if (titleContent != null) {
+            titleContent()
+        } else {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
         Spacer(modifier = Modifier.weight(1f, fill = true))
         actions?.invoke()
     }
@@ -80,7 +89,7 @@ fun ProfileAvatar(
     )
     Box(
         modifier = modifier
-            .size(36.dp)
+            .size(52.dp)
             .graphicsLayer(scaleX = scale, scaleY = scale)
             .clip(CircleShape)
             .background(
@@ -91,6 +100,7 @@ fun ProfileAvatar(
                     )
                 )
             )
+            .border(1.dp, GoTickyGradients.EdgeHalo, CircleShape)
             .clickable(interactionSource = interactionSource, indication = null) { onClick() },
         contentAlignment = Alignment.Center
     ) {
