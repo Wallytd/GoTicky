@@ -2,6 +2,7 @@ package org.example.project
 
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -87,6 +88,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -703,7 +705,7 @@ private fun GoTickyRoot() {
 			} else {
                 when (currentScreen) {
                     MainScreen.Home -> HomeScreen(
-                        onOpenAlerts = { currentScreen = MainScreen.Alerts },
+                        onOpenAlerts = { currentScreen = MainScreen.Profile },
                         onEventSelected = { event ->
 							Analytics.log(
 								AnalyticsEvent(
@@ -865,13 +867,14 @@ private fun HomeScreen(
     recommendations: List<Recommendation>,
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    val filters = remember { mutableStateListOf("Concerts", "Sports", "Family") }
+    val filters = remember { mutableStateListOf<String>() }
     var heroDetail by remember { mutableStateOf<HeroSlide?>(null) }
     var showNewsList by remember { mutableStateOf(false) }
     var newsDetail by remember { mutableStateOf<EntertainmentNewsItem?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
     var showDateDialog by remember { mutableStateOf(false) }
     var showQueryDialog by remember { mutableStateOf(false) }
+    var activeFilterDialog by remember { mutableStateOf<String?>(null) }
     var selectedMonth by remember { mutableStateOf<String?>(null) }
     Column(
         modifier = Modifier
@@ -889,14 +892,26 @@ private fun HomeScreen(
                 title = "GoTicky Live",
                 onBack = null,
                 actions = {
-                    ProfileAvatar(initials = "TG", onClick = { onOpenAlerts() })
+                    ProfileAvatar(initials = "TG", onClick = onOpenAlerts)
                 },
                 backgroundBrush = null,
                 backgroundColor = Color.Transparent,
                 contentPadding = PaddingValues(start = 12.dp, top = 1.dp, end = 1.dp, bottom = 1.dp),
                 titleContent = {
-                    val liveTranslationY = with(LocalDensity.current) { 3.dp.toPx() }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    val liveSwingTransition = rememberInfiniteTransition(label = "liveSwing")
+                    val swingAngle by liveSwingTransition.animateFloat(
+                        initialValue = -18f,
+                        targetValue = 18f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 2200, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "liveSwingAngle"
+                    )
+
+                    Box(
+                        contentAlignment = Alignment.BottomEnd
+                    ) {
                         Text(
                             text = "GoTicky",
                             style = MaterialTheme.typography.titleLarge.copy(
@@ -909,24 +924,53 @@ private fun HomeScreen(
                             ),
                             color = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Live",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                shadow = Shadow(
-                                    color = Color(0xFF8A0015).copy(alpha = 0.9f),
-                                    offset = Offset(0f, 3.5f),
-                                    blurRadius = 11f
-                                )
-                            ),
-                            color = Color(0xFFff4b5c),
-                            modifier = Modifier.graphicsLayer(
-                                rotationX = 12f,
-                                rotationY = -10f,
-                                translationY = liveTranslationY
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .offset(x = 15.dp, y = 22.dp)
+                                .graphicsLayer(
+                                    rotationX = 12f,
+                                    rotationY = -10f,
+                                    rotationZ = swingAngle,
+                                    transformOrigin = TransformOrigin(
+                                        pivotFractionX = 0.5f,
+                                        pivotFractionY = 0f
+                                    )
+                                ),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(1.5.dp)
+                                    .height(6.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                                    )
                             )
-                        )
+
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFff4b5c))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Live",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        shadow = Shadow(
+                                            color = Color(0xFF8A0015).copy(alpha = 0.9f),
+                                            offset = Offset(0f, 3.5f),
+                                            blurRadius = 11f
+                                        )
+                                    ),
+                                    color = Color.White
+                                )
+                            }
+                        }
                     }
                 }
             )
@@ -949,7 +993,8 @@ private fun HomeScreen(
             filters = filters,
             onLocationClick = { showLocationDialog = true },
             onDateClick = { showDateDialog = true },
-            onQueryFieldClick = { showQueryDialog = true }
+            onQueryFieldClick = { showQueryDialog = true },
+            onFilterClick = { label -> activeFilterDialog = label }
         )
         CategoryRow()
         EntertainmentNewsSection(
@@ -975,8 +1020,28 @@ private fun HomeScreen(
         MapPreview()
         SectionHeader(title = "Popular near you", action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) })
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val filtered = sampleEvents.filter {
-                searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.city.contains(searchQuery, true)
+            val filtered = sampleEvents.filter { event ->
+                val matchesQuery = searchQuery.isBlank() ||
+                    event.title.contains(searchQuery, ignoreCase = true) ||
+                    event.city.contains(searchQuery, ignoreCase = true)
+
+                val matchesFilter = if (filters.isEmpty()) {
+                    true
+                } else {
+                    filters.any { pill ->
+                        when (pill) {
+                            "Concerts" -> event.category == IconCategory.Discover ||
+                                (event.tag?.contains("EDM", ignoreCase = true) == true)
+                            "Sports" -> event.category == IconCategory.Calendar ||
+                                (event.tag?.contains("Basketball", ignoreCase = true) == true)
+                            "Family" -> event.badge?.contains("Family", ignoreCase = true) == true ||
+                                event.category == IconCategory.Profile
+                            else -> true
+                        }
+                    }
+                }
+
+                matchesQuery && matchesFilter
             }
             filtered.forEach {
                 EventCard(item = it) { onEventSelected(it) }
@@ -1172,7 +1237,7 @@ private fun HomeScreen(
                     if (monthEvents.isEmpty()) {
                         Text(
                             text = "No events yet for this month in the sample data.",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
@@ -1199,17 +1264,6 @@ private fun HomeScreen(
     }
 
     if (showQueryDialog) {
-        // AlertDialog(
-        //     onDismissRequest = { showQueryDialog = false },
-        //     title = { Text("Search events") },
-        //     text = {
-        //         var visible by remember { mutableStateOf(false) }
-        //         val scale by animateFloatAsState(
-        //             targetValue = if (visible) 1f else 0.9f,
-        //             animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
-        //             label = "queryDialogScale"
-        //         )
-        //         LaunchedEffect(Unit) { visible = true }
         AlertDialog(
             onDismissRequest = { showQueryDialog = false },
             title = { Text("Search events") },
@@ -1282,6 +1336,83 @@ private fun HomeScreen(
                         showQueryDialog = false
                     }
                 )
+            }
+        )
+    }
+
+    activeFilterDialog?.let { filterLabel ->
+        AlertDialog(
+            onDismissRequest = { activeFilterDialog = null },
+            title = { Text("$filterLabel picks") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "filterDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                val filteredByCategory = when (filterLabel) {
+                    "Concerts" -> sampleEvents.filter {
+                        it.category == IconCategory.Discover ||
+                            (it.tag?.contains("EDM", ignoreCase = true) == true)
+                    }
+                    "Sports" -> sampleEvents.filter {
+                        it.category == IconCategory.Calendar ||
+                            (it.tag?.contains("Basketball", ignoreCase = true) == true)
+                    }
+                    "Family" -> sampleEvents.filter {
+                        it.badge?.contains("Family", ignoreCase = true) == true ||
+                            it.category == IconCategory.Profile
+                    }
+                    else -> sampleEvents
+                }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    Text(
+                        text = "Curated $filterLabel vibes from our sample events.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (filteredByCategory.isNotEmpty()) {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 220.dp)
+                        ) {
+                            items(filteredByCategory) { event ->
+                                GlowCard(
+                                    modifier = Modifier.pressAnimated(scaleDown = 0.95f)
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            event.title,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                        )
+                                        Text(
+                                            "${event.city} • ${event.dateLabel}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "No sample events yet for this filter.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { activeFilterDialog = null })
             }
         )
     }
@@ -1533,6 +1664,7 @@ private fun QuickSearchBar(
     onLocationClick: () -> Unit,
     onDateClick: () -> Unit,
     onQueryFieldClick: () -> Unit,
+    onFilterClick: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1578,9 +1710,9 @@ private fun QuickSearchBar(
         )
         AnimatedProgressBar(progress = 0.32f, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterPill("Concerts", filters)
-            FilterPill("Sports", filters)
-            FilterPill("Family", filters)
+            FilterPill("Concerts", filters, onTap = onFilterClick)
+            FilterPill("Sports", filters, onTap = onFilterClick)
+            FilterPill("Family", filters, onTap = onFilterClick)
         }
     }
 }
@@ -1833,13 +1965,59 @@ private fun NewsCollageBackdrop(colors: List<Color>) {
 }
 
 @Composable
-private fun FilterPill(text: String, filters: MutableList<String>) {
+private fun FilterPill(
+    text: String,
+    filters: MutableList<String>,
+    onTap: (String) -> Unit,
+) {
     val selected = filters.contains(text)
-    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-    Pill(text = text, color = bg, textColor = fg, modifier = Modifier.clickable { 
-        if (selected) filters.remove(text) else filters.add(text)
-    })
+    NeonSelectablePill(
+        text = text,
+        selected = selected,
+        onClick = {
+            if (selected) filters.remove(text) else filters.add(text)
+            onTap(text)
+        }
+    )
+}
+
+@Composable
+private fun NeonSelectablePill(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selectedContainerColor: Color = MaterialTheme.colorScheme.primary,
+    selectedContentColor: Color = MaterialTheme.colorScheme.onPrimary,
+) {
+    val bg = if (selected) {
+        selectedContainerColor.copy(alpha = 0.95f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val fg = if (selected) selectedContentColor else MaterialTheme.colorScheme.onSurface
+
+    Row(
+        modifier = modifier
+            .pressAnimated(scaleDown = 0.95f)
+            .then(
+                if (selected) {
+                    Modifier.border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+                } else {
+                    Modifier
+                }
+            )
+            .background(bg, goTickyShapes.medium)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = fg
+        )
+    }
 }
 
 @Composable
@@ -2421,11 +2599,10 @@ private fun AlertsScreen(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Concerts", "Sports", "Comedy", "Family", "Theater").forEach { tag ->
                             val selected = genres.contains(tag)
-                            Pill(
+                            NeonSelectablePill(
                                 text = tag,
-                                color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant,
-                                textColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.clickable {
+                                selected = selected,
+                                onClick = {
                                     genres = if (selected) genres - tag else genres + tag
                                 }
                             )
@@ -2435,11 +2612,12 @@ private fun AlertsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Los Angeles", "New York", "Chicago").forEach { option ->
                             val selected = city == option
-                            Pill(
+                            NeonSelectablePill(
                                 text = option,
-                                color = if (selected) MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant,
-                                textColor = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.clickable { city = option }
+                                selected = selected,
+                                onClick = { city = option },
+                                selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                                selectedContentColor = MaterialTheme.colorScheme.onSecondary
                             )
                         }
                     }
@@ -2590,11 +2768,12 @@ private fun EventDetailScreen(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         reasons.forEach { reason ->
                             val selected = selectedReason == reason
-                            Pill(
+                            NeonSelectablePill(
                                 text = reason,
-                                color = if (selected) MaterialTheme.colorScheme.error.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant,
-                                textColor = if (selected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.clickable { selectedReason = reason }
+                                selected = selected,
+                                onClick = { selectedReason = reason },
+                                selectedContainerColor = MaterialTheme.colorScheme.error,
+                                selectedContentColor = MaterialTheme.colorScheme.onError
                             )
                         }
                     }
@@ -2799,11 +2978,10 @@ private fun CreateEventScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("Draft", "Live").forEach { option ->
                         val selected = status == option
-                        Pill(
+                        NeonSelectablePill(
                             text = option,
-                            color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant,
-                            textColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.clickable { status = option }
+                            selected = selected,
+                            onClick = { status = option }
                         )
                     }
                 }
@@ -2856,7 +3034,7 @@ private fun BottomBar(
                     label = "navPressScale-${item.label}"
                 )
                 val labelAlpha by animateFloatAsState(
-                    targetValue = if (selected) 1f else 0.92f,
+                    targetValue = 1f,
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard),
                     label = "navLabel-${item.label}"
                 )
