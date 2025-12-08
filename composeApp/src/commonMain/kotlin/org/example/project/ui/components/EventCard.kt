@@ -39,6 +39,7 @@ import org.example.project.ui.theme.goTickyShapes
 fun EventCard(
     item: EventItem,
     modifier: Modifier = Modifier,
+    distanceLabel: String? = null,
     onClick: () -> Unit
 ) {
     val accent = IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.primary
@@ -77,8 +78,17 @@ fun EventCard(
         Text("${item.city} • ${item.dateLabel}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(item.priceFrom, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = accent)
-            item.tag?.let {
-                Pill(text = it)
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                distanceLabel?.let { label ->
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                item.tag?.let {
+                    Pill(text = it)
+                }
             }
         }
     }

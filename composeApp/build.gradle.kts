@@ -45,6 +45,8 @@ kotlin {
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
+            implementation("com.google.android.gms:play-services-maps:18.2.0")
+            implementation("com.google.maps.android:maps-compose:6.12.1")
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -56,6 +58,7 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
+            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

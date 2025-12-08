@@ -60,3 +60,51 @@ val sampleEvents = listOf(
         month = "March",
     )
 )
+
+data class DistanceSample(
+    val eventId: String,
+    val fromLabel: String,
+    val distanceKm: Double,
+) {
+    val formatted: String
+        get() = "${((distanceKm * 10.0).toInt() / 10.0)} km away"
+}
+
+data class NearbyEvent(
+    val event: EventItem,
+    val distance: DistanceSample,
+)
+
+val sampleNearbyEvents: List<NearbyEvent> = run {
+    // TODO: Replace with real location-based distances once location services and backend are wired.
+    val samples = listOf(
+        DistanceSample(
+            eventId = "1",
+            fromLabel = "Harare CBD (sample)",
+            distanceKm = 1.2,
+        ),
+        DistanceSample(
+            eventId = "2",
+            fromLabel = "Harare CBD (sample)",
+            distanceKm = 3.8,
+        ),
+        DistanceSample(
+            eventId = "3",
+            fromLabel = "Harare CBD (sample)",
+            distanceKm = 7.5,
+        ),
+        DistanceSample(
+            eventId = "4",
+            fromLabel = "Harare CBD (sample)",
+            distanceKm = 12.0,
+        ),
+    )
+    samples.mapNotNull { sample ->
+        val event = sampleEvents.firstOrNull { it.id == sample.eventId }
+        if (event != null) {
+            NearbyEvent(event = event, distance = sample)
+        } else {
+            null
+        }
+    }
+}

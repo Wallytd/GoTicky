@@ -113,6 +113,7 @@ import org.example.project.data.sampleOrder
 import org.example.project.data.sampleRecommendations
 import org.example.project.data.sampleTickets
 import org.example.project.data.sampleOrganizerEvents
+import org.example.project.data.sampleNearbyEvents
 import org.example.project.data.EntertainmentNewsItem
 import org.example.project.data.sampleEntertainmentNews
 import org.example.project.analytics.Analytics
@@ -148,10 +149,125 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.example.project.GoTickyFeatures
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlin.math.abs
 
 private enum class MainScreen {
-    Home, Browse, Tickets, Alerts, Profile, Organizer
+    Home, Browse, Tickets, Alerts, Profile, Organizer, Map
+}
+
+private fun currentGreeting(): String {
+    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+    val hour = now.hour
+    return when (hour) {
+        in 5..11 -> "Good morning"
+        in 12..16 -> "Good afternoon"
+        in 17..21 -> "Good evening"
+        else -> "Good night"
+    }
+}
+
+@Composable
+private fun currentGreetingColor(): Color {
+    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+    val hour = now.hour
+    return when (hour) {
+        // Soft sunrise / morning amber
+        in 5..11 -> Color(0xFFFFC94A)
+        // Fresh midday teal (daylight, energetic but less neon than morning/night)
+        in 12..16 -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.96f)
+        // Warm sunset / evening magenta
+        in 17..21 -> Color(0xFFFF5C8A)
+        // Deep night violet accent
+        else -> Color(0xFF7C5BFF)
+    }
+}
+
+@Composable
+private fun EventMapScreen(
+    onBack: () -> Unit,
+    onOpenEvent: (String) -> Unit,
+) {
+    val events = remember {
+        sampleNearbyEvents.map { nearby ->
+            // Sample coordinates approximating real cities; replace with backend data when available.
+            val (lat, lng) = when (nearby.event.city) {
+                "Los Angeles" -> -17.8292 to 31.0522
+                "New York" -> -17.8216 to 31.0492
+                "Chicago" -> -17.8200 to 31.0400
+                "San Francisco" -> -17.8245 to 31.0600
+                else -> -17.8292 to 31.0522
+            }
+            MapEvent(
+                id = nearby.event.id,
+                title = nearby.event.title,
+                city = "${nearby.event.city} • ${nearby.distance.formatted}",
+                lat = lat,
+                lng = lng,
+            )
+        }
+    }
+    var selected by remember { mutableStateOf<MapEvent?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow),
+        verticalArrangement = Arrangement.Top
+    ) {
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Live map",
+                onBack = onBack,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        ) {
+            EventMapView(
+                events = events,
+                modifier = Modifier.fillMaxSize(),
+                onEventSelected = { event ->
+                    selected = event
+                }
+            )
+        }
+        selected?.let { event ->
+            GlowCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = event.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = event.city,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PrimaryButton(text = "Open details") {
+                            onOpenEvent(event.id)
+                        }
+                        GhostButton(text = "Close card") {
+                            selected = null
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -275,7 +391,9 @@ fun App() {
 }
 
 @Composable
-private fun MapPreview() {
+private fun MapPreview(
+    onOpenMap: () -> Unit,
+) {
     GlowCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -299,12 +417,14 @@ private fun MapPreview() {
             }
         }
         Spacer(Modifier.height(10.dp))
-        PrimaryButton(text = "Open map", onClick = { /* TODO map screen */ })
+        PrimaryButton(text = "Open map", onClick = onOpenMap)
     }
 }
 
 @Composable
 private fun SeatPreview() {
+    var showComingSoon by remember { mutableStateOf(false) }
+
     GlowCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -343,9 +463,43 @@ private fun SeatPreview() {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryButton(text = "Select seats", onClick = { /* TODO seat map */ })
-                GhostButton(text = "Set price alert", onClick = { /* TODO alert */ })
             }
         }
+    }
+
+    if (showComingSoon) {
+        AlertDialog(
+            onDismissRequest = { showComingSoon = false },
+            title = { Text("Coming soon") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "seatPreviewComingSoonScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    Text(
+                        text = "Coming soon: deeper seat maps, VIP flows and alerts in this GoTicky demo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "For now, explore tonight's heat and alerts as interactive previews.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Nice", onClick = { showComingSoon = false })
+            }
+        )
     }
 }
 
@@ -718,7 +872,8 @@ private fun GoTickyRoot() {
 							)
 							detailEvent = event
 						},
-                        recommendations = personalize(recommendations)
+                        recommendations = personalize(recommendations),
+                        onOpenMap = { currentScreen = MainScreen.Map }
                     )
                     MainScreen.Browse -> PlaceholderScreen("Browse events") { currentScreen = MainScreen.Home }
                     MainScreen.Tickets -> TicketsScreen(
@@ -854,6 +1009,10 @@ private fun GoTickyRoot() {
 						}
                         )
                     }
+                    MainScreen.Map -> EventMapScreen(
+                        onBack = { currentScreen = MainScreen.Home },
+                        onOpenEvent = { eventId -> openEventById(eventId) }
+                    )
                 }
             }
         }
@@ -865,6 +1024,7 @@ private fun HomeScreen(
     onOpenAlerts: () -> Unit,
     onEventSelected: (org.example.project.data.EventItem) -> Unit,
     recommendations: List<Recommendation>,
+    onOpenMap: () -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filters = remember { mutableStateListOf<String>() }
@@ -875,15 +1035,26 @@ private fun HomeScreen(
     var showDateDialog by remember { mutableStateOf(false) }
     var showQueryDialog by remember { mutableStateOf(false) }
     var activeFilterDialog by remember { mutableStateOf<String?>(null) }
+    var showHeatPriceDialog by remember { mutableStateOf(false) }
+    var showHeatListDialog by remember { mutableStateOf(false) }
+    var snackbarMessage by remember { mutableStateOf<String?>(null) }
+    var showComingSoonDialog by remember { mutableStateOf(false) }
+    var showForYouPersonalize by remember { mutableStateOf(false) }
     var selectedMonth by remember { mutableStateOf<String?>(null) }
-    Column(
+    val scrollState = rememberScrollState()
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
         GlowCard(
             modifier = Modifier
                 .fillMaxWidth()
@@ -892,7 +1063,37 @@ private fun HomeScreen(
                 title = "GoTicky Live",
                 onBack = null,
                 actions = {
-                    ProfileAvatar(initials = "TG", onClick = onOpenAlerts)
+                    val greetingText = remember { currentGreeting() }
+                    var greetVisible by remember { mutableStateOf(false) }
+                    val greetAlpha by animateFloatAsState(
+                        targetValue = if (greetVisible) 1f else 0f,
+                        animationSpec = tween(durationMillis = 480, easing = EaseOutBack),
+                        label = "homeGreetingAlpha"
+                    )
+                    LaunchedEffect(Unit) { greetVisible = true }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.graphicsLayer(alpha = greetAlpha),
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = greetingText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = currentGreetingColor()
+                            )
+                            Text(
+                                text = "Walter",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
+                            )
+                        }
+                        ProfileAvatar(initials = "TG", onClick = onOpenAlerts)
+                    }
                 },
                 backgroundBrush = null,
                 backgroundColor = Color.Transparent,
@@ -1002,25 +1203,62 @@ private fun HomeScreen(
             onViewAll = { showNewsList = true },
             onReadMore = { newsDetail = it }
         )
-        SectionHeader(title = "Tonight's heat", action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) })
-        HighlightCard()
-        NeonBanner(
-            title = "VIP Drop",
-            subtitle = "Exclusive pre-sale seats with transparent fees.",
-            modifier = Modifier.align(Alignment.CenterHorizontally)
+        SectionHeader(
+            title = "Tonight's heat",
+            action = { NeonTextButton(text = "See all", onClick = { showHeatListDialog = true }) }
         )
-        SectionHeader(title = "For you", action = { NeonTextButton(text = "Personalize", onClick = { onOpenAlerts() }) })
+        HighlightCard(
+            onOpenDetails = {
+                val event = sampleEvents.firstOrNull()
+                event?.let { onEventSelected(it) }
+            },
+            onSelectSeats = {
+                showComingSoonDialog = true
+            },
+            onPriceAlerts = { showHeatPriceDialog = true }
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .clickable {
+                    snackbarMessage = "Coming soon: VIP drops will unlock extra perks."
+                }
+        ) {
+            NeonBanner(
+                title = "VIP Drop",
+                subtitle = "Exclusive pre-sale seats with transparent fees.",
+                modifier = Modifier
+            )
+        }
+        SectionHeader(
+            title = "For you",
+            action = { NeonTextButton(text = "Personalize", onClick = { showForYouPersonalize = true }) }
+        )
         RecommendationsRow(
             recommendations = recommendations,
             onOpen = { rec ->
+                Analytics.log(
+                    AnalyticsEvent(
+                        name = "recommendation_tap",
+                        params = mapOf(
+                            "rec_id" to rec.id,
+                            "event_id" to rec.eventId,
+                            "source" to "home_for_you"
+                        )
+                    )
+                )
+
                 val event = sampleEvents.firstOrNull { it.id == rec.eventId }
                 event?.let { onEventSelected(it) }
             }
         )
-        MapPreview()
+        MapPreview(onOpenMap = onOpenMap)
         SectionHeader(title = "Popular near you", action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) })
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val filtered = sampleEvents.filter { event ->
+            val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
+            val filtered = sampleEvents.mapNotNull { event ->
+                val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
+
                 val matchesQuery = searchQuery.isBlank() ||
                     event.title.contains(searchQuery, ignoreCase = true) ||
                     event.city.contains(searchQuery, ignoreCase = true)
@@ -1041,15 +1279,31 @@ private fun HomeScreen(
                     }
                 }
 
-                matchesQuery && matchesFilter
+                if (matchesQuery && matchesFilter) nearby else null
             }
-            filtered.forEach {
-                EventCard(item = it) { onEventSelected(it) }
+
+            filtered.forEach { nearby ->
+                EventCard(
+                    item = nearby.event,
+                    distanceLabel = nearby.distance.formatted,
+                ) { onEventSelected(nearby.event) }
             }
         }
         
         SectionHeader("Progress preview", action = null)
         LoadingRow(Modifier.fillMaxWidth())
+        Spacer(modifier = Modifier.height(96.dp))
+    }
+
+        snackbarMessage?.let { message ->
+            GoTickySnackbar(
+                message = message,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 90.dp),
+                onDismiss = { snackbarMessage = null }
+            )
+        }
     }
 
     if (showNewsList) {
@@ -1118,6 +1372,69 @@ private fun HomeScreen(
         )
     }
 
+    if (showForYouPersonalize) {
+        var genres by remember { mutableStateOf(setOf("Concerts", "Sports", "Comedy", "Family")) }
+        var city by remember { mutableStateOf("Los Angeles") }
+        AlertDialog(
+            onDismissRequest = { showForYouPersonalize = false },
+            title = { Text("Tune For You") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Tell GoTicky what you’re into to refine this row.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("Concerts", "Sports", "Comedy", "Family").forEach { tag ->
+                            val selected = genres.contains(tag)
+                            NeonSelectablePill(
+                                text = tag,
+                                selected = selected,
+                                onClick = {
+                                    genres = if (selected) genres - tag else genres + tag
+                                }
+                            )
+                        }
+                    }
+                    Text("Home city: $city", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Los Angeles", "New York", "Chicago").forEach { option ->
+                            val selected = city == option
+                            NeonSelectablePill(
+                                text = option,
+                                selected = selected,
+                                onClick = { city = option },
+                                selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                                selectedContentColor = MaterialTheme.colorScheme.onSecondary
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GhostButton(text = "Cancel") { showForYouPersonalize = false }
+                    PrimaryButton(text = "Save") {
+                        Analytics.log(
+                            AnalyticsEvent(
+                                name = "for_you_personalize", 
+                                params = mapOf(
+                                    "genres" to genres.joinToString(","),
+                                    "city" to city
+                                )
+                            )
+                        )
+                        showForYouPersonalize = false
+                    }
+                }
+            }
+        )
+    }
+
     if (showLocationDialog) {
         AlertDialog(
             onDismissRequest = { showLocationDialog = false },
@@ -1167,7 +1484,7 @@ private fun HomeScreen(
                     )
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.heightIn(max = 220.dp)
+                        modifier = Modifier.heightIn(max = 300.dp)
                     ) {
                         items(sampleEvents) { event ->
                             GlowCard {
@@ -1414,6 +1731,208 @@ private fun HomeScreen(
             confirmButton = {
                 NeonTextButton(text = "Close", onClick = { activeFilterDialog = null })
             }
+        )
+    }
+
+    if (showHeatPriceDialog) {
+        AlertDialog(
+            onDismissRequest = { showHeatPriceDialog = false },
+            title = { Text("Tonight's heat prices") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "heatPricesScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                val tiers = listOf(
+                    "Early bird" to "\$10",
+                    "General admission" to "\$15",
+                    "Floor / close to stage" to "\$25",
+                    "VIP lounge" to "\$40",
+                )
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    Text(
+                        text = "Sample tiers for Marquee Night.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 280.dp)
+                    ) {
+                        items(tiers) { (label, price) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pressAnimated(scaleDown = 0.96f)
+                                    .clip(goTickyShapes.medium)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("Sample tier", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(price, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { showHeatPriceDialog = false })
+            }
+        )
+    }
+
+    if (showHeatListDialog) {
+        AlertDialog(
+            onDismissRequest = { showHeatListDialog = false },
+            title = { Text("Tonight's heat") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "heatListScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                val tonightEvents = sampleEvents.filter {
+                    it.dateLabel.contains("Tonight", ignoreCase = true) || it.badge?.contains("Hot", ignoreCase = true) == true
+                }.ifEmpty { sampleEvents }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    Text(
+                        text = "Curated picks for tonight from the demo data.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 240.dp)
+                    ) {
+                        items(tonightEvents) { event ->
+                            GlowCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pressAnimated(scaleDown = 0.96f)
+                                    .clickable {
+                                        onEventSelected(event)
+                                        showHeatListDialog = false
+                                    }
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("${event.city} • ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(event.priceFrom, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { showHeatListDialog = false })
+            }
+        )
+    }
+    if (showComingSoonDialog) {
+        AlertDialog(
+            onDismissRequest = { showComingSoonDialog = false },
+            title = { Text("Coming soon") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "comingSoonScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    Text(
+                        text = "Coming soon: deeper seat maps, VIP flows and alerts in this GoTicky demo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "For now, explore tonight's heat and alerts as interactive previews.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Nice", onClick = { showComingSoonDialog = false })
+            }
+        )
+    }
+}
+
+@Composable
+private fun GoTickySnackbar(
+    message: String,
+    modifier: Modifier = Modifier,
+    onDismiss: () -> Unit,
+) {
+    var visible by remember { mutableStateOf(false) }
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 260, easing = LinearEasing),
+        label = "snackbarAlpha"
+    )
+    val offsetY by animateDpAsState(
+        targetValue = if (visible) 0.dp else 16.dp,
+        animationSpec = tween(durationMillis = 260, easing = EaseOutBack),
+        label = "snackbarOffset"
+    )
+
+    LaunchedEffect(message) {
+        visible = true
+        delay(2600)
+        visible = false
+        delay(260)
+        onDismiss()
+    }
+
+    Row(
+        modifier = modifier
+            .offset(y = offsetY)
+            .graphicsLayer(alpha = alpha)
+            .clip(goTickyShapes.large)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+        )
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
 }
@@ -1718,9 +2237,16 @@ private fun QuickSearchBar(
 }
 
 @Composable
-private fun HighlightCard() {
+private fun HighlightCard(
+    onOpenDetails: () -> Unit,
+    onSelectSeats: () -> Unit,
+    onPriceAlerts: () -> Unit,
+) {
     GlowCard(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressAnimated(scaleDown = 0.96f)
+            .clickable { onOpenDetails() }
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1741,8 +2267,8 @@ private fun HighlightCard() {
                 color = MaterialTheme.colorScheme.onSurface
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PrimaryButton(text = "Select seats", onClick = { /* TODO */ })
-                GhostButton(text = "Price alerts", onClick = { /* TODO */ })
+                PrimaryButton(text = "Select seats", onClick = onSelectSeats)
+                GhostButton(text = "Price alerts", onClick = onPriceAlerts)
             }
         }
     }
@@ -2667,6 +3193,7 @@ private fun EventDetailScreen(
     onAlert: () -> Unit
 ) {
     var showReport by remember { mutableStateOf(false) }
+    var priceAlertSelected by remember { mutableStateOf(false) }
     var selectedReason by remember { mutableStateOf("Wrong information") }
     val ticketOptions = listOf("Early Bird", "General / Standard", "VIP", "Golden Circle")
     var selectedTicketType by remember { mutableStateOf(ticketOptions[1]) }
@@ -2683,9 +3210,20 @@ private fun EventDetailScreen(
                 title = event.title,
                 onBack = onBack,
                 actions = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        NeonTextButton(text = "Alerts", onClick = { onAlert() })
-                        NeonTextButton(text = "Report", onClick = { showReport = true })
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        NeonSelectablePill(
+                            text = "Report",
+                            selected = showReport,
+                            onClick = { showReport = true },
+                            modifier = Modifier.border(
+                                1.dp,
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+                                goTickyShapes.medium
+                            )
+                        )
                     }
                 },
                 backgroundColor = Color.Transparent
@@ -2725,13 +3263,35 @@ private fun EventDetailScreen(
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PrimaryButton(text = "Proceed to checkout") { onProceedToCheckout(selectedTicketType) }
-                    GhostButton(text = "Price alert") { onAlert() }
+                    NeonSelectablePill(
+                        text = "Price alert",
+                        selected = priceAlertSelected,
+                        onClick = {
+                            val nowSelected = !priceAlertSelected
+                            priceAlertSelected = nowSelected
+                            if (nowSelected) {
+                                onAlert()
+                            }
+                        },
+                        modifier = Modifier.border(
+                            1.dp,
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+                            goTickyShapes.medium
+                        )
+                    )
                 }
             }
         }
         GlowCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Highlights", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Highlights",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    textAlign = TextAlign.Center
+                )
                 val points = listOf(
                     "Interactive seat map with neon highlights.",
                     "Transparent fees before checkout.",
