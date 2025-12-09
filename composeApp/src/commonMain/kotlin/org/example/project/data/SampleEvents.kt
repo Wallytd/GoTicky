@@ -12,6 +12,7 @@ data class EventItem(
     val badge: String? = null,
     val tag: String? = null,
     val month: String = "January",
+    val imagePath: String? = null,
 )
 
 val sampleEvents = listOf(
@@ -25,6 +26,7 @@ val sampleEvents = listOf(
         badge = "Hot",
         tag = "EDM",
         month = "January",
+        imagePath = "midnight_neon_fest",
     ),
     EventItem(
         id = "2",
@@ -36,6 +38,7 @@ val sampleEvents = listOf(
         badge = "Limited",
         tag = "Basketball",
         month = "January",
+        imagePath = "courtside_classics",
     ),
     EventItem(
         id = "3",
@@ -47,6 +50,7 @@ val sampleEvents = listOf(
         badge = "Trending",
         tag = "Comedy",
         month = "February",
+        imagePath = "laugh_lab_live",
     ),
     EventItem(
         id = "4",
@@ -58,6 +62,7 @@ val sampleEvents = listOf(
         badge = "Family",
         tag = "Outdoors",
         month = "March",
+        imagePath = "family_lights_parade",
     ),
     EventItem(
         id = "5",
@@ -69,6 +74,7 @@ val sampleEvents = listOf(
         badge = "New",
         tag = "Live band",
         month = "April",
+        imagePath = "savanna_sky_sessions",
     ),
     EventItem(
         id = "6",

@@ -22,6 +22,7 @@ data class Recommendation(
     val tag: String,
     val city: String,
     val priceFrom: String,
+    val imageKey: String? = null,
 )
 
 val sampleAlerts = listOf(
