@@ -1,5 +1,7 @@
 package org.example.project
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -9,6 +11,10 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,6 +53,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Image
@@ -85,6 +93,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shadow
@@ -93,6 +102,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
@@ -100,13 +110,16 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Dialog
 import org.example.project.data.TicketPass
 import org.example.project.data.Recommendation
 import org.example.project.data.PriceAlert
 import org.example.project.data.OrganizerEvent
+import org.example.project.data.EventItem
 import org.example.project.data.sampleAlerts
 import org.example.project.data.sampleEvents
 import org.example.project.data.sampleOrder
@@ -149,19 +162,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.example.project.GoTickyFeatures
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.ui.text.style.TextAlign
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import kotlin.math.abs
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.graphics.vector.ImageVector
+import kotlin.random.Random
 
 private enum class MainScreen {
     Home, Browse, Tickets, Alerts, Profile, Organizer, Map
 }
 
 private fun currentGreeting(): String {
-    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-    val hour = now.hour
+    val hour = currentHourOfDay()
     return when (hour) {
         in 5..11 -> "Good morning"
         in 12..16 -> "Good afternoon"
@@ -171,9 +182,38 @@ private fun currentGreeting(): String {
 }
 
 @Composable
+private fun SwipeEdgeHint(
+    icon: ImageVector,
+    text: String,
+    alpha: Float,
+) {
+    if (alpha <= 0f) return
+    Row(
+        modifier = Modifier
+            .graphicsLayer(alpha = alpha)
+            .clip(goTickyShapes.medium)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f))
+            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
 private fun currentGreetingColor(): Color {
-    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-    val hour = now.hour
+    val hour = currentHourOfDay()
     return when (hour) {
         // Soft sunrise / morning amber
         in 5..11 -> Color(0xFFFFC94A)
@@ -195,10 +235,12 @@ private fun EventMapScreen(
         sampleNearbyEvents.map { nearby ->
             // Sample coordinates approximating real cities; replace with backend data when available.
             val (lat, lng) = when (nearby.event.city) {
-                "Los Angeles" -> -17.8292 to 31.0522
-                "New York" -> -17.8216 to 31.0492
-                "Chicago" -> -17.8200 to 31.0400
-                "San Francisco" -> -17.8245 to 31.0600
+                "Harare" -> -17.8292 to 31.0522
+                "Bulawayo" -> -20.1325 to 28.6265
+                "Gaborone" -> -24.6282 to 25.9231
+                "Victoria Falls" -> -17.9243 to 25.8562
+                "Maun" -> -19.9833 to 23.4167
+                "Francistown" -> -21.1700 to 27.5072
                 else -> -17.8292 to 31.0522
             }
             MapEvent(
@@ -466,7 +508,6 @@ private fun SeatPreview() {
             }
         }
     }
-
     if (showComingSoon) {
         AlertDialog(
             onDismissRequest = { showComingSoon = false },
@@ -638,7 +679,7 @@ private fun GoTickyRoot() {
         label = "fabAlpha"
     )
     var personalizationPrefs by rememberSaveable(stateSaver = PersonalizationPrefsSaver) {
-        mutableStateOf(PersonalizationPrefs(genres = listOf("Concerts", "Sports", "Comedy", "Family"), city = "Los Angeles"))
+        mutableStateOf(PersonalizationPrefs(genres = listOf("Concerts", "Sports", "Comedy", "Family"), city = "Harare"))
     }
     fun openEventById(id: String) {
         sampleEvents.firstOrNull { it.id == id }?.let { detailEvent = it }
@@ -1041,6 +1082,8 @@ private fun HomeScreen(
     var showComingSoonDialog by remember { mutableStateOf(false) }
     var showForYouPersonalize by remember { mutableStateOf(false) }
     var selectedMonth by remember { mutableStateOf<String?>(null) }
+    var showDiscoverDialog by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
 
     Box(
@@ -1197,7 +1240,20 @@ private fun HomeScreen(
             onQueryFieldClick = { showQueryDialog = true },
             onFilterClick = { label -> activeFilterDialog = label }
         )
-        CategoryRow()
+        CategoryRow(
+            initialCategory = selectedCategory,
+            onCategorySelected = { category ->
+                selectedCategory = category
+                when (category) {
+                    IconCategory.Discover -> showDiscoverDialog = true
+                    IconCategory.Map -> onOpenMap()
+                    IconCategory.Ticket -> sampleEvents.firstOrNull()?.let { onEventSelected(it) }
+                    IconCategory.Calendar -> showDateDialog = true
+                    IconCategory.Alerts -> onOpenAlerts()
+                    else -> {}
+                }
+            }
+        )
         EntertainmentNewsSection(
             items = sampleEntertainmentNews,
             onViewAll = { showNewsList = true },
@@ -1253,43 +1309,42 @@ private fun HomeScreen(
             }
         )
         MapPreview(onOpenMap = onOpenMap)
-        SectionHeader(title = "Popular near you", action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) })
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
-            val filtered = sampleEvents.mapNotNull { event ->
-                val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
+        SectionHeader(
+            title = "Popular near you",
+            action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) }
+        )
+        val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
+        val popularNearby = sampleEvents.mapNotNull { event ->
+            val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
 
-                val matchesQuery = searchQuery.isBlank() ||
-                    event.title.contains(searchQuery, ignoreCase = true) ||
-                    event.city.contains(searchQuery, ignoreCase = true)
+            val matchesQuery = searchQuery.isBlank() ||
+                event.title.contains(searchQuery, ignoreCase = true) ||
+                event.city.contains(searchQuery, ignoreCase = true)
 
-                val matchesFilter = if (filters.isEmpty()) {
-                    true
-                } else {
-                    filters.any { pill ->
-                        when (pill) {
-                            "Concerts" -> event.category == IconCategory.Discover ||
-                                (event.tag?.contains("EDM", ignoreCase = true) == true)
-                            "Sports" -> event.category == IconCategory.Calendar ||
-                                (event.tag?.contains("Basketball", ignoreCase = true) == true)
-                            "Family" -> event.badge?.contains("Family", ignoreCase = true) == true ||
-                                event.category == IconCategory.Profile
-                            else -> true
-                        }
+            val matchesFilter = if (filters.isEmpty()) {
+                true
+            } else {
+                filters.any { pill ->
+                    when (pill) {
+                        "Concerts" -> event.category == IconCategory.Discover ||
+                            (event.tag?.contains("EDM", ignoreCase = true) == true)
+                        "Sports" -> event.category == IconCategory.Calendar ||
+                            (event.tag?.contains("Basketball", ignoreCase = true) == true)
+                        "Family" -> event.badge?.contains("Family", ignoreCase = true) == true ||
+                            event.category == IconCategory.Profile
+                        else -> true
                     }
                 }
-
-                if (matchesQuery && matchesFilter) nearby else null
             }
 
-            filtered.forEach { nearby ->
-                EventCard(
-                    item = nearby.event,
-                    distanceLabel = nearby.distance.formatted,
-                ) { onEventSelected(nearby.event) }
-            }
+            if (matchesQuery && matchesFilter) nearby else null
         }
-        
+
+        PopularNearbySwingDeck(
+            nearby = popularNearby,
+            onOpen = { event -> onEventSelected(event) }
+        )
+
         SectionHeader("Progress preview", action = null)
         LoadingRow(Modifier.fillMaxWidth())
         Spacer(modifier = Modifier.height(96.dp))
@@ -1303,6 +1358,159 @@ private fun HomeScreen(
                     .padding(horizontal = 16.dp, vertical = 90.dp),
                 onDismiss = { snackbarMessage = null }
             )
+        }
+    }
+
+    if (showDiscoverDialog) {
+        val shimmer by rememberInfiniteTransition(label = "discoverShimmer").animateFloat(
+            initialValue = -220f,
+            targetValue = 420f,
+            animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing)),
+            label = "discoverShimmerAnim"
+        )
+        Dialog(onDismissRequest = { showDiscoverDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(4.dp)
+            ) {
+                GlowCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressAnimated(scaleDown = 0.98f)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
+                                    )
+                                )
+                            )
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Discover spotlight", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                                Text("Immersive picks happening now", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            NeonTextButton(
+                                text = "Done",
+                                onClick = { showDiscoverDialog = false }
+                            )
+                        }
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(sampleEvents) { event ->
+                                val tint = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
+                                val pulse by rememberInfiniteTransition(label = "discoverCard-${event.id}").animateFloat(
+                                    initialValue = 0.98f,
+                                    targetValue = 1.03f,
+                                    animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing)),
+                                    label = "discoverCardPulse"
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .graphicsLayer(scaleX = pulse, scaleY = pulse)
+                                        .drawBehind {
+                                            drawRoundRect(
+                                                brush = Brush.radialGradient(
+                                                    colors = listOf(tint.copy(alpha = 0.14f), Color.Transparent),
+                                                    center = center,
+                                                    radius = size.maxDimension * 0.85f
+                                                ),
+                                                cornerRadius = CornerRadius(24f, 24f)
+                                            )
+                                            drawRoundRect(
+                                                brush = Brush.linearGradient(
+                                                    colors = listOf(
+                                                        tint.copy(alpha = 0.28f),
+                                                        tint.copy(alpha = 0.08f)
+                                                    ),
+                                                    start = Offset(shimmer, 0f),
+                                                    end = Offset(shimmer + 260f, size.height)
+                                                ),
+                                                cornerRadius = CornerRadius(26f, 26f)
+                                            )
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(goTickyShapes.large)
+                                            .background(
+                                                Brush.linearGradient(
+                                                    colors = listOf(
+                                                        tint.copy(alpha = 0.16f),
+                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                                                    )
+                                                )
+                                            )
+                                            .border(
+                                                width = 1.dp,
+                                                brush = Brush.linearGradient(
+                                                    colors = listOf(
+                                                        tint.copy(alpha = 0.8f),
+                                                        tint.copy(alpha = 0.35f)
+                                                    )
+                                                ),
+                                                shape = goTickyShapes.large
+                                            )
+                                            .pressAnimated()
+                                            .clickable {
+                                                onEventSelected(event)
+                                                showDiscoverDialog = false
+                                            }
+                                            .padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(CircleShape)
+                                                .background(tint.copy(alpha = 0.18f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Explore,
+                                                contentDescription = null,
+                                                tint = tint
+                                            )
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(event.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                            Text(event.city, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Pill(text = event.dateLabel, color = tint.copy(alpha = 0.18f), textColor = tint)
+                                                Pill(text = event.priceFrom, color = MaterialTheme.colorScheme.surfaceVariant, textColor = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                        NeonTextButton(text = "Open", onClick = {
+                                            onEventSelected(event)
+                                            showDiscoverDialog = false
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1374,7 +1582,7 @@ private fun HomeScreen(
 
     if (showForYouPersonalize) {
         var genres by remember { mutableStateOf(setOf("Concerts", "Sports", "Comedy", "Family")) }
-        var city by remember { mutableStateOf("Los Angeles") }
+        var city by remember { mutableStateOf("Harare") }
         AlertDialog(
             onDismissRequest = { showForYouPersonalize = false },
             title = { Text("Tune For You") },
@@ -1402,7 +1610,7 @@ private fun HomeScreen(
                     }
                     Text("Home city: $city", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Los Angeles", "New York", "Chicago").forEach { option ->
+                        listOf("Harare", "Bulawayo", "Gaborone").forEach { option ->
                             val selected = city == option
                             NeonSelectablePill(
                                 text = option,
@@ -2142,7 +2350,11 @@ private fun SearchChip(label: String, leadingIcon: (@Composable () -> Unit)? = n
 }
 
 @Composable
-private fun CategoryRow() {
+private fun CategoryRow(
+    modifier: Modifier = Modifier,
+    initialCategory: IconCategory = IconCategory.Discover,
+    onCategorySelected: (IconCategory) -> Unit = {},
+) {
     val categories = listOf(
         "Discover" to IconCategory.Discover,
         "Calendar" to IconCategory.Calendar,
@@ -2150,26 +2362,91 @@ private fun CategoryRow() {
         "Tickets" to IconCategory.Ticket,
         "Alerts" to IconCategory.Alerts,
     )
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    var selected by rememberSaveable { mutableStateOf(initialCategory) }
+    val pulse = rememberInfiniteTransition(label = "categoryPulse").animateFloat(
+        initialValue = 0.75f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = EaseOutBack),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "categoryPulseAnim"
+    )
+
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         items(categories) { (label, category) ->
             val tint = IconCategoryColors[category] ?: MaterialTheme.colorScheme.primary
+            val isSelected = selected == category
+            val bgColor by animateColorAsState(
+                targetValue = if (isSelected) tint.copy(alpha = 0.18f) else tint.copy(alpha = 0.08f),
+                animationSpec = tween(220, easing = LinearEasing),
+                label = "categoryBg"
+            )
+            val textColor by animateColorAsState(
+                targetValue = if (isSelected) tint else tint.copy(alpha = 0.7f),
+                animationSpec = tween(180, easing = LinearEasing),
+                label = "categoryText"
+            )
+            val haloAlpha by animateFloatAsState(
+                targetValue = if (isSelected) 1f else 0f,
+                animationSpec = tween(180, easing = LinearEasing),
+                label = "categoryHalo"
+            )
+
             Row(
                 modifier = Modifier
                     .pressAnimated(scaleDown = 0.92f)
+                    .drawBehind {
+                        if (isSelected) {
+                            val halo = tint.copy(alpha = 0.20f * haloAlpha)
+                            drawRoundRect(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(halo, Color.Transparent),
+                                    center = center,
+                                    radius = size.maxDimension * pulse.value
+                                ),
+                                cornerRadius = CornerRadius(size.height / 1.5f, size.height / 1.5f)
+                            )
+                        }
+                    }
                     .clip(goTickyShapes.medium)
-                    .background(tint.copy(alpha = 0.12f))
-                    .clickable { }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .background(bgColor)
+                    .then(
+                        if (isSelected) {
+                            Modifier.border(
+                                width = 1.4.dp,
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        tint.copy(alpha = 0.9f),
+                                        tint.copy(alpha = 0.55f)
+                                    )
+                                ),
+                                shape = goTickyShapes.medium
+                            )
+                        } else Modifier
+                    )
+                    .clickable {
+                        selected = category
+                        onCategorySelected(category)
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(if (isSelected) 10.dp else 8.dp)
                         .clip(CircleShape)
                         .background(tint)
                 )
-                Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = textColor
+                )
             }
         }
     }
@@ -2258,7 +2535,7 @@ private fun HighlightCard(
                 )
                 Column {
                     Text("Marquee Night", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-                    Text("LA • Tonight • Limited VIP", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Harare • Reps Theatre • Tonight • Limited VIP", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Text(
@@ -2487,6 +2764,401 @@ private fun NewsCollageBackdrop(colors: List<Color>) {
                     )
                 )
         )
+    }
+}
+
+@Composable
+private fun PopularNearbySwingDeck(
+    nearby: List<org.example.project.data.NearbyEvent>,
+    onOpen: (EventItem) -> Unit,
+    modifier: Modifier = Modifier,
+    swingIntensity: Float = 1f,
+) {
+    if (nearby.isEmpty()) {
+        GlowCard(
+            modifier = modifier.fillMaxWidth()
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "No nearby events match your filters yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Try adjusting the search filters to discover more around you.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    var currentIndex by remember { mutableStateOf(0) }
+    val lastIndex = nearby.lastIndex
+    if (currentIndex > lastIndex) {
+        currentIndex = lastIndex.coerceAtLeast(0)
+    }
+
+    var dragOffset by remember { mutableStateOf(0f) }
+    val animatedDragOffset by animateFloatAsState(
+        targetValue = dragOffset,
+        animationSpec = tween(durationMillis = GoTickyMotion.Comfort, easing = EaseOutBack),
+        label = "popularNearbyDrag"
+    )
+
+    val density = LocalDensity.current
+    val spreadPx = with(density) { 42.dp.toPx() }
+    val maxVisible = 5
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(300.dp)
+            .padding(vertical = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(nearby.size) {
+                    detectDragGestures(
+                        onDrag = { _, dragAmount ->
+                            dragOffset += dragAmount.x
+                        },
+                        onDragEnd = {
+                            val threshold = size.width * 0.18f
+                            when {
+                                dragOffset <= -threshold && currentIndex < lastIndex -> {
+                                    currentIndex += 1
+                                }
+                                dragOffset >= threshold && currentIndex > 0 -> {
+                                    currentIndex -= 1
+                                }
+                            }
+                            dragOffset = 0f
+                        },
+                        onDragCancel = {
+                            dragOffset = 0f
+                        }
+                    )
+                }
+        ) {
+            nearby.forEachIndexed { index, item ->
+                val layerIndex = index - currentIndex
+                if (abs(layerIndex) > maxVisible / 2) return@forEachIndexed
+
+                val depth = abs(layerIndex).coerceAtMost(2)
+                val baseScale = 1f - 0.06f * depth
+                val depthOffsetYPx = with(density) { (depth * 10).dp.toPx() }
+                val isCenter = layerIndex == 0
+
+                val slideFactor = 0.9f - depth * 0.18f
+                val translationXTarget = layerIndex * spreadPx + animatedDragOffset * slideFactor
+                val scaleTarget = if (isCenter) 1.02f else baseScale
+                val alphaTarget = if (depth == 0) 1f else 0.55f
+
+                val translationXAnim by animateFloatAsState(
+                    targetValue = translationXTarget,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Emphasized, easing = EaseOutBack),
+                    label = "nearbyTx-$index"
+                )
+                val scaleAnim by animateFloatAsState(
+                    targetValue = scaleTarget,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Emphasized, easing = EaseOutBack),
+                    label = "nearbyScale-$index"
+                )
+                val alphaAnim by animateFloatAsState(
+                    targetValue = alphaTarget,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Quick),
+                    label = "nearbyAlpha-$index"
+                )
+
+                val swingSeed = remember(index) { Random.nextFloat() }
+                val clampedIntensity = swingIntensity.coerceIn(0.3f, 1.7f)
+                val swingAmplitude = (4f + swingSeed * 5f) * clampedIntensity
+                val swingDuration = 2600 + (swingSeed * 1400f).toInt()
+                val swingTransition = rememberInfiniteTransition(label = "nearbySwing-$index")
+                val swing by swingTransition.animateFloat(
+                    initialValue = -swingAmplitude,
+                    targetValue = swingAmplitude,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = swingDuration, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "nearbySwingAngle-$index"
+                )
+
+                val sideTilt = layerIndex * 3f
+                val rotationZAnim = swing + sideTilt
+                val flickTiltY = ((animatedDragOffset / spreadPx).coerceIn(-2f, 2f)) * 14f
+                val rotationY = flickTiltY * (1f - depth * 0.2f)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = translationXAnim
+                            translationY = depthOffsetYPx
+                            scaleX = scaleAnim
+                            scaleY = scaleAnim
+                            rotationZ = rotationZAnim
+                            this.rotationY = rotationY
+                            transformOrigin = TransformOrigin(0.5f, 0f)
+                            cameraDistance = 18f * density.density
+                            this.alpha = alphaAnim
+                        }
+                        .zIndex(if (isCenter) 3f else 1f - depth * 0.3f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    NearbySwingCard(
+                        event = item.event,
+                        distanceLabel = item.distance.formatted,
+                        fromLabel = item.distance.fromLabel,
+                        isPrimary = isCenter,
+                        modifier = Modifier.fillMaxWidth(0.9f),
+                        onOpen = { onOpen(item.event) }
+                    )
+                }
+            }
+        }
+
+        val canSwipePrev = currentIndex > 0
+        val canSwipeNext = currentIndex < lastIndex
+        val leftHintAlpha by animateFloatAsState(
+            targetValue = if (canSwipePrev) 0.55f else 0f,
+            animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = LinearEasing),
+            label = "nearbyHintLeft"
+        )
+        val rightHintAlpha by animateFloatAsState(
+            targetValue = if (canSwipeNext) 0.55f else 0f,
+            animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = LinearEasing),
+            label = "nearbyHintRight"
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            SwipeEdgeHint(
+                icon = Icons.Outlined.ArrowBack,
+                text = "Swipe",
+                alpha = leftHintAlpha
+            )
+            SwipeEdgeHint(
+                icon = Icons.Outlined.ArrowForward,
+                text = "Swipe",
+                alpha = rightHintAlpha
+            )
+        }
+    }
+}
+
+@Composable
+private fun NeumorphicDistanceTag(
+    text: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(goTickyShapes.medium)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.16f),
+                        accent.copy(alpha = 0.6f)
+                    )
+                )
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.55f),
+                shape = goTickyShapes.medium
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.65f),
+                    offset = Offset(0f, 1.5f),
+                    blurRadius = 3.5f
+                )
+            ),
+            color = Color.White
+        )
+    }
+}
+
+@Composable
+private fun NearbySwingCard(
+    event: EventItem,
+    distanceLabel: String,
+    fromLabel: String,
+    isPrimary: Boolean,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit,
+) {
+    val accent = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
+    Box(
+        modifier = modifier
+            .height(260.dp)
+            .shadow(10.dp, goTickyShapes.extraLarge)
+            .clip(goTickyShapes.extraLarge)
+            .background(GoTickyGradients.CardGlow)
+            .background(GoTickyGradients.GlassWash)
+            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+            .then(
+                if (isPrimary) {
+                    Modifier.drawBehind {
+                        val strokeWidth = 3.dp.toPx()
+                        val radius = 26.dp.toPx()
+                        drawRoundRect(
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    accent.copy(alpha = 0.95f),
+                                    accent.copy(alpha = 0.5f),
+                                    accent.copy(alpha = 0.95f)
+                                ),
+                                start = Offset(0f, 0f),
+                                end = Offset(size.width, size.height)
+                            ),
+                            cornerRadius = CornerRadius(radius, radius),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
+                        )
+                    }
+                } else {
+                    Modifier
+                }
+            )
+            .padding(1.5.dp)
+            .pressAnimated(scaleDown = if (isPrimary) 0.96f else 0.98f)
+            .clickable { onOpen() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(goTickyShapes.extraLarge)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            accent.copy(alpha = 0.8f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                        )
+                    )
+                )
+                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(1.5.dp)
+                        .height(10.dp)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f))
+                )
+                Box(
+                    modifier = Modifier
+                        .offset(y = 10.dp)
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(accent)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(140.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.05f),
+                                Color.Black.copy(alpha = 0.85f)
+                            )
+                        )
+                    )
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    NeumorphicDistanceTag(
+                        text = distanceLabel,
+                        accent = accent
+                    )
+                    Text(
+                        text = fromLabel,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Medium,
+                            shadow = Shadow(
+                                color = Color.Black.copy(alpha = 0.55f),
+                                offset = Offset(0f, 1.1f),
+                                blurRadius = 2.5f
+                            )
+                        ),
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f)
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = event.title,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${event.city} • ${event.dateLabel}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = event.priceFrom,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = accent
+                        )
+                        event.tag?.let { tag ->
+                            Text(
+                                text = tag,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                    NeonTextButton(
+                        text = "View details",
+                        onClick = onOpen
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -3136,7 +3808,7 @@ private fun AlertsScreen(
                     }
                     Text("Home city: $city", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Los Angeles", "New York", "Chicago").forEach { option ->
+                        listOf("Harare", "Bulawayo", "Gaborone").forEach { option ->
                             val selected = city == option
                             NeonSelectablePill(
                                 text = option,

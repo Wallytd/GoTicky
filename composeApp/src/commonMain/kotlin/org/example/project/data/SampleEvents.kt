@@ -18,7 +18,7 @@ val sampleEvents = listOf(
     EventItem(
         id = "1",
         title = "Midnight Neon Fest",
-        city = "Los Angeles",
+        city = "Harare",
         dateLabel = "Tonight • 9:00 PM",
         priceFrom = "From $68",
         category = IconCategory.Discover,
@@ -29,7 +29,7 @@ val sampleEvents = listOf(
     EventItem(
         id = "2",
         title = "Courtside Classics",
-        city = "New York",
+        city = "Bulawayo",
         dateLabel = "Sat • 7:30 PM",
         priceFrom = "From $120",
         category = IconCategory.Calendar,
@@ -40,7 +40,7 @@ val sampleEvents = listOf(
     EventItem(
         id = "3",
         title = "Laugh Lab Live",
-        city = "Chicago",
+        city = "Gaborone",
         dateLabel = "Fri • 8:00 PM",
         priceFrom = "From $42",
         category = IconCategory.Alerts,
@@ -51,13 +51,35 @@ val sampleEvents = listOf(
     EventItem(
         id = "4",
         title = "Family Lights Parade",
-        city = "San Francisco",
+        city = "Victoria Falls",
         dateLabel = "Sun • 6:00 PM",
         priceFrom = "From $30",
         category = IconCategory.Profile,
         badge = "Family",
         tag = "Outdoors",
         month = "March",
+    ),
+    EventItem(
+        id = "5",
+        title = "Savanna Sky Sessions",
+        city = "Maun",
+        dateLabel = "Next Sat • 8:30 PM",
+        priceFrom = "From $55",
+        category = IconCategory.Discover,
+        badge = "New",
+        tag = "Live band",
+        month = "April",
+    ),
+    EventItem(
+        id = "6",
+        title = "Francistown Street Vibes",
+        city = "Francistown",
+        dateLabel = "Fri • 7:00 PM",
+        priceFrom = "From $25",
+        category = IconCategory.Calendar,
+        badge = "Local",
+        tag = "Festival",
+        month = "April",
     )
 )
 
@@ -97,6 +119,16 @@ val sampleNearbyEvents: List<NearbyEvent> = run {
             eventId = "4",
             fromLabel = "Harare CBD (sample)",
             distanceKm = 12.0,
+        ),
+        DistanceSample(
+            eventId = "5",
+            fromLabel = "Maun Centre (sample)",
+            distanceKm = 2.5,
+        ),
+        DistanceSample(
+            eventId = "6",
+            fromLabel = "Francistown Centre (sample)",
+            distanceKm = 4.1,
         ),
     )
     samples.mapNotNull { sample ->

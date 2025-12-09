@@ -32,7 +32,7 @@ val sampleTickets = listOf(
     TicketPass(
         id = "T1",
         eventTitle = "Midnight Neon Fest",
-        venue = "LA Live",
+        venue = "HICC",
         dateLabel = "Tonight • 9:00 PM",
         seat = "Section A • Row 2 • Seat 4",
         status = "Ready"
@@ -40,9 +40,25 @@ val sampleTickets = listOf(
     TicketPass(
         id = "T2",
         eventTitle = "Courtside Classics",
-        venue = "MSG",
+        venue = "Barbourfields Stadium",
         dateLabel = "Sat • 7:30 PM",
         seat = "Courtside • Seat 12",
+        status = "Ready"
+    ),
+    TicketPass(
+        id = "T3",
+        eventTitle = "Savanna Sky Sessions",
+        venue = "Maun Riverside Stage",
+        dateLabel = "Next Sat • 8:30 PM",
+        seat = "Sky Deck • Row 1 • Seat 3",
+        status = "Ready"
+    ),
+    TicketPass(
+        id = "T4",
+        eventTitle = "Francistown Street Vibes",
+        venue = "Francistown Civic Centre",
+        dateLabel = "Fri • 7:00 PM",
+        seat = "General Access",
         status = "Ready"
     )
 )
