@@ -86,6 +86,7 @@ val sampleEvents = listOf(
         badge = "Local",
         tag = "Festival",
         month = "April",
+        imagePath = "francistown_street_vibes",
     )
 )
 

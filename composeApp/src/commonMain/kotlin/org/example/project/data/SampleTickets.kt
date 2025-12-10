@@ -7,8 +7,16 @@ data class TicketPass(
     val dateLabel: String,
     val seat: String,
     val status: String,
-    val qrCodePlaceholder: String = "QR",
+    val type: TicketType = TicketType.General,
+    val holderName: String = "Guest User",
+    val holderInitials: String = "GU",
+    val qrSeed: String = id,
+    val avatarUrl: String? = null,
 )
+
+enum class TicketType {
+    EarlyBird, General, VIP, GoldenCircle
+}
 
 data class OrderSummary(
     val id: String,
@@ -35,7 +43,11 @@ val sampleTickets = listOf(
         venue = "HICC",
         dateLabel = "Tonight • 9:00 PM",
         seat = "Section A • Row 2 • Seat 4",
-        status = "Ready"
+        status = "Ready",
+        type = TicketType.EarlyBird,
+        holderName = "Alex Moyo",
+        holderInitials = "AM",
+        qrSeed = "T1-MNF-AM"
     ),
     TicketPass(
         id = "T2",
@@ -43,7 +55,11 @@ val sampleTickets = listOf(
         venue = "Barbourfields Stadium",
         dateLabel = "Sat • 7:30 PM",
         seat = "Courtside • Seat 12",
-        status = "Ready"
+        status = "Ready",
+        type = TicketType.General,
+        holderName = "Nadia Chirwa",
+        holderInitials = "NC",
+        qrSeed = "T2-CC-NC"
     ),
     TicketPass(
         id = "T3",
@@ -51,7 +67,11 @@ val sampleTickets = listOf(
         venue = "Maun Riverside Stage",
         dateLabel = "Next Sat • 8:30 PM",
         seat = "Sky Deck • Row 1 • Seat 3",
-        status = "Ready"
+        status = "Ready",
+        type = TicketType.VIP,
+        holderName = "Tendai Dube",
+        holderInitials = "TD",
+        qrSeed = "T3-SSS-TD"
     ),
     TicketPass(
         id = "T4",
@@ -59,7 +79,11 @@ val sampleTickets = listOf(
         venue = "Francistown Civic Centre",
         dateLabel = "Fri • 7:00 PM",
         seat = "General Access",
-        status = "Ready"
+        status = "Ready",
+        type = TicketType.GoldenCircle,
+        holderName = "Chenai Mbewe",
+        holderInitials = "CM",
+        qrSeed = "T4-FSV-CM"
     )
 )
 

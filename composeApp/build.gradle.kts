@@ -47,6 +47,7 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation("com.google.android.gms:play-services-maps:18.2.0")
             implementation("com.google.maps.android:maps-compose:6.12.1")
+            implementation("com.google.zxing:core:3.5.3")
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -66,6 +67,7 @@ kotlin {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            implementation("com.google.zxing:core:3.5.3")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

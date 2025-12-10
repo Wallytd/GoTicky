@@ -226,8 +226,8 @@ private fun currentGreetingColor(): Color {
         in 5..11 -> Color(0xFFFFC94A)
         // Fresh midday teal (daylight, energetic but less neon than morning/night)
         in 12..16 -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.96f)
-        // Warm sunset / evening magenta
-        in 17..21 -> Color(0xFFFF5C8A)
+        // Warm sunset / evening subtle brown
+        in 17..21 -> Color(0xFFC49A6C)
         // Deep night violet accent
         else -> Color(0xFF7C5BFF)
     }
@@ -795,7 +795,7 @@ private fun GoTickyRoot() {
                     ) { tapped -> currentScreen = tapped }
                 }
             }
-        }
+        },
     ) { inner ->
         val layoutDirection = LocalLayoutDirection.current
         val contentPadding = PaddingValues(
@@ -811,119 +811,121 @@ private fun GoTickyRoot() {
                 .padding(contentPadding)
                 .nestedScroll(scrollConnection)
         ) {
-			if (showCheckout) {
-				CheckoutScreen(
-					 order = sampleOrder,
-					 selectedTicketType = selectedTicketType,
-					 onBack = {
-						 showCheckout = false
-					 },
-					 onPlaceOrder = {
-						 if (GoTickyFeatures.EnableRealPayments) {
-							 // TODO: integrate real payment processor; for now keep mock success flow for demos.
-						 }
-						 Analytics.log(
-							 AnalyticsEvent(
-								 name = "checkout_success",
-								 params = mapOf(
-									 "order_id" to sampleOrder.id
-								 )
-							 )
-						 )
-						 showCheckout = false
-						 detailEvent = null
-						 selectedTicket = null
-						 currentScreen = MainScreen.Tickets
-					 }
-				)
-			} else if (selectedTicket != null) {
-				TicketDetailScreen(
-					 ticket = selectedTicket!!,
-					 onBack = { selectedTicket = null },
-					 onAddToWallet = { /* TODO wallet */ },
-					 onTransfer = { /* TODO transfer */ }
-				)
-			} else if (detailEvent != null) {
-				EventDetailScreen(
-					 event = detailEvent!!,
-					 onBack = { detailEvent = null },
-					 onProceedToCheckout = { ticketType ->
-						 selectedTicketType = ticketType
-						 detailEvent?.let { event ->
-							 Analytics.log(
-								 AnalyticsEvent(
-									 name = "select_seat",
-									 params = mapOf(
-										 "event_id" to event.id,
-										 "title" to event.title,
-										 "ticket_type" to ticketType
-									 )
-								 )
-							 )
-							 Analytics.log(
-								 AnalyticsEvent(
-									 name = "checkout_start",
-									 params = mapOf(
-										 "event_id" to event.id,
-										 "title" to event.title,
-										 "ticket_type" to ticketType
-									 )
-								 )
-							 )
-						 }
-						 if (GoTickyFeatures.EnableRealSeatMap) {
-							 // TODO: navigate to real seat map screen; for now fall through to checkout for demos.
-						 }
-						 showCheckout = true
-					 },
-					 onAlert = {
-						 detailEvent?.let { event ->
-							 val numericPrice = event.priceFrom.filter { it.isDigit() }.toIntOrNull() ?: 100
-							 val targetPrice = (numericPrice * 0.9f).toInt().coerceAtLeast(1)
-							 alerts.add(
-								 PriceAlert(
-									 id = "alert-${alerts.size + 1}",
-									 eventId = event.id,
-									 title = event.title,
-									 venue = "${event.city} • Venue",
-									 section = "Best available",
-									 targetPrice = targetPrice,
-									 currentPrice = numericPrice,
-									 dropPercent = 0,
-									 expiresInDays = 7,
-									 status = "Watching"
-								 )
-							 )
-							 Analytics.log(
-								 AnalyticsEvent(
-									 name = "alert_create",
-									 params = mapOf(
-										 "source" to "event_detail",
-										 "event_id" to event.id,
-										 "title" to event.title
-									 )
-								 )
-							 )
-						 }
-						 currentScreen = MainScreen.Alerts
-					 }
-				)
-			} else {
+            if (showCheckout) {
+                CheckoutScreen(
+                    order = sampleOrder,
+                    selectedTicketType = selectedTicketType,
+                    onBack = {
+                        showCheckout = false
+                    },
+                    onPlaceOrder = { paymentMethod, totalAmount ->
+                        if (GoTickyFeatures.EnableRealPayments) {
+                            // TODO: integrate real payment processor; for now keep mock success flow for demos.
+                        }
+                        Analytics.log(
+                            AnalyticsEvent(
+                                name = "checkout_success",
+                                params = mapOf(
+                                    "order_id" to sampleOrder.id,
+                                    "payment_method" to paymentMethod,
+                                    "total_amount" to totalAmount.toString()
+                                )
+                            )
+                        )
+                        showCheckout = false
+                        detailEvent = null
+                        selectedTicket = null
+                        currentScreen = MainScreen.Tickets
+                    }
+                )
+            } else if (selectedTicket != null) {
+                TicketDetailScreen(
+                    ticket = selectedTicket!!,
+                    onBack = { selectedTicket = null },
+                    onAddToWallet = { /* TODO wallet */ },
+                    onTransfer = { /* TODO transfer */ }
+                )
+            } else if (detailEvent != null) {
+                EventDetailScreen(
+                    event = detailEvent!!,
+                    onBack = { detailEvent = null },
+                    onProceedToCheckout = { ticketType ->
+                        selectedTicketType = ticketType
+                        detailEvent?.let { event ->
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "select_seat",
+                                    params = mapOf(
+                                        "event_id" to event.id,
+                                        "title" to event.title,
+                                        "ticket_type" to ticketType
+                                    )
+                                )
+                            )
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "checkout_start",
+                                    params = mapOf(
+                                        "event_id" to event.id,
+                                        "title" to event.title,
+                                        "ticket_type" to ticketType
+                                    )
+                                )
+                            )
+                        }
+                        if (GoTickyFeatures.EnableRealSeatMap) {
+                            // TODO: navigate to real seat map screen; for now fall through to checkout for demos.
+                        }
+                        showCheckout = true
+                    },
+                    onAlert = {
+                        detailEvent?.let { event ->
+                            val numericPrice = event.priceFrom.filter { it.isDigit() }.toIntOrNull() ?: 100
+                            val targetPrice = (numericPrice * 0.9f).toInt().coerceAtLeast(1)
+                            alerts.add(
+                                PriceAlert(
+                                    id = "alert-${alerts.size + 1}",
+                                    eventId = event.id,
+                                    title = event.title,
+                                    venue = "${event.city} • Venue",
+                                    section = "Best available",
+                                    targetPrice = targetPrice,
+                                    currentPrice = numericPrice,
+                                    dropPercent = 0,
+                                    expiresInDays = 7,
+                                    status = "Watching"
+                                )
+                            )
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "alert_create",
+                                    params = mapOf(
+                                        "source" to "event_detail",
+                                        "event_id" to event.id,
+                                        "title" to event.title
+                                    )
+                                )
+                            )
+                        }
+                        currentScreen = MainScreen.Alerts
+                    }
+                )
+            } else {
                 when (currentScreen) {
                     MainScreen.Home -> HomeScreen(
                         onOpenAlerts = { currentScreen = MainScreen.Profile },
                         onEventSelected = { event ->
-							Analytics.log(
-								AnalyticsEvent(
-									name = "event_tap",
-									params = mapOf(
-										"event_id" to event.id,
-										"title" to event.title
-									)
-								)
-							)
-							detailEvent = event
-						},
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "event_tap",
+                                    params = mapOf(
+                                        "event_id" to event.id,
+                                        "title" to event.title
+                                    )
+                                )
+                            )
+                            detailEvent = event
+                        },
                         recommendations = personalize(recommendations),
                         onOpenMap = { currentScreen = MainScreen.Map }
                     )
@@ -931,17 +933,17 @@ private fun GoTickyRoot() {
                     MainScreen.Tickets -> TicketsScreen(
                         tickets = sampleTickets,
                         onTicketSelected = { ticket ->
-							Analytics.log(
-								AnalyticsEvent(
-									name = "ticket_view",
-									params = mapOf(
-										"ticket_id" to ticket.id,
-										"event_title" to ticket.eventTitle
-									)
-								)
-							)
-							selectedTicket = ticket
-						},
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "ticket_view",
+                                    params = mapOf(
+                                        "ticket_id" to ticket.id,
+                                        "event_title" to ticket.eventTitle
+                                    )
+                                )
+                            )
+                            selectedTicket = ticket
+                        },
                         onCheckout = { showCheckout = true }
                     )
                     MainScreen.Alerts -> AlertsScreen(
@@ -950,14 +952,14 @@ private fun GoTickyRoot() {
                         personalizationPrefs = personalizationPrefs,
                         onBack = { currentScreen = MainScreen.Home },
                         onOpenEvent = { eventId ->
-							Analytics.log(
-								AnalyticsEvent(
-									name = "event_from_alert",
-									params = mapOf("event_id" to eventId)
-								)
-							)
-							openEventById(eventId)
-						},
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "event_from_alert",
+                                    params = mapOf("event_id" to eventId)
+                                )
+                            )
+                            openEventById(eventId)
+                        },
                         onCreateAlert = {
                             alerts.add(
                                 PriceAlert(
@@ -1005,14 +1007,14 @@ private fun GoTickyRoot() {
                         checklistState = checklistState,
                         onToggleCheck = { id -> checklistState[id]?.let { checklistState[id] = !it } },
                         onOpenOrganizer = {
-						Analytics.log(
-							AnalyticsEvent(
-								name = "organizer_open",
-								params = emptyMap()
-							)
-						)
-						currentScreen = MainScreen.Organizer
-					}
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "organizer_open",
+                                    params = emptyMap()
+                                )
+                            )
+                            currentScreen = MainScreen.Organizer
+                        }
                     )
                     MainScreen.Organizer -> if (showCreateEvent) {
                         CreateEventScreen(
@@ -3662,7 +3664,8 @@ private fun TicketsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp),
+        contentPadding = PaddingValues(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -3672,7 +3675,7 @@ private fun TicketsScreen(
                 TopBar(
                     title = "My Tickets",
                     onBack = null,
-                    actions = { NeonTextButton(text = "Checkout", onClick = { onCheckout() }) },
+                    actions = null,
                     backgroundColor = Color.Transparent
                 )
             }
@@ -4402,7 +4405,7 @@ private fun EventDetailScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
