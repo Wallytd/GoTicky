@@ -58,13 +58,20 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -726,7 +733,7 @@ private fun GoTickyRoot() {
     }
     val navItems = remember {
         listOf(
-            NavItem(MainScreen.Home, "Discover", { Icon(Icons.Outlined.Explore, null) }, IconCategory.Discover),
+            NavItem(MainScreen.Home, "Home", { Icon(Icons.Outlined.Home, null) }, IconCategory.Discover),
             NavItem(MainScreen.Browse, "Browse", { Icon(Icons.Outlined.Event, null) }, IconCategory.Calendar),
             NavItem(MainScreen.Tickets, "My Tickets", { Icon(Icons.Outlined.ReceiptLong, null) }, IconCategory.Ticket),
             NavItem(MainScreen.Alerts, "Alerts", { Icon(Icons.Outlined.Notifications, null) }, IconCategory.Alerts),
@@ -1014,7 +1021,8 @@ private fun GoTickyRoot() {
                                 )
                             )
                             currentScreen = MainScreen.Organizer
-                        }
+                        },
+                        onGoHome = { currentScreen = MainScreen.Home }
                     )
                     MainScreen.Organizer -> if (showCreateEvent) {
                         CreateEventScreen(
@@ -1108,7 +1116,7 @@ private fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
         GlowCard(
@@ -3723,77 +3731,362 @@ private fun ProfileScreen(
     checklistState: MutableMap<String, Boolean>,
     onToggleCheck: (String) -> Unit,
     onOpenOrganizer: () -> Unit,
+    onGoHome: () -> Unit,
 ) {
-	val legalPulse = infinitePulseAmplitude(
-		minScale = 0.985f,
-		maxScale = 1.015f,
-		durationMillis = 3200,
-	)
-    Column(
+    val scrollState = rememberScrollState()
+    val headerPulse = infinitePulseAmplitude(
+        minScale = 0.99f,
+        maxScale = 1.01f,
+        durationMillis = 3600,
+    )
+    val userName = "Walter"
+    val userEmail = "guest@goticky.app"
+    val profilePhotoRes = remember {
+        // prefer explicit profile pic; fall back to hero art if missing
+        Res.allDrawableResources["gotickypic"]
+            ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
+    }
+    val uriHandler = LocalUriHandler.current
+    var showProfileDetails by remember { mutableStateOf(false) }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        GlowCard(modifier = Modifier.fillMaxWidth()) {
-            TopBar(
-                title = "Profile & preferences",
-                onBack = null,
-                actions = null,
-                backgroundColor = Color.Transparent
+        profilePhotoRes?.let { resId ->
+            Image(
+                painter = painterResource(resId),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
             )
         }
-        GlowCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Your account",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.35f),
+                            Color.Black.copy(alpha = 0.9f)
+                        )
+                    )
                 )
-                Text(
-                    "Signed in as guest@goticky.app",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(scaleX = headerPulse, scaleY = headerPulse)
+                    .clip(goTickyShapes.extraLarge)
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .background(GoTickyGradients.GlassWash)
+                    .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                    .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
+                    .padding(horizontal = 18.dp, vertical = 16.dp)
+            ) {
+                // Home button in the corner
+                val homeInteraction = remember { MutableInteractionSource() }
+                val homePressed by homeInteraction.collectIsPressedAsState()
+                val homeScale by animateFloatAsState(
+                    targetValue = if (homePressed) 0.9f else 1f,
+                    animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "profileHomePress"
                 )
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .size(42.dp)
+                        .graphicsLayer(scaleX = homeScale, scaleY = homeScale)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .border(1.dp, GoTickyGradients.EdgeHalo, CircleShape)
+                        .clickable(
+                            interactionSource = homeInteraction,
+                            indication = null,
+                        ) { onGoHome() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Home,
+                        contentDescription = "Home",
+                        tint = IconCategoryColors[IconCategory.Discover]
+                            ?: MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = userName,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            shadow = Shadow(
+                                color = Color.Black.copy(alpha = 0.9f),
+                                offset = Offset(0f, 3f),
+                                blurRadius = 10f
+                            )
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = userEmail,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            shadow = Shadow(
+                                color = Color.Black.copy(alpha = 0.9f),
+                                offset = Offset(0f, 2f),
+                                blurRadius = 8f
+                            )
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Pill(
+                        text = "GoTicky demo profile",
+                        color = Color.Black.copy(alpha = 0.4f),
+                        textColor = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
-        }
-        GlowCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "Organizer tools",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ProfileMenuItem(
+                    label = "My Profile",
+                    icon = Icons.Outlined.AccountCircle,
+                    iconTint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary,
+                    trailing = null,
+                    onClick = { showProfileDetails = true }
                 )
-                Text(
-                    "Create events, track performance, and manage drops.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                PrimaryButton(
-                    text = "Open organizer dashboard",
-                    modifier = Modifier.fillMaxWidth(),
+
+                ProfileMenuItem(
+                    label = "My Organizer Dashboard",
+                    icon = Icons.Outlined.Event,
+                    iconTint = IconCategoryColors[IconCategory.Calendar] ?: MaterialTheme.colorScheme.secondary,
+                    trailing = null,
                     onClick = onOpenOrganizer
                 )
+
+                ProfileMenuItem(
+                    label = "Search History",
+                    icon = Icons.Outlined.Search,
+                    iconTint = IconCategoryColors[IconCategory.Discover] ?: MaterialTheme.colorScheme.primary,
+                    trailing = null,
+                    onClick = { }
+                )
+
+                ProfileMenuItem(
+                    label = "Favorites",
+                    icon = Icons.Outlined.FavoriteBorder,
+                    iconTint = Color(0xFFFF4B5C),
+                    trailing = null,
+                    onClick = { }
+                )
+
+                ProfileMenuItem(
+                    label = "Reviews",
+                    icon = Icons.Outlined.Star,
+                    iconTint = Color(0xFFFFD54F),
+                    trailing = {
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "3",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    },
+                    onClick = { }
+                )
+
+                ProfileMenuItem(
+                    label = "Settings",
+                    icon = Icons.Outlined.Settings,
+                    iconTint = Color(0xFFB0BEC5),
+                    trailing = null,
+                    onClick = { }
+                )
+
+                ProfileMenuItem(
+                    label = "Help & FAQ",
+                    icon = Icons.Outlined.HelpOutline,
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    trailing = null,
+                    onClick = { }
+                )
+
+                ProfileMenuItem(
+                    label = "Privacy Policy and Terms of Service",
+                    icon = Icons.Outlined.Shield,
+                    iconTint = Color(0xFF4CAF50),
+                    trailing = null,
+                    onClick = { uriHandler.openUri("https://goticky.app/legal") }
+                )
+
+                ProfileMenuItem(
+                    label = "About",
+                    icon = Icons.Outlined.Info,
+                    iconTint = MaterialTheme.colorScheme.secondary,
+                    trailing = null,
+                    onClick = { }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            PrimaryButton(
+                text = "Logout",
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { }
+            )
+        }
+    }
+
+    if (showProfileDetails) {
+        ProfileDetailsDialog(
+            userName = userName,
+            userEmail = userEmail,
+            onDismiss = { showProfileDetails = false }
+        )
+    }
+}
+
+@Composable
+private fun ProfileMenuItem(
+    label: String,
+    icon: ImageVector,
+    iconTint: Color,
+    trailing: (@Composable (() -> Unit))?,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = tween(GoTickyMotion.Standard),
+        label = "profileItemPress"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(scaleX = pressScale, scaleY = pressScale)
+            .clip(goTickyShapes.extraLarge)
+            .background(Color.Black.copy(alpha = 0.35f))
+            .background(GoTickyGradients.GlassWash)
+            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
+            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .padding(horizontal = 18.dp, vertical = 12.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(iconTint.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.85f),
+                        offset = Offset(0f, 2f),
+                        blurRadius = 6f
+                    )
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            if (trailing != null) {
+                trailing()
             }
         }
-        GlowCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    }
+}
+
+@Composable
+private fun ProfileDetailsDialog(
+    userName: String,
+    userEmail: String,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp)
+                .clip(goTickyShapes.extraLarge)
+                .background(GoTickyGradients.CardGlow)
+                .background(GoTickyGradients.GlassWash)
+                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
+                .padding(18.dp)
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(
-                    "Legal",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    text = userName,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.9f),
+                            offset = Offset(0f, 3f),
+                            blurRadius = 10f
+                        )
+                    ),
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                NeonTextButton(
-                    text = "Privacy policy",
-                    modifier = Modifier.graphicsLayer(scaleX = legalPulse, scaleY = legalPulse),
-                    onClick = { /* TODO open privacy URL */ }
+                Text(
+                    text = userEmail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                NeonTextButton(
-                    text = "Terms of service",
-                    modifier = Modifier.graphicsLayer(scaleX = legalPulse, scaleY = legalPulse),
-                    onClick = { /* TODO open terms URL */ }
+                Text(
+                    text = "This is a demo profile card. Later you can plug in real GoTicky account data here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(4.dp))
+                PrimaryButton(
+                    text = "Close",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onDismiss
                 )
             }
         }
@@ -3814,7 +4107,7 @@ private fun OrganizerDashboardScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
@@ -4193,7 +4486,7 @@ private fun AlertsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
@@ -4405,7 +4698,7 @@ private fun EventDetailScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 32.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
@@ -4979,7 +5272,7 @@ private fun BottomBar(
                 val interactionSource = remember { MutableInteractionSource() }
                 val pressed by interactionSource.collectIsPressedAsState()
                 val selectedScale by animateFloatAsState(
-                    targetValue = if (selected) 1.08f else 1f,
+                    targetValue = if (selected) 1.3f else 0.85f,
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
                     label = "navSelectedScale-${item.label}"
                 )
@@ -4988,23 +5281,18 @@ private fun BottomBar(
                     animationSpec = tween(durationMillis = GoTickyMotion.Quick, easing = EaseOutBack),
                     label = "navPressScale-${item.label}"
                 )
+                val selectedOffsetY by animateDpAsState(
+                    targetValue = if (selected) (-8).dp else 0.dp,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "navSelectedOffset-${item.label}"
+                )
                 val labelAlpha by animateFloatAsState(
-                    targetValue = 1f,
+                    targetValue = if (selected) 1f else 0.88f,
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard),
                     label = "navLabel-${item.label}"
                 )
-                val chipHighlightAlpha by animateFloatAsState(
-                    targetValue = if (selected) 0.42f else 0.22f,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navChipHighlight-${item.label}"
-                )
-                val chipSurfaceAlpha by animateFloatAsState(
-                    targetValue = if (selected) 0.98f else 0.8f,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navChipSurface-${item.label}"
-                )
                 val borderAlpha by animateFloatAsState(
-                    targetValue = if (selected) 0.9f else 0.35f,
+                    targetValue = if (selected) 0.9f else 0.45f,
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard),
                     label = "navChipBorder-${item.label}"
                 )
@@ -5013,17 +5301,32 @@ private fun BottomBar(
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard),
                     label = "navChipBorderWidth-${item.label}"
                 )
+                val chipTopColor by animateColorAsState(
+                    targetValue = if (selected) highlight else MaterialTheme.colorScheme.surfaceVariant,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "navChipTop-${item.label}"
+                )
+                val chipBottomColor by animateColorAsState(
+                    targetValue = if (selected) highlight else MaterialTheme.colorScheme.surface,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "navChipBottom-${item.label}"
+                )
+                val iconTint by animateColorAsState(
+                    targetValue = if (selected) MaterialTheme.colorScheme.onPrimary else highlight,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "navIconTint-${item.label}"
+                )
 
                 Box(
                     modifier = Modifier.width(slotWidth),
                     contentAlignment = Alignment.Center
                 ) {
-                    val mistStrength = if (selected) 0.9f else 0.6f
+                    val mistStrength = if (selected) 0.9f else 0.55f
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .drawBehind {
-                                val radius = size.minDimension / 1.05f
+                                val radius = size.minDimension
                                 val haloBrush = Brush.radialGradient(
                                     colors = listOf(
                                         Color.White.copy(alpha = mistStrength),
@@ -5041,6 +5344,7 @@ private fun BottomBar(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .offset(y = selectedOffsetY)
                             .clickable(
                                 interactionSource = interactionSource,
                                 indication = null
@@ -5050,18 +5354,33 @@ private fun BottomBar(
                     ) {
                         val chipBrush = Brush.linearGradient(
                             colors = listOf(
-                                highlight.copy(alpha = chipHighlightAlpha),
-                                MaterialTheme.colorScheme.surface.copy(alpha = chipSurfaceAlpha)
+                                chipTopColor,
+                                chipBottomColor
                             )
                         )
-                        val labelBaseColor = MaterialTheme.colorScheme.onSurface
+                        val labelNeonColor = highlight.copy(alpha = if (selected) 1f else 0.8f)
+                        val labelGlowColor = highlight.copy(alpha = if (selected) 0.95f else 0.7f)
                         val labelStyle = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            shadow = Shadow(
+                                color = labelGlowColor,
+                                offset = Offset(0f, 2f),
+                                blurRadius = 10f
+                            )
                         )
                         Box(
                             modifier = Modifier
                                 .size(46.dp)
-                                .graphicsLayer(scaleX = selectedScale * pressScale, scaleY = selectedScale * pressScale)
+                                .graphicsLayer(
+                                    scaleX = selectedScale * pressScale,
+                                    scaleY = selectedScale * pressScale
+                                )
+                                .shadow(
+                                    elevation = if (selected) 18.dp else 8.dp,
+                                    shape = CircleShape,
+                                    ambientColor = highlight.copy(alpha = 0.4f),
+                                    spotColor = highlight.copy(alpha = 0.9f)
+                                )
                                 .clip(CircleShape)
                                 .background(chipBrush)
                                 .border(
@@ -5072,13 +5391,13 @@ private fun BottomBar(
                                 .padding(10.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            CompositionLocalProvider(LocalContentColor provides highlight) {
+                            CompositionLocalProvider(LocalContentColor provides iconTint) {
                                 item.icon()
                             }
                         }
                         Text(
                             text = item.label,
-                            color = labelBaseColor.copy(alpha = labelAlpha),
+                            color = labelNeonColor.copy(alpha = labelAlpha),
                             style = labelStyle
                         )
                     }
