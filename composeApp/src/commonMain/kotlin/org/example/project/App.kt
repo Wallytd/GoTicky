@@ -50,8 +50,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ArrowBack
@@ -63,6 +65,17 @@ import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Cake
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
@@ -76,6 +89,7 @@ import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -96,6 +110,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -113,12 +128,17 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.ContentScale
@@ -166,6 +186,9 @@ import org.example.project.ui.theme.GoTickyTheme
 import org.example.project.ui.theme.IconCategory
 import org.example.project.ui.theme.IconCategoryColors
 import org.example.project.ui.theme.goTickyShapes
+import org.example.project.platform.ImagePickerLauncher
+import org.example.project.platform.rememberImagePicker
+import org.example.project.platform.rememberUriPainter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
@@ -175,6 +198,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.ui.graphics.vector.ImageVector
 import kotlin.random.Random
 import goticky.composeapp.generated.resources.Res
@@ -389,13 +413,64 @@ private data class HeroSlide(
     val location: String,
     val heroImageKey: String? = null,
 )
+private data class MenuItemSpec(
+    val label: String,
+    val icon: ImageVector,
+    val tint: Color,
+    val trailing: (@Composable (() -> Unit))? = null,
+    val onClick: () -> Unit,
+)
+
+private data class UserProfile(
+    val fullName: String,
+    val email: String,
+    val countryName: String,
+    val countryFlag: String,
+    val phoneCode: String,
+    val phoneNumber: String,
+    val birthday: String,
+    val gender: String,
+    val photoResKey: String? = null,
+    val photoUri: String? = null,
+)
+
+private val UserProfileSaver = listSaver<UserProfile, Any>(
+    save = {
+        listOf(
+            it.fullName,
+            it.email,
+            it.countryName,
+            it.countryFlag,
+            it.phoneCode,
+            it.phoneNumber,
+            it.birthday,
+            it.gender,
+            it.photoResKey ?: "",
+            it.photoUri ?: ""
+        )
+    },
+    restore = {
+        UserProfile(
+            fullName = it[0] as String,
+            email = it[1] as String,
+            countryName = it[2] as String,
+            countryFlag = it[3] as String,
+            phoneCode = it[4] as String,
+            phoneNumber = it[5] as String,
+            birthday = it[6] as String,
+            gender = it[7] as String,
+            photoResKey = (it[8] as String).ifBlank { null },
+            photoUri = (it[9] as String).ifBlank { null },
+        )
+    }
+)
 
 private val launchChecklist = listOf(
     LaunchCheck("palette", "Palette frozen", "Final brand + semantic tokens locked in Color.kt; icon tints distinct."),
     LaunchCheck("motion", "Motion verified", "Buttons, FAB, progress, spinners, back animation follow visible motion spec."),
     LaunchCheck("screens", "MVP screens compile", "Home, Search/Filters, Detail, Seat stub, Checkout, Tickets, Alerts, Profile, Organizer stub."),
     LaunchCheck("analytics", "Analytics + flags", "Key events logged; payments guarded by feature flag."),
-    LaunchCheck("backend", "Firestore draft", "Schemas/rules drafted for events/tickets/orders/alerts/recs.")
+    LaunchCheck("backend", "Firestore draft", "Schemas/rules drafted for events/tickets/orders/alerts/recs."),
 )
 
 private val heroSlides = listOf(
@@ -433,6 +508,33 @@ private val heroSlides = listOf(
         heroImageKey = "hero_byo_food_arts",
     ),
 )
+
+private fun resolveProfilePhotoRes() =
+    Res.allDrawableResources["gotickypic"]
+        ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
+
+private fun defaultUserProfile() = UserProfile(
+    fullName = "Walter Banda",
+    email = "guest@goticky.app",
+    countryName = "Zimbabwe",
+    countryFlag = "🇿🇼",
+    phoneCode = "+263",
+    phoneNumber = "771234567",
+    birthday = "1992-06-14",
+    gender = "Prefer not to say",
+    photoResKey = "gotickypic",
+    photoUri = null
+)
+
+@Composable
+private fun profilePainter(profile: UserProfile): Painter? {
+    profile.photoUri?.let { uri ->
+        rememberUriPainter(uri)?.let { return it }
+    }
+    val key = profile.photoResKey ?: "gotickypic"
+    val res = Res.allDrawableResources[key] ?: resolveProfilePhotoRes()
+    return res?.let { painterResource(it) }
+}
 
 private val PersonalizationPrefsSaver = listSaver<PersonalizationPrefs, Any>(
     save = { listOf(it.genres, it.city) },
@@ -648,10 +750,12 @@ private fun GoTickyRoot() {
     var selectedTicket by remember { mutableStateOf<TicketPass?>(null) }
     var showCheckout by remember { mutableStateOf(false) }
     var selectedTicketType by remember { mutableStateOf("General / Standard") }
+    var userProfile by rememberSaveable(stateSaver = UserProfileSaver) { mutableStateOf(defaultUserProfile()) }
     val alerts = remember { mutableStateListOf<PriceAlert>(*sampleAlerts.toTypedArray()) }
     val recommendations = remember { sampleRecommendations }
     val organizerEvents = remember { mutableStateListOf<OrganizerEvent>(*sampleOrganizerEvents.toTypedArray()) }
     var showCreateEvent by remember { mutableStateOf(false) }
+    var selectedOrganizerEvent by remember { mutableStateOf<OrganizerEvent?>(null) }
     var isScrolling by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var relaxJob by remember { mutableStateOf<Job?>(null) }
@@ -920,6 +1024,7 @@ private fun GoTickyRoot() {
             } else {
                 when (currentScreen) {
                     MainScreen.Home -> HomeScreen(
+                        userProfile = userProfile,
                         onOpenAlerts = { currentScreen = MainScreen.Profile },
                         onEventSelected = { event ->
                             Analytics.log(
@@ -1011,6 +1116,8 @@ private fun GoTickyRoot() {
                         }
                     )
                     MainScreen.Profile -> ProfileScreen(
+                        userProfile = userProfile,
+                        onUpdateProfile = { updated -> userProfile = updated },
                         checklistState = checklistState,
                         onToggleCheck = { id -> checklistState[id]?.let { checklistState[id] = !it } },
                         onOpenOrganizer = {
@@ -1024,52 +1131,66 @@ private fun GoTickyRoot() {
                         },
                         onGoHome = { currentScreen = MainScreen.Home }
                     )
-                    MainScreen.Organizer -> if (showCreateEvent) {
-                        CreateEventScreen(
-                            onBack = { showCreateEvent = false },
-                            onSaveDraft = { title, city, venue, dateLabel, priceFrom, status ->
-                                val index = organizerEvents.size + 1
-                                val newEvent = OrganizerEvent(
-                                    id = "org-$index",
-                                    eventId = "new-$index",
-                                    title = if (title.isNotBlank()) title else "Untitled event $index",
-                                    city = city.ifBlank { "City TBD" },
-                                    venue = venue.ifBlank { "Venue TBD" },
-                                    dateLabel = dateLabel.ifBlank { "Date TBD" },
-                                    priceFrom = if (priceFrom.isNotBlank()) priceFrom else "From $0",
-                                    status = status,
-                                    views = 0,
-                                    saves = 0,
-                                    sales = 0,
-                                    isVerified = false
-                                )
-                                organizerEvents.add(0, newEvent)
-                                Analytics.log(
-                                    AnalyticsEvent(
-                                        name = "organizer_event_saved",
-                                        params = mapOf(
-                                            "event_id" to newEvent.eventId,
-                                            "status" to newEvent.status
+                    MainScreen.Organizer -> when {
+                        selectedOrganizerEvent != null -> {
+                            OrganizerEventDetailScreen(
+                                event = selectedOrganizerEvent!!,
+                                onBack = { selectedOrganizerEvent = null }
+                            )
+                        }
+                        showCreateEvent -> {
+                            CreateEventScreen(
+                                userProfile = userProfile,
+                                onBack = { showCreateEvent = false },
+                                onSaveDraft = { title, city, venue, dateLabel, priceFrom, status ->
+                                    val index = organizerEvents.size + 1
+                                    val newEvent = OrganizerEvent(
+                                        id = "org-$index",
+                                        eventId = "new-$index",
+                                        title = if (title.isNotBlank()) title else "Untitled event $index",
+                                        city = city.ifBlank { "City TBD" },
+                                        venue = venue.ifBlank { "Venue TBD" },
+                                        dateLabel = dateLabel.ifBlank { "Date TBD" },
+                                        priceFrom = if (priceFrom.isNotBlank()) priceFrom else "From $0",
+                                        status = status,
+                                        views = 0,
+                                        saves = 0,
+                                        sales = 0,
+                                        isVerified = false
+                                    )
+                                    organizerEvents.add(0, newEvent)
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "organizer_event_saved",
+                                            params = mapOf(
+                                                "event_id" to newEvent.eventId,
+                                                "status" to newEvent.status
+                                            )
                                         )
                                     )
-                                )
-                                showCreateEvent = false
-                            }
-                        )
-                    } else {
-                        OrganizerDashboardScreen(
-                            events = organizerEvents,
-                            onBack = { currentScreen = MainScreen.Profile },
-                            onCreateEvent = {
-							Analytics.log(
-								AnalyticsEvent(
-									name = "organizer_create_event_start",
-									params = emptyMap()
+                                    showCreateEvent = false
+                                }
+                            )
+                        }
+                        else -> {
+                            OrganizerDashboardScreen(
+                                events = organizerEvents,
+                                onBack = { currentScreen = MainScreen.Profile },
+                                onCreateEvent = {
+								Analytics.log(
+									AnalyticsEvent(
+										name = "organizer_create_event_start",
+										params = emptyMap()
+									)
 								)
-							)
-							showCreateEvent = true
-						}
-                        )
+								showCreateEvent = true
+							},
+                                onOpenEvent = { event ->
+                                    selectedOrganizerEvent = event
+                                },
+                                chromeAlpha = fabAlpha
+                            )
+                        }
                     }
                     MainScreen.Map -> EventMapScreen(
                         onBack = { currentScreen = MainScreen.Home },
@@ -1083,6 +1204,7 @@ private fun GoTickyRoot() {
 
 @Composable
 private fun HomeScreen(
+    userProfile: UserProfile,
     onOpenAlerts: () -> Unit,
     onEventSelected: (org.example.project.data.EventItem) -> Unit,
     recommendations: List<Recommendation>,
@@ -1135,6 +1257,7 @@ private fun HomeScreen(
                         label = "homeGreetingAlpha"
                     )
                     LaunchedEffect(Unit) { greetVisible = true }
+                    val profilePhotoPainter = profilePainter(userProfile)
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1156,7 +1279,11 @@ private fun HomeScreen(
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
                             )
                         }
-                        ProfileAvatar(initials = "TG", onClick = onOpenAlerts)
+                        ProfileAvatar(
+                            initials = "TG",
+                            onClick = onOpenAlerts,
+                            photoPainter = profilePhotoPainter
+                        )
                     }
                 },
                 backgroundBrush = null,
@@ -1258,8 +1385,11 @@ private fun HomeScreen(
             filters = filters,
             onLocationClick = { showLocationDialog = true },
             onDateClick = { showDateDialog = true },
-            onQueryFieldClick = { showQueryDialog = true },
-            onFilterClick = { label -> activeFilterDialog = label }
+            onQueryFieldClick = {
+                showQueryDialog = true
+            },
+            onFilterClick = { label -> activeFilterDialog = label },
+            isDialogOpen = showQueryDialog
         )
         CategoryRow(
             initialCategory = selectedCategory,
@@ -1963,7 +2093,7 @@ private fun HomeScreen(
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            "${event.city}  b7 ${event.dateLabel}",
+                                            "${event.city} – ${event.dateLabel}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -1991,7 +2121,13 @@ private fun HomeScreen(
                     animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
                     label = "queryDialogScale"
                 )
-                LaunchedEffect(Unit) { visible = true }
+                val dialogFocusRequester = remember { FocusRequester() }
+                LaunchedEffect(showQueryDialog) {
+                    if (showQueryDialog) {
+                        visible = true
+                        dialogFocusRequester.requestFocus()
+                    }
+                }
 
                 val filtered = sampleEvents.filter {
                     searchQuery.isNotBlank() && (it.title.contains(searchQuery, ignoreCase = true) || it.city.contains(searchQuery, true))
@@ -2010,7 +2146,10 @@ private fun HomeScreen(
                         placeholder = { Text("Search events, artists, venues") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .graphicsLayer(scaleX = scale, scaleY = scale),
+                            .graphicsLayer(scaleX = scale, scaleY = scale)
+                            .focusRequester(dialogFocusRequester),
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { if (searchQuery.isNotBlank()) showQueryDialog = true }),
                         singleLine = true,
                         shape = goTickyShapes.medium,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -2018,19 +2157,35 @@ private fun HomeScreen(
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
                     )
-                    if (filtered.isNotEmpty()) {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.heightIn(max = 220.dp)
-                        ) {
-                            items(filtered) { event ->
-                                GlowCard(
-                                    modifier = Modifier.pressAnimated(scaleDown = 0.95f)
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                        Text("${event.city} • ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
+                    when {
+                        searchQuery.isBlank() -> {
+                            Text(
+                                "Start typing to see live results in this dialog.",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        filtered.isEmpty() -> {
+                            Text(
+                                "No events match \"$searchQuery\" yet. Try another artist, venue, or city.",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        else -> {
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.heightIn(max = 280.dp)
+                            ) {
+                                items(filtered) { event ->
+                                    EventCard(
+                                        item = event,
+                                        modifier = Modifier.pressAnimated(scaleDown = 0.96f),
+                                        onClick = {
+                                            onEventSelected(event)
+                                            showQueryDialog = false
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -2111,7 +2266,7 @@ private fun HomeScreen(
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
                                         )
                                         Text(
-                                            "${event.city} • ${event.dateLabel}",
+                                            "${event.city} – ${event.dateLabel}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -2237,7 +2392,7 @@ private fun HomeScreen(
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("${event.city} • ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${event.city} – ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(event.priceFrom, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
@@ -2696,7 +2851,16 @@ private fun QuickSearchBar(
     onDateClick: () -> Unit,
     onQueryFieldClick: () -> Unit,
     onFilterClick: (String) -> Unit,
+    isDialogOpen: Boolean,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val textScale by animateFloatAsState(
+        targetValue = if (pressed) 0.985f else 1f,
+        animationSpec = tween(durationMillis = 140, easing = EaseOutBack),
+        label = "quickSearchFieldScale"
+    )
+    val focusRequester = remember { FocusRequester() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2709,9 +2873,15 @@ private fun QuickSearchBar(
         Text(
             "Instant search",
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             SearchChip(
                 label = "Location or venue",
                 leadingIcon = { Icon(Icons.Outlined.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
@@ -2723,24 +2893,88 @@ private fun QuickSearchBar(
                 onClick = onDateClick
             )
         }
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "Search") },
-            placeholder = { Text("Search events, artists, venues") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onQueryFieldClick() },
-            readOnly = true,
-            singleLine = true,
-            shape = goTickyShapes.medium,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+        val haloAlpha by animateFloatAsState(
+            targetValue = if (isDialogOpen) 1f else 0f,
+            animationSpec = tween(durationMillis = 220, easing = LinearEasing),
+            label = "searchHalo"
+        )
+        val primaryColor = MaterialTheme.colorScheme.primary
+        val borderBrush = Brush.linearGradient(
+            colors = listOf(
+                primaryColor.copy(alpha = 0.9f),
+                primaryColor.copy(alpha = 0.65f)
             )
         )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer(scaleX = textScale, scaleY = textScale)
+                .clip(goTickyShapes.medium)
+                .background(MaterialTheme.colorScheme.surface)
+                .drawBehind {
+                    if (haloAlpha > 0f) {
+                        drawRoundRect(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    primaryColor.copy(alpha = 0.14f * haloAlpha),
+                                    Color.Transparent
+                                ),
+                                center = center,
+                                radius = size.maxDimension * 0.85f
+                            ),
+                            cornerRadius = CornerRadius(size.height / 2, size.height / 2)
+                        )
+                    }
+                }
+                .border(
+                    width = 1.6.dp,
+                    brush = if (isDialogOpen) borderBrush else Brush.linearGradient(
+                        listOf(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.outline)
+                    ),
+                    shape = goTickyShapes.medium
+                )
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null
+                ) {
+                    onQueryFieldClick()
+                }
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = "Open search",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = if (query.isNotBlank()) query else "Search events, artists, venues",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (query.isNotBlank()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { onQueryFieldClick() },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = if (isDialogOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = "Open search dialog"
+                    )
+                }
+            }
+        }
         AnimatedProgressBar(progress = 0.32f, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        ) {
             FilterPill("Concerts", filters, onTap = onFilterClick)
             FilterPill("Sports", filters, onTap = onFilterClick)
             FilterPill("Family", filters, onTap = onFilterClick)
@@ -2832,7 +3066,7 @@ private fun HighlightCard(
                             color = Color(0xFFFDFDFE)
                         )
                         Text(
-                            "Harare • Reps Theatre • Tonight • Limited VIP",
+                            "Harare – Reps Theatre – Tonight – Limited VIP",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 shadow = Shadow(
                                     color = Color.Black.copy(alpha = 0.7f),
@@ -3015,7 +3249,7 @@ private fun EntertainmentNewsCard(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = 0.25f),
+                                Color.Black.copy(alpha = 0.15f),
                                 Color.Black.copy(alpha = 0.85f)
                             )
                         )
@@ -3517,7 +3751,7 @@ private fun NearbySwingCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${event.city} • ${event.dateLabel}",
+                        text = "${event.city} – ${event.dateLabel}",
                         style = MaterialTheme.typography.bodySmall.copy(
                             shadow = Shadow(
                                 color = Color.Black.copy(alpha = 0.7f),
@@ -3728,6 +3962,8 @@ private fun TicketsScreen(
 
 @Composable
 private fun ProfileScreen(
+    userProfile: UserProfile,
+    onUpdateProfile: (UserProfile) -> Unit,
     checklistState: MutableMap<String, Boolean>,
     onToggleCheck: (String) -> Unit,
     onOpenOrganizer: () -> Unit,
@@ -3739,11 +3975,12 @@ private fun ProfileScreen(
         maxScale = 1.01f,
         durationMillis = 3600,
     )
-    val userName = "Walter"
-    val userEmail = "guest@goticky.app"
-    val profilePhotoRes = remember {
+    val userName = userProfile.fullName
+    val userEmail = userProfile.email
+    val profilePhotoRes = remember(userProfile.photoResKey) {
         // prefer explicit profile pic; fall back to hero art if missing
-        Res.allDrawableResources["gotickypic"]
+        userProfile.photoResKey?.let { Res.allDrawableResources[it] }
+            ?: Res.allDrawableResources["gotickypic"]
             ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
     }
     val uriHandler = LocalUriHandler.current
@@ -3791,7 +4028,6 @@ private fun ProfileScreen(
                     .background(Color.Black.copy(alpha = 0.35f))
                     .background(GoTickyGradients.GlassWash)
                     .drawBehind { drawRect(GoTickyTextures.GrainTint) }
-                    .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
                     .padding(horizontal = 18.dp, vertical = 16.dp)
             ) {
                 // Home button in the corner
@@ -3863,43 +4099,39 @@ private fun ProfileScreen(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ProfileMenuItem(
+            val profileMenuItems = listOf(
+                MenuItemSpec(
                     label = "My Profile",
                     icon = Icons.Outlined.AccountCircle,
-                    iconTint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary,
+                    tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary,
                     trailing = null,
                     onClick = { showProfileDetails = true }
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "My Organizer Dashboard",
                     icon = Icons.Outlined.Event,
-                    iconTint = IconCategoryColors[IconCategory.Calendar] ?: MaterialTheme.colorScheme.secondary,
+                    tint = IconCategoryColors[IconCategory.Calendar] ?: MaterialTheme.colorScheme.secondary,
                     trailing = null,
                     onClick = onOpenOrganizer
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "Search History",
                     icon = Icons.Outlined.Search,
-                    iconTint = IconCategoryColors[IconCategory.Discover] ?: MaterialTheme.colorScheme.primary,
+                    tint = IconCategoryColors[IconCategory.Discover] ?: MaterialTheme.colorScheme.primary,
                     trailing = null,
                     onClick = { }
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "Favorites",
                     icon = Icons.Outlined.FavoriteBorder,
-                    iconTint = Color(0xFFFF4B5C),
+                    tint = Color(0xFFFF4B5C),
                     trailing = null,
                     onClick = { }
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "Reviews",
                     icon = Icons.Outlined.Star,
-                    iconTint = Color(0xFFFFD54F),
+                    tint = Color(0xFFFFD54F),
                     trailing = {
                         Box(
                             modifier = Modifier
@@ -3916,39 +4148,50 @@ private fun ProfileScreen(
                         }
                     },
                     onClick = { }
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "Settings",
                     icon = Icons.Outlined.Settings,
-                    iconTint = Color(0xFFB0BEC5),
+                    tint = Color(0xFFB0BEC5),
                     trailing = null,
                     onClick = { }
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "Help & FAQ",
                     icon = Icons.Outlined.HelpOutline,
-                    iconTint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.primary,
                     trailing = null,
                     onClick = { }
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "Privacy Policy and Terms of Service",
                     icon = Icons.Outlined.Shield,
-                    iconTint = Color(0xFF4CAF50),
+                    tint = Color(0xFF4CAF50),
                     trailing = null,
                     onClick = { uriHandler.openUri("https://goticky.app/legal") }
-                )
-
-                ProfileMenuItem(
+                ),
+                MenuItemSpec(
                     label = "About",
                     icon = Icons.Outlined.Info,
-                    iconTint = MaterialTheme.colorScheme.secondary,
+                    tint = MaterialTheme.colorScheme.secondary,
                     trailing = null,
                     onClick = { }
                 )
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val lastIndex = (profileMenuItems.size - 1).coerceAtLeast(1)
+                profileMenuItems.forEachIndexed { index, item ->
+                    val outlineStart = lerp(0.20f, 0.03f, index / lastIndex.toFloat())
+                    ProfileMenuItem(
+                        label = item.label,
+                        icon = item.icon,
+                        iconTint = item.tint,
+                        trailing = item.trailing,
+                        outlineStartFraction = outlineStart,
+                        onClick = item.onClick
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -3963,8 +4206,8 @@ private fun ProfileScreen(
 
     if (showProfileDetails) {
         ProfileDetailsDialog(
-            userName = userName,
-            userEmail = userEmail,
+            profile = userProfile,
+            onUpdateProfile = onUpdateProfile,
             onDismiss = { showProfileDetails = false }
         )
     }
@@ -3976,6 +4219,7 @@ private fun ProfileMenuItem(
     icon: ImageVector,
     iconTint: Color,
     trailing: (@Composable (() -> Unit))?,
+    outlineStartFraction: Float,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -3994,14 +4238,29 @@ private fun ProfileMenuItem(
             .background(Color.Black.copy(alpha = 0.35f))
             .background(GoTickyGradients.GlassWash)
             .drawBehind { drawRect(GoTickyTextures.GrainTint) }
-            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .border(
+                width = 1.dp,
+                brush = Brush.horizontalGradient(
+                    colorStops = arrayOf(
+                        0f to iconTint.copy(alpha = 0.55f),
+                        outlineStartFraction.coerceIn(0f, 1f) to iconTint.copy(alpha = 0.35f),
+                        (outlineStartFraction + 0.02f).coerceAtMost(1f) to Color.Transparent,
+                        1f to Color.Transparent
+                    ),
+                ),
+                shape = goTickyShapes.extraLarge
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
             .padding(horizontal = 18.dp, vertical = 12.dp)
     ) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -4038,14 +4297,40 @@ private fun ProfileMenuItem(
 
 @Composable
 private fun ProfileDetailsDialog(
-    userName: String,
-    userEmail: String,
+    profile: UserProfile,
+    onUpdateProfile: (UserProfile) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    val clipboard = LocalClipboardManager.current
+    val uriHandler = LocalUriHandler.current
+    var showCameraDialog by remember { mutableStateOf(false) }
+    val pulse = infinitePulseAmplitude(minScale = 0.98f, maxScale = 1.02f, durationMillis = 2200)
+    val photo = profilePainter(profile)
+    data class InfoItem(
+        val label: String,
+        val value: String,
+        val icon: ImageVector,
+        val tint: Color,
+        val editable: Boolean = false,
+    )
+    val infoItems = listOf(
+        InfoItem("Email", profile.email, Icons.Outlined.Email, Color(0xFF5CF0FF), editable = true),
+        InfoItem("Phone", "${profile.phoneCode} ${profile.phoneNumber}", Icons.Outlined.PhoneAndroid, Color(0xFF9C7BFF), editable = true),
+        InfoItem("Birthday", profile.birthday, Icons.Outlined.Cake, Color(0xFF4CAF50)),
+        InfoItem("Gender", profile.gender, Icons.Outlined.Person, Color(0xFFFF8A65)),
+        InfoItem("Country", "${profile.countryFlag} ${profile.countryName}", Icons.Outlined.Flag, Color(0xFFFFC94A)),
+    )
+    val imagePicker = rememberImagePicker { uri ->
+        uri?.let {
+            onUpdateProfile(profile.copy(photoUri = it, photoResKey = null))
+        }
+        showCameraDialog = false
+    }
+    Dialog(onDismissRequest = { showCameraDialog = false; onDismiss() }) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(min = 360.dp, max = 640.dp)
                 .padding(24.dp)
                 .clip(goTickyShapes.extraLarge)
                 .background(GoTickyGradients.CardGlow)
@@ -4054,40 +4339,320 @@ private fun ProfileDetailsDialog(
                 .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
                 .padding(18.dp)
         ) {
+            // Close icon top-right
+            val closeInteraction = remember { MutableInteractionSource() }
+            val closePressed by closeInteraction.collectIsPressedAsState()
+            val closeScale by animateFloatAsState(
+                targetValue = if (closePressed) 0.9f else 1f,
+                animationSpec = tween(GoTickyMotion.Standard),
+                label = "profileCloseScale"
+            )
+            IconButton(
+                onClick = { showCameraDialog = false; onDismiss() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .graphicsLayer(scaleX = closeScale, scaleY = closeScale)
+                    .size(38.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = Color(0xFFFF5252)
+                ),
+                interactionSource = closeInteraction
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Close profile dialog"
+                )
+            }
+
             Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = userName,
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        shadow = Shadow(
-                            color = Color.Black.copy(alpha = 0.9f),
-                            offset = Offset(0f, 3f),
-                            blurRadius = 10f
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer(scaleX = pulse, scaleY = pulse),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.widthIn(min = 92.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(74.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .border(2.dp, GoTickyGradients.EdgeHalo, CircleShape)
+                                .drawBehind { drawRect(GoTickyTextures.GrainTint) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (photo != null) {
+                                Image(
+                                    painter = photo,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(70.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Outlined.AccountCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(46.dp)
+                                )
+                            }
+                        }
+                        val cameraInteraction = remember { MutableInteractionSource() }
+                        val cameraPressed by cameraInteraction.collectIsPressedAsState()
+                        val cameraScale by animateFloatAsState(
+                            targetValue = if (cameraPressed) 0.9f else 1f,
+                            animationSpec = tween(GoTickyMotion.Standard),
+                            label = "profileCameraScale"
                         )
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = userEmail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "This is a demo profile card. Later you can plug in real GoTicky account data here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(4.dp))
-                PrimaryButton(
-                    text = "Close",
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .graphicsLayer(scaleX = cameraScale, scaleY = cameraScale)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.8f))
+                                .border(1.dp, GoTickyGradients.EdgeHalo, CircleShape)
+                                .clickable(
+                                    interactionSource = cameraInteraction,
+                                    indication = null
+                                ) { showCameraDialog = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.PhotoCamera,
+                                contentDescription = "Change photo",
+                                tint = Color(0xFF5CF0FF)
+                            )
+                        }
+                    }
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalAlignment = Alignment.Start,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = profile.fullName,
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                shadow = Shadow(
+                                    color = Color.Black.copy(alpha = 0.9f),
+                                    offset = Offset(0f, 3f),
+                                    blurRadius = 10f
+                                )
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = profile.email,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Pill(
+                            text = "GoTicky demo profile • personalized",
+                            color = Color.Black.copy(alpha = 0.3f),
+                            textColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onDismiss
-                )
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    infoItems.forEachIndexed { index, entry ->
+                        val (label, value, icon, tint, editable) = entry
+                        val interaction = remember { MutableInteractionSource() }
+                        val pressed by interaction.collectIsPressedAsState()
+                        val pressScale by animateFloatAsState(
+                            targetValue = if (pressed) 0.97f else 1f,
+                            animationSpec = tween(GoTickyMotion.Standard),
+                            label = "profileField-$index"
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer(scaleX = pressScale, scaleY = pressScale)
+                                .clip(goTickyShapes.large)
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .background(GoTickyGradients.GlassWash)
+                                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                                .border(1.dp, Brush.horizontalGradient(listOf(tint, Color.Transparent)), goTickyShapes.large)
+                                .clickable(
+                                    interactionSource = interaction,
+                                    indication = null
+                                ) {
+                                    if (label == "Email") clipboard.setText(AnnotatedString(value))
+                                    if (label == "Phone") clipboard.setText(AnnotatedString(value))
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(tint.copy(alpha = 0.22f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = tint
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = tint
+                                )
+                                Text(
+                                    text = value,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            if (editable) {
+                                val editInteraction = remember { MutableInteractionSource() }
+                                val editPressed by editInteraction.collectIsPressedAsState()
+                                val editScale by animateFloatAsState(
+                                    targetValue = if (editPressed) 0.92f else 1f,
+                                    animationSpec = tween(GoTickyMotion.Quick),
+                                    label = "profileEditScale-$label"
+                                )
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edit $label",
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .graphicsLayer(scaleX = editScale, scaleY = editScale)
+                                        .clickable(
+                                            interactionSource = editInteraction,
+                                            indication = null
+                                        ) {
+                                            clipboard.setText(AnnotatedString(value))
+                                        },
+                                    tint = tint
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    PrimaryButton(
+                        text = "Save",
+                        modifier = Modifier.weight(1f),
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Save,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    ) {
+                        // Stub: plug into profile persistence when backend is ready
+                    }
+                    NeonTextButton(
+                        text = "Share profile",
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            clipboard.setText(
+                                AnnotatedString("${profile.fullName} • ${profile.email} • ${profile.countryFlag}")
+                            )
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Share,
+                                contentDescription = null,
+                                tint = Color(0xFF5CF0FF)
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+    if (showCameraDialog) {
+        Dialog(onDismissRequest = { showCameraDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+                    .clip(goTickyShapes.extraLarge)
+                    .background(GoTickyGradients.CardGlow)
+                    .background(GoTickyGradients.GlassWash)
+                    .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                    .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
+                    .padding(18.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Update profile photo",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    listOf(
+                        "Take a photo" to Icons.Outlined.PhotoCamera to { imagePicker.capturePhoto() },
+                        "Choose from gallery" to Icons.Outlined.PhotoLibrary to { imagePicker.pickFromGallery() },
+                    ).forEachIndexed { idx, entry ->
+                        val (spec, action) = entry
+                        val (label, icon) = spec
+                        val interaction = remember { MutableInteractionSource() }
+                        val pressed by interaction.collectIsPressedAsState()
+                        val scale by animateFloatAsState(
+                            targetValue = if (pressed) 0.95f else 1f,
+                            animationSpec = tween(GoTickyMotion.Standard),
+                            label = "cameraOption-$idx"
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer(scaleX = scale, scaleY = scale)
+                                .clip(goTickyShapes.large)
+                                .background(Color.Black.copy(alpha = 0.32f))
+                                .background(GoTickyGradients.GlassWash)
+                                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                                .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                                .clickable(
+                                    interactionSource = interaction,
+                                    indication = null
+                                ) { action() }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    NeonTextButton(
+                        text = "Cancel",
+                        onClick = { showCameraDialog = false }
+                    )
+                }
             }
         }
     }
@@ -4098,180 +4663,628 @@ private fun OrganizerDashboardScreen(
     events: List<OrganizerEvent>,
     onBack: () -> Unit,
     onCreateEvent: () -> Unit,
+    onOpenEvent: (OrganizerEvent) -> Unit,
+    chromeAlpha: Float,
 ) {
     val totalViews = events.sumOf { it.views }
     val totalSaves = events.sumOf { it.saves }
     val totalSales = events.sumOf { it.sales }
-    Column(
+    val scrollState = rememberScrollState()
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        GlowCard(modifier = Modifier.fillMaxWidth()) {
-            TopBar(
-                title = "Organizer dashboard",
-                onBack = onBack,
-                actions = null,
-                backgroundColor = Color.Transparent
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            OrganizerMetricCard(
-                title = "Views",
-                value = totalViews,
-                accent = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f)
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                TopBar(
+                    title = "Organizer dashboard",
+                    onBack = onBack,
+                    actions = null,
+                    backgroundColor = Color.Transparent
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OrganizerMetricCard(
+                    title = "Views",
+                    value = totalViews,
+                    accent = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                OrganizerMetricCard(
+                    title = "Saves",
+                    value = totalSaves,
+                    accent = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f)
+                )
+                OrganizerMetricCard(
+                    title = "Sales",
+                    value = totalSales,
+                    accent = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            SectionHeader(
+                title = "Your events",
+                action = null
             )
-            OrganizerMetricCard(
-                title = "Saves",
-                value = totalSaves,
-                accent = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.weight(1f)
-            )
-            OrganizerMetricCard(
-                title = "Sales",
-                value = totalSales,
-                accent = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.weight(1f)
-            )
+            events.forEach { event ->
+                OrganizerEventCard(
+                    event = event,
+                    onClick = { onOpenEvent(event) }
+                )
+            }
+            if (events.isEmpty()) {
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "No events yet",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Tap \"Create NEW Event\" to publish your first GoTicky listing.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
-        SectionHeader(
-            title = "Your events",
-            action = { NeonTextButton(text = "Create", onClick = onCreateEvent) }
-        )
-        events.forEach { event ->
-            OrganizerEventCard(event = event)
-        }
-        PrimaryButton(
-            text = "Create new event",
-            modifier = Modifier.fillMaxWidth(),
+
+        OrganizerCreateFab(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 24.dp, bottom = 34.dp),
+            visibilityFraction = chromeAlpha,
             onClick = onCreateEvent
         )
     }
 }
 
 @Composable
-private fun OrganizerEventCard(event: OrganizerEvent) {
-    GlowCard(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = event.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.weight(1f))
-                if (event.isVerified) {
-					val verifiedPulse = infinitePulseAmplitude(
-						minScale = 0.96f,
-						maxScale = 1.04f,
-						durationMillis = 2400,
-					)
-                    Pill(
-                        text = "Verified",
-                        modifier = Modifier.graphicsLayer(scaleX = verifiedPulse, scaleY = verifiedPulse),
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f),
-                        textColor = MaterialTheme.colorScheme.secondary
+private fun OrganizerCreateFab(
+    modifier: Modifier = Modifier,
+    visibilityFraction: Float = 1f,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val baseScale by animateFloatAsState(
+        targetValue = if (pressed) 0.94f else 1f,
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "organizerFabScale"
+    )
+    val fabAlphaLocal = visibilityFraction.coerceIn(0f, 1f)
+    val haloColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+    val wordColors = listOf(
+        Color(0xFFFFF8E1), // soft warm highlight
+        Color(0xFFE3F2FD), // cool highlight
+        Color(0xFFFCE4EC), // soft pink highlight
+    )
+    val danceTransition = rememberInfiniteTransition(label = "newDance")
+    val danceOffsetY by danceTransition.animateFloat(
+        initialValue = -3.5f,
+        targetValue = 3.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = EaseOutBack),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "newOffsetY"
+    )
+    val danceScale by danceTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "newScale"
+    )
+    val colorIndex by danceTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = wordColors.size.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "newColorIndex"
+    )
+    val newColor = remember(colorIndex) {
+        val idx = colorIndex.toInt().coerceIn(0, wordColors.lastIndex)
+        wordColors[idx]
+    }
+
+    Box(
+        modifier = modifier.graphicsLayer(
+            scaleX = baseScale,
+            scaleY = baseScale,
+            alpha = fabAlphaLocal
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .graphicsLayer(alpha = fabAlphaLocal)
+                .drawBehind {
+                    val radius = size.maxDimension
+                    val haloBrush = Brush.radialGradient(
+                        colors = listOf(
+                            haloColor,
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = radius
+                    )
+                    drawCircle(
+                        brush = haloBrush,
+                        radius = radius
                     )
                 }
-            }
-            Text(
-                text = "${event.city} • ${event.venue}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = event.dateLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = event.priceFrom,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.primary
+                .clip(goTickyShapes.extraLarge)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.secondary
+                        )
+                    )
                 )
-                val statusColor = when (event.status) {
-                    "Live" -> MaterialTheme.colorScheme.primary
-                    "Draft" -> MaterialTheme.colorScheme.outline
-                    else -> MaterialTheme.colorScheme.tertiary
+                .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
+                .shadow(
+                    elevation = 12.dp,
+                    shape = goTickyShapes.extraLarge,
+                    ambientColor = MaterialTheme.colorScheme.primary
+                )
+        ) {
+            Row(
+                modifier = Modifier
+                    .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Upload,
+                        contentDescription = "Create NEW Event",
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
                 }
-                Pill(
-                    text = event.status,
-                    color = statusColor.copy(alpha = 0.16f),
-                    textColor = statusColor
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "${event.views} views",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "${event.saves} saves",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "${event.sales} sales",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Create",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "NEW",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                        color = newColor,
+                        modifier = Modifier.graphicsLayer(
+                            translationY = danceOffsetY,
+                            scaleX = danceScale,
+                            scaleY = danceScale
+                        )
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Event",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun OrganizerMetricCard(
-	title: String,
-	value: Int,
-	accent: Color,
-	modifier: Modifier = Modifier,
+private fun OrganizerEventDetailScreen(
+    event: OrganizerEvent,
+    onBack: () -> Unit,
 ) {
-	    val pulse by rememberInfiniteTransition(label = "metricPulse").animateFloat(
-	        initialValue = 0.97f,
-	        targetValue = 1.03f,
-	        animationSpec = infiniteRepeatable(
-	            animation = tween(durationMillis = 2600, easing = LinearEasing)
-	        ),
-	        label = "metricPulseAnim"
-	    )
-	    GlowCard(
-	        modifier = modifier.graphicsLayer(scaleX = pulse, scaleY = pulse)
-	    ) {
-	        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-	            Text(
-	                text = title,
-	                style = MaterialTheme.typography.labelMedium,
-	                color = MaterialTheme.colorScheme.onSurfaceVariant
-	            )
-	            Text(
-	                text = value.toString(),
-	                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-	                color = accent
-	            )
-	        }
-	    }
-	}
+    val scrollState = rememberScrollState()
+    val baseEvent = remember(event.eventId) {
+        sampleEvents.firstOrNull { it.id == event.eventId }
+    }
+    val accent = IconCategoryColors[baseEvent?.category ?: IconCategory.Discover]
+        ?: MaterialTheme.colorScheme.primary
+    val statusColor = when (event.status) {
+        "Live" -> MaterialTheme.colorScheme.primary
+        "Draft" -> MaterialTheme.colorScheme.outline
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+    val views = event.views.coerceAtLeast(0)
+    val saves = event.saves.coerceAtLeast(0)
+    val sales = event.sales.coerceAtLeast(0)
+    val engagementRate = if (views == 0) 0f else (saves.toFloat() / views.toFloat()).coerceIn(0f, 1f)
+    val conversionRate = if (views == 0) 0f else (sales.toFloat() / views.toFloat()).coerceIn(0f, 1f)
+    val interestScore = ((engagementRate * 0.4f) + (conversionRate * 0.6f)).coerceIn(0f, 1f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow)
+    ) {
+        baseEvent?.imagePath?.let { key ->
+            val photoRes = Res.allDrawableResources[key]
+            if (photoRes != null) {
+                Image(
+                    painter = painterResource(photoRes),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.35f),
+                            Color.Black.copy(alpha = 0.92f)
+                        )
+                    )
+                )
+                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                TopBar(
+                    title = "Event performance",
+                    onBack = onBack,
+                    actions = null,
+                    backgroundColor = Color.Transparent
+                )
+            }
+
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Pill(
+                            text = "Organizer view",
+                            color = Color.Black.copy(alpha = 0.4f),
+                            textColor = MaterialTheme.colorScheme.onSurface
+                        )
+                        Pill(
+                            text = event.status,
+                            color = statusColor.copy(alpha = 0.18f),
+                            textColor = statusColor
+                        )
+                        if (event.isVerified) {
+                            Icon(
+                                imageVector = Icons.Outlined.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                    Text(
+                        text = event.title,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            shadow = Shadow(
+                                color = Color.Black.copy(alpha = 0.9f),
+                                offset = Offset(0f, 3f),
+                                blurRadius = 10f
+                            )
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${event.city} – ${event.venue}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = event.dateLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = event.priceFrom,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = accent
+                    )
+                }
+            }
+
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Stats overview",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OrganizerDetailStat(
+                            label = "Views",
+                            value = views,
+                            accent = MaterialTheme.colorScheme.primary
+                        )
+                        OrganizerDetailStat(
+                            label = "Saves",
+                            value = saves,
+                            accent = MaterialTheme.colorScheme.secondary
+                        )
+                        OrganizerDetailStat(
+                            label = "Sales",
+                            value = sales,
+                            accent = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Engagement",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        AnimatedProgressBar(
+                            progress = engagementRate,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = "${(engagementRate * 100).toInt()}% of viewers saved this event",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Conversion",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        AnimatedProgressBar(
+                            progress = conversionRate,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = "${(conversionRate * 100).toInt()}% of viewers purchased tickets",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Overall health",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        AnimatedProgressBar(
+                            progress = interestScore,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = when {
+                                interestScore >= 0.66f -> "Strong momentum – keep pushing alerts and social posts."
+                                interestScore >= 0.33f -> "Decent traction – consider early-bird or bundle offers."
+                                else -> "Quiet so far – a flyer refresh and more sharing could help."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Audience signals",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        NeonSelectablePill(
+                            text = if (views > 0) "Discovery on track" else "Needs discovery",
+                            selected = views > 0,
+                            onClick = {}
+                        )
+                        NeonSelectablePill(
+                            text = if (saves > 0) "People are saving this" else "Few saves yet",
+                            selected = saves > 0,
+                            onClick = {}
+                        )
+                        NeonSelectablePill(
+                            text = if (sales > 0) "Tickets moving" else "No sales in sample data",
+                            selected = sales > 0,
+                            onClick = {}
+                        )
+                        NeonSelectablePill(
+                            text = event.city,
+                            selected = true,
+                            onClick = {},
+                            selectedContainerColor = accent,
+                            selectedContentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                    Text(
+                        text = "These signals are based on the demo data for your uploaded events.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrganizerDetailStat(
+    label: String,
+    value: Int,
+    accent: Color,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = accent
+        )
+    }
+}
+
+@Composable
+private fun OrganizerMetricCard(
+    title: String,
+    value: Int,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    GlowCard(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = accent
+            )
+        }
+    }
+}
+
+@Composable
+private fun OrganizerEventCard(
+    event: OrganizerEvent,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    GlowCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .pressAnimated(scaleDown = 0.97f)
+            .clickable { onClick() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = event.title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Pill(text = event.status)
+            }
+            Text(
+                text = "${event.city} • ${event.venue}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = event.dateLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = event.priceFrom,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = event.views.toString(),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "views",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = event.saves.toString(),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "saves",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = event.sales.toString(),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "sales",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun RecommendationsRow(
@@ -5046,21 +6059,67 @@ private fun EventDetailScreen(
 
 @Composable
 private fun CreateEventScreen(
+    userProfile: UserProfile,
     onBack: () -> Unit,
     onSaveDraft: (String, String, String, String, String, String) -> Unit,
 ) {
+    var companyName by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }
-    var venue by remember { mutableStateOf("") }
     var dateLabel by remember { mutableStateOf("") }
+    var selectedDate by remember { mutableStateOf<String?>(null) }
+    var selectedTime by remember { mutableStateOf<String?>(null) }
     var priceFrom by remember { mutableStateOf("") }
+    var ticketGeneral by remember { mutableStateOf("") }
+    var ticketVip by remember { mutableStateOf("") }
+    var ticketStudent by remember { mutableStateOf("") }
+    var ticketEarlyBird by remember { mutableStateOf("") }
+    var venue by remember { mutableStateOf("") }
+    var city by remember { mutableStateOf("") }
+    var country by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Draft") }
     var flyerUrl by remember { mutableStateOf("") }
     var flyerUploading by remember { mutableStateOf(false) }
     var flyerUploaded by remember { mutableStateOf(false) }
-    val completedFields = listOf(title, city, venue, dateLabel, priceFrom).count { it.isNotBlank() } +
+    var showDateTimePicker by remember { mutableStateOf(false) }
+    val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+    var datePickerMonthIndex by remember { mutableStateOf(0) }
+    var datePickerDay by remember { mutableStateOf(7) }
+    var datePickerTime by remember { mutableStateOf("6:00 PM") }
+    var showErrors by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showDateTimePicker) {
+        if (showDateTimePicker) {
+            datePickerMonthIndex = months.indexOf(selectedDate?.substringBefore(" ") ?: userProfile.birthday.substringBefore(" ").ifBlank { months.first() }).coerceAtLeast(0)
+            datePickerDay = selectedDate?.substringAfter(" ")?.toIntOrNull()
+                ?: userProfile.birthday.substringAfter(" ").toIntOrNull()
+                ?: 7
+            datePickerTime = selectedTime ?: "6:00 PM"
+        }
+    }
+
+    fun parsePrice(input: String): Double? {
+        val cleaned = input.filter { it.isDigit() || it == '.' }
+        return cleaned.toDoubleOrNull()
+    }
+    fun resolvedPriceFrom(): String {
+        val candidates = listOf(priceFrom, ticketEarlyBird, ticketGeneral, ticketVip, ticketStudent)
+            .mapNotNull { parsePrice(it) }
+        return (candidates.minOrNull() ?: 0.0).let { if (it == 0.0) "" else it.toString() }
+    }
+    val primaryPrice = parsePrice(priceFrom)
+    val hasAnyPrice = (primaryPrice != null) || resolvedPriceFrom().isNotBlank()
+    val completedFields = listOf(
+        companyName,
+        title,
+        dateLabel,
+        venue,
+        city,
+        country,
+    ).count { it.isNotBlank() } +
+        listOf(ticketGeneral, ticketVip, ticketStudent, ticketEarlyBird).count { it.isNotBlank() } +
+        (if (hasAnyPrice) 1 else 0) +
         if (flyerUploaded || flyerUrl.isNotBlank()) 1 else 0
-    val progress = (completedFields / 6f).coerceIn(0f, 1f)
+    val progress = (completedFields / 12f).coerceIn(0f, 1f)
 
     LaunchedEffect(flyerUploading) {
         if (flyerUploading) {
@@ -5078,7 +6137,7 @@ private fun CreateEventScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 18.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
@@ -5090,39 +6149,134 @@ private fun CreateEventScreen(
             )
         }
         GlowCard {
+            val profilePhotoPainter = profilePainter(userProfile)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Organizer details",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(goTickyShapes.large)
+                        .background(Color.Black.copy(alpha = 0.25f))
+                        .background(GoTickyGradients.GlassWash)
+                        .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                        .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .border(1.dp, GoTickyGradients.EdgeHalo, CircleShape)
+                    ) {
+                        if (profilePhotoPainter != null) {
+                            Image(
+                                painter = profilePhotoPainter,
+                                contentDescription = "Organizer photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.AccountCircle,
+                                contentDescription = null,
+                                tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = userProfile.fullName,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = userProfile.email,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${userProfile.phoneCode} ${userProfile.phoneNumber}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                Icons.Outlined.Cake to userProfile.birthday,
+                                Icons.Outlined.Person to userProfile.gender,
+                                Icons.Outlined.Flag to userProfile.countryName
+                            ).forEach { (icon, value) ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier
+                                        .clip(goTickyShapes.medium)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+                                        .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        text = value,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "Organizer details are synced from My Profile. Update there to keep events consistent.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "Basics",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                val currencyTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.82f)
+                val priceError = showErrors && !hasAnyPrice
+                val dateError = showErrors && dateLabel.isBlank()
+                val titleError = showErrors && title.isBlank()
+                val venueError = showErrors && venue.isBlank()
+                val cityError = showErrors && city.isBlank()
+                val countryError = showErrors && country.isBlank()
+
+                OutlinedTextField(
+                    value = companyName,
+                    onValueChange = { companyName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Company / organiser name") },
+                    placeholder = { Text("e.g. GoTicky Live Studio") },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Event title") },
-                    shape = goTickyShapes.medium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                    )
-                )
-                OutlinedTextField(
-                    value = city,
-                    onValueChange = { city = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("City") },
-                    shape = goTickyShapes.medium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                    )
-                )
-                OutlinedTextField(
-                    value = venue,
-                    onValueChange = { venue = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Venue") },
+                    isError = titleError,
+                    supportingText = {
+                        if (titleError) Text("Title is required", color = MaterialTheme.colorScheme.error)
+                    },
                     shape = goTickyShapes.medium,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -5132,9 +6286,23 @@ private fun CreateEventScreen(
                 OutlinedTextField(
                     value = dateLabel,
                     onValueChange = { dateLabel = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Date & time label") },
-                    placeholder = { Text("e.g. Fri · 8:00 PM") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDateTimePicker = true },
+                    label = { Text("Date & time") },
+                    placeholder = { Text("Tap to pick date and time") },
+                    isError = dateError,
+                    supportingText = {
+                        if (dateError) Text("Pick a date and time", color = MaterialTheme.colorScheme.error)
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Event,
+                            contentDescription = "Pick date",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    readOnly = true,
                     shape = goTickyShapes.medium,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -5146,7 +6314,145 @@ private fun CreateEventScreen(
                     onValueChange = { priceFrom = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Price from") },
-                    placeholder = { Text("From $50") },
+                    placeholder = { Text("50") },
+                    prefix = {
+                        Text(
+                            text = "$",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = currencyTint
+                        )
+                    },
+                    isError = priceError,
+                    supportingText = {
+                        if (priceError) Text("Enter at least one numeric price", color = MaterialTheme.colorScheme.error)
+                    },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                Text(
+                    "Ticket options",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = ticketEarlyBird,
+                    onValueChange = { ticketEarlyBird = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Early bird / Promo") },
+                    placeholder = { Text("18") },
+                    prefix = {
+                        Text(
+                            text = "$",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = currencyTint
+                        )
+                    },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = ticketGeneral,
+                    onValueChange = { ticketGeneral = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("General / Standard") },
+                    placeholder = { Text("25") },
+                    prefix = {
+                        Text(
+                            text = "$",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = currencyTint
+                        )
+                    },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = ticketVip,
+                    onValueChange = { ticketVip = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("VIP / Lounge") },
+                    placeholder = { Text("60") },
+                    prefix = {
+                        Text(
+                            text = "$",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = currencyTint
+                        )
+                    },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = ticketStudent,
+                    onValueChange = { ticketStudent = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Golden Circle") },
+                    placeholder = { Text("120") },
+                    prefix = {
+                        Text(
+                            text = "$",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = currencyTint
+                        )
+                    },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = venue,
+                    onValueChange = { venue = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Venue") },
+                    isError = venueError,
+                    supportingText = {
+                        if (venueError) Text("Venue is required", color = MaterialTheme.colorScheme.error)
+                    },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = city,
+                    onValueChange = { city = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("City") },
+                    isError = cityError,
+                    supportingText = {
+                        if (cityError) Text("City is required", color = MaterialTheme.colorScheme.error)
+                    },
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = country,
+                    onValueChange = { country = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Country") },
+                    placeholder = { Text("Where will this event be hosted?") },
+                    isError = countryError,
+                    supportingText = {
+                        if (countryError) Text("Country is required", color = MaterialTheme.colorScheme.error)
+                    },
                     shape = goTickyShapes.medium,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -5233,15 +6539,148 @@ private fun CreateEventScreen(
                         )
                     }
                 }
+                val primaryLabel = if (status == "Live") "Submit application" else "Save draft"
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
+                ) {
+                    PrimaryButton(
+                        text = primaryLabel,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        val valid = title.isNotBlank() &&
+                            dateLabel.isNotBlank() &&
+                            venue.isNotBlank() &&
+                            city.isNotBlank() &&
+                            country.isNotBlank() &&
+                            parsePrice(priceFrom) != null
+                        if (!valid) {
+                            showErrors = true
+                        } else {
+                            val normalizedPrice = if (priceFrom.isBlank()) resolvedPriceFrom() else priceFrom
+                            onSaveDraft(
+                                title.trim(),
+                                city.trim(),
+                                venue.trim(),
+                                dateLabel.ifBlank { "${selectedDate ?: ""} ${selectedTime ?: ""}".trim() },
+                                normalizedPrice.ifBlank { "0" },
+                                status
+                            )
+                            showErrors = false
+                        }
+                    }
+                    GhostButton(
+                        text = "Cancel",
+                        modifier = Modifier.weight(1f)
+                    ) { onBack() }
+                }
             }
         }
         AnimatedProgressBar(progress = progress, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            GhostButton(text = "Cancel", modifier = Modifier.weight(1f)) { onBack() }
-            PrimaryButton(text = "Save draft", modifier = Modifier.weight(1f)) {
-                onSaveDraft(title, city, venue, dateLabel, priceFrom, status)
+    }
+
+    if (showDateTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showDateTimePicker = false },
+            title = { Text("Pick date & time") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.94f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "dateTimeDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        NeonTextButton(
+                            text = "<",
+                            onClick = {
+                                datePickerMonthIndex = if (datePickerMonthIndex == 0) months.lastIndex else datePickerMonthIndex - 1
+                            }
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = months[datePickerMonthIndex],
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Tap a day, then choose a time",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        NeonTextButton(
+                            text = ">",
+                            onClick = {
+                                datePickerMonthIndex = if (datePickerMonthIndex == months.lastIndex) 0 else datePickerMonthIndex + 1
+                            }
+                        )
+                    }
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        (1..30).forEach { d ->
+                            val selected = d == datePickerDay
+                            NeonSelectablePill(
+                                text = d.toString(),
+                                selected = selected,
+                                onClick = { datePickerDay = d }
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Time",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("6:00 PM", "7:30 PM", "9:00 PM", "10:30 PM").forEach { slot ->
+                            val selected = datePickerTime == slot
+                            NeonSelectablePill(
+                                text = slot,
+                                selected = selected,
+                                onClick = { datePickerTime = slot }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                PrimaryButton(text = "Apply") {
+                    val month = months[datePickerMonthIndex]
+                    val date = "$month $datePickerDay"
+                    selectedDate = date
+                    val timeLabel = datePickerTime
+                    selectedTime = timeLabel
+                    dateLabel = "$date at $timeLabel"
+                    showDateTimePicker = false
+                }
+            },
+            dismissButton = {
+                NeonTextButton(
+                    text = "Cancel",
+                    onClick = { showDateTimePicker = false }
+                )
             }
-        }
+        )
     }
 }
 

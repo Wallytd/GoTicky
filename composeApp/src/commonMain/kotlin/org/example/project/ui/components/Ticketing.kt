@@ -500,7 +500,7 @@ fun TicketDetailScreen(
                         Icon(
                             imageVector = Icons.Outlined.Share,
                             contentDescription = "Share ticket",
-                            tint = MaterialTheme.colorScheme.onSurface
+                            tint = Color(0xFF5CF0FF)
                         )
                     }
                 ) {

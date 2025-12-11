@@ -2,6 +2,7 @@ package org.example.project.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
@@ -30,6 +32,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.example.project.ui.theme.GoTickyGradients
@@ -79,6 +83,7 @@ fun ProfileAvatar(
     modifier: Modifier = Modifier,
     initials: String = "TG",
     onClick: () -> Unit,
+    photoPainter: Painter? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -100,15 +105,23 @@ fun ProfileAvatar(
                     )
                 )
             )
-            .border(1.dp, GoTickyGradients.EdgeHalo, CircleShape)
             .clickable(interactionSource = interactionSource, indication = null) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Outlined.AccountCircle,
-            contentDescription = "Profile",
-            tint = MaterialTheme.colorScheme.onPrimary
-        )
+        if (photoPainter != null) {
+            Image(
+                painter = photoPainter,
+                contentDescription = "Profile photo",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.AccountCircle,
+                contentDescription = "Profile",
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     }
 }
 
