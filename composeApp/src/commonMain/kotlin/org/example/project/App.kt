@@ -5866,24 +5866,30 @@ private fun AlertsScreen(
 
 @Composable
 private fun PlaceholderScreen(title: String, onBack: () -> Unit) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(GoTickyGradients.CardGlow)
     ) {
-        GlowCard(modifier = Modifier.fillMaxWidth()) {
-            TopBar(
-                title = title,
-                onBack = onBack,
-                actions = null,
-                backgroundColor = Color.Transparent
-            )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                TopBar(
+                    title = title,
+                    onBack = onBack,
+                    actions = null,
+                    backgroundColor = Color.Transparent
+                )
+            }
+            Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(12.dp))
+            NeonTextButton(text = "Back to Discover", onClick = { onBack() })
         }
-        Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.height(12.dp))
-        NeonTextButton(text = "Back to Discover", onClick = { onBack() })
     }
 }
 
