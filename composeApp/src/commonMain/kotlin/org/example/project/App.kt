@@ -1,6 +1,7 @@
 package org.example.project
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.LinearEasing
@@ -1012,6 +1013,8 @@ private fun GoTickyRoot() {
             } else if (detailEvent != null) {
                 EventDetailScreen(
                     event = detailEvent!!,
+                    isFavorite = favoriteEvents.contains(detailEvent!!.id),
+                    onToggleFavorite = { detailEvent?.let { toggleFavorite(it.id) } },
                     onBack = { detailEvent = null },
                     onProceedToCheckout = { ticketType ->
                         selectedTicketType = ticketType
@@ -1542,8 +1545,10 @@ private fun HomeScreen(
             title = "For you",
             action = { NeonTextButton(text = "Personalize", onClick = { showForYouPersonalize = true }) }
         )
-        RecommendationsRow(
+        ForYouRecommendationsRow(
             recommendations = recommendations,
+            favoriteEvents = favoriteEvents,
+            onToggleFavorite = onToggleFavorite,
             onOpen = { rec ->
                 Analytics.log(
                     AnalyticsEvent(
@@ -1594,6 +1599,8 @@ private fun HomeScreen(
 
         PopularNearbySwingDeck(
             nearby = popularNearby,
+            favoriteEvents = favoriteEvents,
+            onToggleFavorite = onToggleFavorite,
             onOpen = { event -> onEventSelected(event) }
         )
 
@@ -3482,6 +3489,8 @@ private fun NewsCollageBackdrop(colors: List<Color>) {
 @Composable
 private fun PopularNearbySwingDeck(
     nearby: List<org.example.project.data.NearbyEvent>,
+    favoriteEvents: List<String>,
+    onToggleFavorite: (String) -> Unit,
     onOpen: (EventItem) -> Unit,
     modifier: Modifier = Modifier,
     swingIntensity: Float = 1f,
@@ -3627,6 +3636,8 @@ private fun PopularNearbySwingDeck(
                         distanceLabel = item.distance.formatted,
                         fromLabel = item.distance.fromLabel,
                         isPrimary = isCenter,
+                        isFavorite = favoriteEvents.contains(item.event.id),
+                        onToggleFavorite = { onToggleFavorite(item.event.id) },
                         modifier = Modifier.fillMaxWidth(0.9f),
                         onOpen = { onOpen(item.event) }
                     )
@@ -3713,10 +3724,22 @@ private fun NearbySwingCard(
     distanceLabel: String,
     fromLabel: String,
     isPrimary: Boolean,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     modifier: Modifier = Modifier,
     onOpen: () -> Unit,
 ) {
     val accent = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
+    val favoriteScale by animateFloatAsState(
+        targetValue = if (isFavorite) 1.15f else 1f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "nearbyFavoriteScale"
+    )
+    val favoriteTint by animateColorAsState(
+        targetValue = if (isFavorite) Color(0xFFFF4B5C) else Color.White.copy(alpha = 0.9f),
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+        label = "nearbyFavoriteTint"
+    )
     Box(
         modifier = modifier
             .height(260.dp)
@@ -3797,6 +3820,24 @@ private fun NearbySwingCard(
                     )
                     .drawBehind { drawRect(GoTickyTextures.GrainTint) }
             )
+
+            IconButton(
+                onClick = { onToggleFavorite() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(14.dp)
+                    .size(34.dp)
+                    .graphicsLayer(scaleX = favoriteScale, scaleY = favoriteScale)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
+                    tint = favoriteTint
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -4102,6 +4143,7 @@ private fun ProfileScreen(
     val clipboard = LocalClipboardManager.current
     var showProfileDetails by remember { mutableStateOf(false) }
     var showSearchHistory by remember { mutableStateOf(false) }
+    var showFavorites by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -4242,8 +4284,24 @@ private fun ProfileScreen(
                     label = "Favorites",
                     icon = Icons.Outlined.FavoriteBorder,
                     tint = Color(0xFFFF4B5C),
-                    trailing = null,
-                    onClick = { }
+                    trailing = if (favorites.isNotEmpty()) {
+                        {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF4B5C).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = favorites.size.toString(),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFFF4B5C)
+                                )
+                            }
+                        }
+                    } else null,
+                    onClick = { showFavorites = true }
                 ),
                 MenuItemSpec(
                     label = "Reviews",
@@ -4408,6 +4466,65 @@ private fun ProfileScreen(
                     }
                     NeonTextButton(text = "Close", onClick = { showSearchHistory = false })
                 }
+            }
+        )
+    }
+
+    if (showFavorites) {
+        AlertDialog(
+            onDismissRequest = { showFavorites = false },
+            title = { Text("Favorites") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "favoritesScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                val favoriteItems = sampleEvents.filter { favorites.contains(it.id) }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    if (favoriteItems.isEmpty()) {
+                        Text(
+                            text = "You haven't saved any events yet. Tap the heart on an event to add it here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = "Tap a card to open details, or tap the heart again to remove it from favourites.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.heightIn(max = 320.dp)
+                        ) {
+                            items(favoriteItems) { event ->
+                                EventCard(
+                                    item = event,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressAnimated(scaleDown = 0.96f),
+                                    isFavorite = favorites.contains(event.id),
+                                    onToggleFavorite = { onToggleFavorite(event.id) },
+                                    onClick = {
+                                        onOpenEvent(event)
+                                        showFavorites = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { showFavorites = false })
             }
         )
     }
@@ -5487,6 +5604,174 @@ private fun OrganizerEventCard(
 }
 
 @Composable
+private fun ForYouRecommendationsRow(
+    recommendations: List<Recommendation>,
+    favoriteEvents: List<String>,
+    onToggleFavorite: (String) -> Unit,
+    onOpen: (Recommendation) -> Unit
+) {
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(600)
+        loading = false
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (loading) {
+            RecommendationSkeleton()
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            items(recommendations) { rec ->
+                val isFavorite = favoriteEvents.contains(rec.eventId)
+                val favoriteScale by animateFloatAsState(
+                    targetValue = if (isFavorite) 1.15f else 1f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "forYouFavoriteScale"
+                )
+                val favoriteTint by animateColorAsState(
+                    targetValue = if (isFavorite) Color(0xFFFF4B5C) else Color.White.copy(alpha = 0.9f),
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                    label = "forYouFavoriteTint"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .width(260.dp)
+                        .shadow(10.dp, goTickyShapes.extraLarge)
+                        .clip(goTickyShapes.extraLarge)
+                        .background(GoTickyGradients.CardGlow)
+                        .background(GoTickyGradients.GlassWash)
+                        .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                        .pressAnimated(scaleDown = 0.96f)
+                        .clickable { onOpen(rec) }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .height(180.dp)
+                            .fillMaxWidth()
+                            .padding(1.5.dp)
+                            .clip(goTickyShapes.large)
+                    ) {
+                        // Resolve image key: explicit on rec, otherwise fall back to event photo
+                        val imageKey = rec.imageKey
+                            ?: sampleEvents.firstOrNull { it.id == rec.eventId }?.imagePath
+                        val photoRes = imageKey?.let { key -> Res.allDrawableResources[key] }
+
+                        if (photoRes != null) {
+                            Image(
+                                painter = painterResource(photoRes),
+                                contentDescription = null,
+                                modifier = Modifier.matchParentSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                                                MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                                            )
+                                        )
+                                    )
+                            )
+                        }
+
+                        // Dark overlay + grain for readability
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = 0.15f),
+                                            Color.Black.copy(alpha = 0.85f)
+                                        )
+                                    )
+                                )
+                                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                        )
+
+                        IconButton(
+                            onClick = { onToggleFavorite(rec.eventId) },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(12.dp)
+                                .size(24.dp)
+                                .graphicsLayer(scaleX = favoriteScale, scaleY = favoriteScale)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.25f))
+                                .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
+                                tint = favoriteTint
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(4.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Pill(
+                                text = rec.tag,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                textColor = MaterialTheme.colorScheme.primary
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    rec.title,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        shadow = Shadow(
+                                            color = Color.Black.copy(alpha = 0.8f),
+                                            offset = Offset(0f, 2f),
+                                            blurRadius = 6f
+                                        )
+                                    ),
+                                    color = Color(0xFFFDFDFE),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "${rec.city} • ${rec.reason}",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        shadow = Shadow(
+                                            color = Color.Black.copy(alpha = 0.7f),
+                                            offset = Offset(0f, 1.5f),
+                                            blurRadius = 4f
+                                        )
+                                    ),
+                                    color = Color.White.copy(alpha = 0.94f),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    rec.priceFrom,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                NeonTextButton(text = "Open", onClick = { onOpen(rec) })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun RecommendationsRow(
     recommendations: List<Recommendation>,
     onOpen: (Recommendation) -> Unit
@@ -6345,6 +6630,8 @@ private fun generateTimeSlots(): List<String> {
 @Composable
 private fun EventDetailScreen(
     event: org.example.project.data.EventItem,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
     onProceedToCheckout: (String) -> Unit,
     onAlert: () -> Unit
@@ -6360,6 +6647,16 @@ private fun EventDetailScreen(
         targetValue = 220f,
         animationSpec = infiniteRepeatable(tween(2800, easing = LinearEasing)),
         label = "detailHeroSheen"
+    )
+    val favoriteScale by animateFloatAsState(
+        targetValue = if (isFavorite) 1.1f else 1f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "detailFavoriteScale"
+    )
+    val favoriteTint by animateColorAsState(
+        targetValue = if (isFavorite) Color(0xFFFF4B5C) else Color.White.copy(alpha = 0.9f),
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+        label = "detailFavoriteTint"
     )
     Column(
         modifier = Modifier
@@ -6475,36 +6772,79 @@ private fun EventDetailScreen(
                 }
             }
         }
-        GlowCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Event info",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                val infoRows = listOf(
-                    Pair(Icons.Outlined.Event, event.dateLabel),
-                    Pair(Icons.Outlined.Place, event.city),
-                    Pair(Icons.Outlined.ReceiptLong, event.priceFrom)
-                )
-                infoRows.forEach { (icon, copy) ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(accent.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            GlowCard(
+                modifier = Modifier.wrapContentWidth()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Event info",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    val infoRows = listOf(
+                        Pair(Icons.Outlined.Event, event.dateLabel),
+                        Pair(Icons.Outlined.Place, event.city),
+                        Pair(Icons.Outlined.ReceiptLong, event.priceFrom)
+                    )
+                    infoRows.forEach { (icon, copy) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(icon, contentDescription = null, tint = accent)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(accent.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(icon, contentDescription = null, tint = accent)
+                            }
+                            Text(
+                                text = copy,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .graphicsLayer(scaleX = favoriteScale, scaleY = favoriteScale)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
+                            tint = favoriteTint
+                        )
+                    }
+                    AnimatedContent(
+                        targetState = isFavorite,
+                        label = "FavoriteCaption"
+                    ) { fav ->
                         Text(
-                            text = copy,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = if (fav) "added to your favorites!" else "select this event as a favorite!",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
