@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -61,6 +62,7 @@ import androidx.compose.material.icons.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
@@ -111,10 +113,12 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.painter.Painter
@@ -206,7 +210,7 @@ import goticky.composeapp.generated.resources.allDrawableResources
 import org.jetbrains.compose.resources.painterResource
 
 private enum class MainScreen {
-    Home, Browse, Tickets, Alerts, Profile, Organizer, Map
+    Home, Browse, Tickets, Alerts, Profile, Organizer, Map, PrivacyTerms, FAQ, Settings
 }
 
 private fun currentGreeting(): String {
@@ -545,6 +549,32 @@ private val PersonalizationPrefsSaver = listSaver<PersonalizationPrefs, Any>(
     }
 )
 
+private data class SettingsPrefs(
+    val pushEnabled: Boolean = true,
+    val emailUpdates: Boolean = true,
+    val dataSaver: Boolean = false,
+    val hapticsEnabled: Boolean = true,
+    val theme: String = "Auto", // Auto | Light | Dark
+)
+
+private val SettingsPrefsSaver = listSaver<SettingsPrefs, Any>(
+    save = { listOf(it.pushEnabled, it.emailUpdates, it.dataSaver, it.hapticsEnabled, it.theme) },
+    restore = {
+        SettingsPrefs(
+            pushEnabled = it[0] as Boolean,
+            emailUpdates = it[1] as Boolean,
+            dataSaver = it[2] as Boolean,
+            hapticsEnabled = it[3] as Boolean,
+            theme = it[4] as String
+        )
+    }
+)
+
+private val SearchHistorySaver = listSaver<SnapshotStateList<String>, String>(
+    save = { stateList -> stateList.toList() },
+    restore = { saved -> mutableStateListOf(*saved.toTypedArray()) }
+)
+
 @Composable
 fun App() {
     GoTickyTheme {
@@ -751,6 +781,10 @@ private fun GoTickyRoot() {
     var showCheckout by remember { mutableStateOf(false) }
     var selectedTicketType by remember { mutableStateOf("General / Standard") }
     var userProfile by rememberSaveable(stateSaver = UserProfileSaver) { mutableStateOf(defaultUserProfile()) }
+    val favoriteEvents = rememberSaveable { mutableStateListOf<String>() }
+    fun toggleFavorite(eventId: String) {
+        if (favoriteEvents.contains(eventId)) favoriteEvents.remove(eventId) else favoriteEvents.add(eventId)
+    }
     val alerts = remember { mutableStateListOf<PriceAlert>(*sampleAlerts.toTypedArray()) }
     val recommendations = remember { sampleRecommendations }
     val organizerEvents = remember { mutableStateListOf<OrganizerEvent>(*sampleOrganizerEvents.toTypedArray()) }
@@ -803,9 +837,25 @@ private fun GoTickyRoot() {
     var personalizationPrefs by rememberSaveable(stateSaver = PersonalizationPrefsSaver) {
         mutableStateOf(PersonalizationPrefs(genres = listOf("Concerts", "Sports", "Comedy", "Family"), city = "Harare"))
     }
+    val searchHistory = rememberSaveable(saver = SearchHistorySaver) { mutableStateListOf<String>() }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var forceOpenSearchDialog by remember { mutableStateOf(false) }
+    var settingsPrefs by rememberSaveable(stateSaver = SettingsPrefsSaver) { mutableStateOf(SettingsPrefs()) }
+
+    fun recordSearch(query: String) {
+        val normalized = query.trim()
+        if (normalized.isEmpty()) return
+        searchHistory.remove(normalized)
+        searchHistory.add(0, normalized)
+        if (searchHistory.size > 10) {
+            searchHistory.removeAt(searchHistory.size - 1)
+        }
+    }
+
     fun openEventById(id: String) {
         sampleEvents.firstOrNull { it.id == id }?.let { detailEvent = it }
     }
+
     fun personalize(recs: List<Recommendation>): List<Recommendation> {
         fun score(rec: Recommendation): Int {
             var score = 0
@@ -835,6 +885,7 @@ private fun GoTickyRoot() {
             .map { it.first }
         return if (withSignal.isNotEmpty()) withSignal else prioritized
     }
+
     val navItems = remember {
         listOf(
             NavItem(MainScreen.Home, "Home", { Icon(Icons.Outlined.Home, null) }, IconCategory.Discover),
@@ -857,32 +908,32 @@ private fun GoTickyRoot() {
         selectedTicket == null &&
         detailEvent == null
 
-	LaunchedEffect(currentScreen) {
-		Analytics.log(
-			AnalyticsEvent(
-				name = "screen_view",
-				params = mapOf("screen" to currentScreen.name)
-			)
-		)
-	}
+    LaunchedEffect(currentScreen) {
+        Analytics.log(
+            AnalyticsEvent(
+                name = "screen_view",
+                params = mapOf("screen" to currentScreen.name)
+            )
+        )
+    }
 
-	LaunchedEffect(detailEvent?.id) {
-		detailEvent?.let { event ->
-			Analytics.log(
-				AnalyticsEvent(
-					name = "event_view",
-					params = mapOf(
-						"event_id" to event.id,
-						"title" to event.title
-					)
-				)
-			)
-		}
-	}
+    LaunchedEffect(detailEvent?.id) {
+        detailEvent?.let { event ->
+            Analytics.log(
+                AnalyticsEvent(
+                    name = "event_view",
+                    params = mapOf(
+                        "event_id" to event.id,
+                        "title" to event.title
+                    )
+                )
+            )
+        }
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             if (showRootChrome) {
                 FabGlow(
@@ -908,7 +959,9 @@ private fun GoTickyRoot() {
             }
         },
     ) { inner ->
+
         val layoutDirection = LocalLayoutDirection.current
+        val density = LocalDensity.current
         val contentPadding = PaddingValues(
             start = inner.calculateStartPadding(layoutDirection),
             end = inner.calculateEndPadding(layoutDirection),
@@ -1039,7 +1092,14 @@ private fun GoTickyRoot() {
                             detailEvent = event
                         },
                         recommendations = personalize(recommendations),
-                        onOpenMap = { currentScreen = MainScreen.Map }
+                        onOpenMap = { currentScreen = MainScreen.Map },
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = { searchQuery = it },
+                        forceOpenSearchDialog = forceOpenSearchDialog,
+                        onConsumeForceOpenSearchDialog = { forceOpenSearchDialog = false },
+                        onSearchExecuted = { query -> recordSearch(query) },
+                        favoriteEvents = favoriteEvents,
+                        onToggleFavorite = { id -> toggleFavorite(id) }
                     )
                     MainScreen.Browse -> PlaceholderScreen("Browse events") { currentScreen = MainScreen.Home }
                     MainScreen.Tickets -> TicketsScreen(
@@ -1119,7 +1179,12 @@ private fun GoTickyRoot() {
                         userProfile = userProfile,
                         onUpdateProfile = { updated -> userProfile = updated },
                         checklistState = checklistState,
-                        onToggleCheck = { id -> checklistState[id]?.let { checklistState[id] = !it } },
+                        onToggleCheck = { id -> checklistState[id] = !(checklistState[id] ?: false) },
+                        favorites = favoriteEvents,
+                        onToggleFavorite = { id -> toggleFavorite(id) },
+                        onOpenEvent = { event ->
+                            detailEvent = event
+                        },
                         onOpenOrganizer = {
                             Analytics.log(
                                 AnalyticsEvent(
@@ -1129,7 +1194,17 @@ private fun GoTickyRoot() {
                             )
                             currentScreen = MainScreen.Organizer
                         },
-                        onGoHome = { currentScreen = MainScreen.Home }
+                        onGoHome = { currentScreen = MainScreen.Home },
+                        onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
+                        onOpenFaq = { currentScreen = MainScreen.FAQ },
+                        searchHistory = searchHistory,
+                        onClearSearchHistory = { searchHistory.clear() },
+                        onSelectHistoryQuery = { query ->
+                            searchQuery = query
+                            forceOpenSearchDialog = true
+                            currentScreen = MainScreen.Home
+                        },
+                        onOpenSettings = { currentScreen = MainScreen.Settings }
                     )
                     MainScreen.Organizer -> when {
                         selectedOrganizerEvent != null -> {
@@ -1177,14 +1252,14 @@ private fun GoTickyRoot() {
                                 events = organizerEvents,
                                 onBack = { currentScreen = MainScreen.Profile },
                                 onCreateEvent = {
-								Analytics.log(
-									AnalyticsEvent(
-										name = "organizer_create_event_start",
-										params = emptyMap()
-									)
-								)
-								showCreateEvent = true
-							},
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "organizer_create_event_start",
+                                            params = emptyMap()
+                                        )
+                                    )
+                                    showCreateEvent = true
+                                },
                                 onOpenEvent = { event ->
                                     selectedOrganizerEvent = event
                                 },
@@ -1192,6 +1267,19 @@ private fun GoTickyRoot() {
                             )
                         }
                     }
+                    MainScreen.PrivacyTerms -> LegalScreen(
+                        onBack = { currentScreen = MainScreen.Profile }
+                    )
+                    MainScreen.FAQ -> FaqScreen(
+                        onBack = { currentScreen = MainScreen.Profile }
+                    )
+                    MainScreen.Settings -> SettingsScreen(
+                        prefs = settingsPrefs,
+                        onPrefsChange = { settingsPrefs = it },
+                        onBack = { currentScreen = MainScreen.Profile },
+                        onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
+                        onOpenFaq = { currentScreen = MainScreen.FAQ }
+                    )
                     MainScreen.Map -> EventMapScreen(
                         onBack = { currentScreen = MainScreen.Home },
                         onOpenEvent = { eventId -> openEventById(eventId) }
@@ -1209,8 +1297,14 @@ private fun HomeScreen(
     onEventSelected: (org.example.project.data.EventItem) -> Unit,
     recommendations: List<Recommendation>,
     onOpenMap: () -> Unit,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    forceOpenSearchDialog: Boolean,
+    onConsumeForceOpenSearchDialog: () -> Unit,
+    onSearchExecuted: (String) -> Unit,
+    favoriteEvents: List<String>,
+    onToggleFavorite: (String) -> Unit,
 ) {
-    var searchQuery by remember { mutableStateOf("") }
     val filters = remember { mutableStateListOf<String>() }
     var heroDetail by remember { mutableStateOf<HeroSlide?>(null) }
     var showNewsList by remember { mutableStateOf(false) }
@@ -1228,6 +1322,13 @@ private fun HomeScreen(
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(forceOpenSearchDialog) {
+        if (forceOpenSearchDialog) {
+            showQueryDialog = true
+            onConsumeForceOpenSearchDialog()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -1381,7 +1482,7 @@ private fun HomeScreen(
         )
         QuickSearchBar(
             query = searchQuery,
-            onQueryChange = { searchQuery = it },
+            onQueryChange = { onSearchQueryChange(it) },
             filters = filters,
             onLocationClick = { showLocationDialog = true },
             onDateClick = { showDateDialog = true },
@@ -2141,7 +2242,7 @@ private fun HomeScreen(
                     )
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = { onSearchQueryChange(it) },
                         leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "Search") },
                         placeholder = { Text("Search events, artists, venues") },
                         modifier = Modifier
@@ -2181,6 +2282,8 @@ private fun HomeScreen(
                                     EventCard(
                                         item = event,
                                         modifier = Modifier.pressAnimated(scaleDown = 0.96f),
+                                        isFavorite = favoriteEvents.contains(event.id),
+                                        onToggleFavorite = { onToggleFavorite(event.id) },
                                         onClick = {
                                             onEventSelected(event)
                                             showQueryDialog = false
@@ -2196,15 +2299,18 @@ private fun HomeScreen(
                 NeonTextButton(
                     text = "Done",
                     onClick = {
-                        Analytics.log(
-                            AnalyticsEvent(
-                                name = "search",
-                                params = mapOf(
-                                    "query" to searchQuery,
-                                    "filters" to filters.joinToString(",")
+                        if (searchQuery.isNotBlank()) {
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "search",
+                                    params = mapOf(
+                                        "query" to searchQuery,
+                                        "filters" to filters.joinToString(",")
+                                    )
                                 )
                             )
-                        )
+                            onSearchExecuted(searchQuery)
+                        }
                         showQueryDialog = false
                     }
                 )
@@ -3966,8 +4072,17 @@ private fun ProfileScreen(
     onUpdateProfile: (UserProfile) -> Unit,
     checklistState: MutableMap<String, Boolean>,
     onToggleCheck: (String) -> Unit,
+    favorites: List<String>,
+    onToggleFavorite: (String) -> Unit,
+    onOpenEvent: (EventItem) -> Unit,
     onOpenOrganizer: () -> Unit,
     onGoHome: () -> Unit,
+    onOpenPrivacyTerms: () -> Unit,
+    onOpenFaq: () -> Unit,
+    searchHistory: List<String>,
+    onClearSearchHistory: () -> Unit,
+    onSelectHistoryQuery: (String) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val headerPulse = infinitePulseAmplitude(
@@ -3984,7 +4099,9 @@ private fun ProfileScreen(
             ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
     }
     val uriHandler = LocalUriHandler.current
+    val clipboard = LocalClipboardManager.current
     var showProfileDetails by remember { mutableStateOf(false) }
+    var showSearchHistory by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -4119,7 +4236,7 @@ private fun ProfileScreen(
                     icon = Icons.Outlined.Search,
                     tint = IconCategoryColors[IconCategory.Discover] ?: MaterialTheme.colorScheme.primary,
                     trailing = null,
-                    onClick = { }
+                    onClick = { showSearchHistory = true }
                 ),
                 MenuItemSpec(
                     label = "Favorites",
@@ -4154,21 +4271,21 @@ private fun ProfileScreen(
                     icon = Icons.Outlined.Settings,
                     tint = Color(0xFFB0BEC5),
                     trailing = null,
-                    onClick = { }
+                    onClick = onOpenSettings
                 ),
                 MenuItemSpec(
                     label = "Help & FAQ",
                     icon = Icons.Outlined.HelpOutline,
                     tint = MaterialTheme.colorScheme.primary,
                     trailing = null,
-                    onClick = { }
+                    onClick = onOpenFaq
                 ),
                 MenuItemSpec(
                     label = "Privacy Policy and Terms of Service",
                     icon = Icons.Outlined.Shield,
                     tint = Color(0xFF4CAF50),
                     trailing = null,
-                    onClick = { uriHandler.openUri("https://goticky.app/legal") }
+                    onClick = onOpenPrivacyTerms
                 ),
                 MenuItemSpec(
                     label = "About",
@@ -4209,6 +4326,89 @@ private fun ProfileScreen(
             profile = userProfile,
             onUpdateProfile = onUpdateProfile,
             onDismiss = { showProfileDetails = false }
+        )
+    }
+
+    if (showSearchHistory) {
+        AlertDialog(
+            onDismissRequest = { showSearchHistory = false },
+            title = { Text("Search history") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "searchHistoryScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    if (searchHistory.isEmpty()) {
+                        Text(
+                            text = "No recent searches yet. Start from GoTicky Live to build your history.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = "Tap a query to copy it and reuse in search.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 260.dp)
+                        ) {
+                            items(searchHistory) { query ->
+                                GlowCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressAnimated(scaleDown = 0.96f)
+                                        .clickable {
+                                            onSelectHistoryQuery(query)
+                                            showSearchHistory = false
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Search,
+                                            contentDescription = null,
+                                            tint = IconCategoryColors[IconCategory.Discover]
+                                                ?: MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = query,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (searchHistory.isNotEmpty()) {
+                        GhostButton(text = "Clear", onClick = {
+                            onClearSearchHistory()
+                            showSearchHistory = false
+                        })
+                    }
+                    NeonTextButton(text = "Close", onClick = { showSearchHistory = false })
+                }
+            }
         )
     }
 }
@@ -4745,7 +4945,7 @@ private fun OrganizerDashboardScreen(
         OrganizerCreateFab(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 24.dp, bottom = 34.dp),
+                .padding(end = 24.dp, bottom = 64.dp),
             visibilityFraction = chromeAlpha,
             onClick = onCreateEvent
         )
@@ -5688,6 +5888,455 @@ private fun PlaceholderScreen(title: String, onBack: () -> Unit) {
 }
 
 @Composable
+private fun SettingsScreen(
+    prefs: SettingsPrefs,
+    onPrefsChange: (SettingsPrefs) -> Unit,
+    onBack: () -> Unit,
+    onOpenPrivacyTerms: () -> Unit,
+    onOpenFaq: () -> Unit,
+) {
+    val scrollState = rememberScrollState()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                TopBar(
+                    title = "Settings",
+                    onBack = onBack,
+                    actions = null,
+                    backgroundColor = Color.Transparent
+                )
+            }
+
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Notifications",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    SettingsToggleRow(
+                        title = "Event alerts & drops",
+                        description = "Show push alerts for price drops, new dates, and saved events.",
+                        checked = prefs.pushEnabled,
+                        onCheckedChange = { onPrefsChange(prefs.copy(pushEnabled = it)) }
+                    )
+                    SettingsToggleRow(
+                        title = "Email updates",
+                        description = "Occasional roundups for watched events and new city picks.",
+                        checked = prefs.emailUpdates,
+                        onCheckedChange = { onPrefsChange(prefs.copy(emailUpdates = it)) }
+                    )
+                }
+            }
+
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Data & performance",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    SettingsToggleRow(
+                        title = "Data saver for artwork",
+                        description = "Prefer lighter hero art and fewer background refreshes when on mobile data.",
+                        checked = prefs.dataSaver,
+                        onCheckedChange = { onPrefsChange(prefs.copy(dataSaver = it)) }
+                    )
+                }
+            }
+
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Feedback",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    SettingsToggleRow(
+                        title = "Haptic feedback",
+                        description = "Use subtle vibration on key actions like saves and checkout steps.",
+                        checked = prefs.hapticsEnabled,
+                        onCheckedChange = { onPrefsChange(prefs.copy(hapticsEnabled = it)) }
+                    )
+                }
+            }
+
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Support",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    SettingsLinkRow(
+                        label = "Privacy policy & terms",
+                        onClick = onOpenPrivacyTerms
+                    )
+                    SettingsLinkRow(
+                        label = "Help & FAQ",
+                        onClick = onOpenFaq
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "settingsToggleScale-$title"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .clip(goTickyShapes.medium)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onCheckedChange(!checked) }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+private fun SettingsLinkRow(
+    label: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "settingsLinkScale-$label"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .clip(goTickyShapes.medium)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Icon(
+            imageVector = Icons.Outlined.ArrowForward,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+private fun LegalScreen(onBack: () -> Unit) {
+    val scrollState = rememberScrollState()
+    val uriHandler = LocalUriHandler.current
+    val pdfUrl = "https://goticky.app/legal/goticky-privacy-terms.pdf"
+    val sections = listOf(
+        "Overview" to "GoTicky is a ticket discovery and purchase experience. We use your data to process orders, prevent fraud, personalize recommendations, and keep you informed about events you engage with.",
+        "Data we collect" to "Account data (name, email, phone), preferences (genres, cities), device signals for fraud prevention, and transaction metadata. We do not store card details—payments are handled by PCI-compliant providers.",
+        "How we use data" to "To issue tickets, notify you about changes, recommend relevant events, fight fraud/abuse, and comply with legal requests. We never sell your personal data.",
+        "Sharing" to "We share minimal data with payment processors, venue partners (for entry lists), and security/fraud services. Any marketing is opt-in and revocable.",
+        "Your controls" to "You can update profile info, clear search history, revoke marketing, and request data deletion/export. Alerts and personalization are opt-in.",
+        "Security" to "TLS in transit, encrypted storage for sensitive tokens, rate-limiting for abusive behavior, and anomaly detection on checkout/alerts.",
+        "Contact" to "privacy@goticky.app for data rights; security@goticky.app for vulnerability reports."
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                TopBar(
+                    title = "Privacy & Terms",
+                    onBack = onBack,
+                    actions = {
+                        NeonTextButton(text = "Download", onClick = { uriHandler.openUri(pdfUrl) })
+                    },
+                    backgroundColor = Color.Transparent
+                )
+            }
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Our promise",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "We operate with a privacy-first mindset for ticketing. This summary highlights the essentials; detailed clauses follow.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            sections.forEachIndexed { index, (title, body) ->
+                val delay = 80 * index
+                val visible = remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) { delay(delay.toLong()); visible.value = true }
+                AnimatedVisibility(
+                    visible = visible.value,
+                    enter = fadeIn(animationSpec = tween(280, delayMillis = delay)) + slideInVertically { it / 5 },
+                ) {
+                    GlowCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pressAnimated(scaleDown = 0.98f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                body,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Terms (high level)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    val terms = listOf(
+                        "Use of service" to "You agree to truthful info, no scalping abuse, and compliance with venue rules.",
+                        "Tickets & refunds" to "All sales are subject to organizer policies; we surface refund/transfer options where supported.",
+                        "Liability" to "We are not responsible for event changes or cancellations beyond our control; we facilitate organizer remedies.",
+                        "User conduct" to "No fraud, harassment, or platform abuse. Violations may lead to suspension.",
+                        "Changes" to "We may update these terms; continued use means acceptance. Material changes will be highlighted."
+                    )
+                    terms.forEach { (t, desc) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(goTickyShapes.medium)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Column {
+                                Text(t, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FaqScreen(onBack: () -> Unit) {
+    val faqs = listOf(
+        "How do I transfer or resell a ticket?" to "Open your ticket, tap Transfer/Share. If the organizer allows transfers, you'll get a shareable QR or link.",
+        "Can I get a refund?" to "Refunds follow the organizer's policy. If enabled, you'll see a Request Refund button under the ticket or receive credits.",
+        "Why are prices changing?" to "Dynamic pricing is set by organizers. We show the latest price and the lowest available option in \"price from\".",
+        "Is my payment secure?" to "Payments are processed by PCI-compliant providers; we never store your card. Suspicious activity triggers verification.",
+        "How do alerts work?" to "Set a price or drop alert. We'll notify you when prices move or new drops land. You can pause alerts anytime.",
+        "Which cities does GoTicky support?" to "We focus on Zimbabwe now, with curated events in Harare and Bulawayo. More cities are coming."
+    )
+    val openIndices = remember { mutableStateMapOf<Int, Boolean>() }
+    val scrollState = rememberScrollState()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                TopBar(
+                    title = "Help & FAQ",
+                    onBack = onBack,
+                    actions = {
+                        NeonTextButton(text = "Contact", onClick = { /* stub: open support */ })
+                    },
+                    backgroundColor = Color.Transparent
+                )
+            }
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Quick answers",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "Based on what users ask most in GoTicky: transfers, refunds, dynamic pricing, security, alerts, and city coverage.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            faqs.forEachIndexed { index, (q, a) ->
+                val expanded = openIndices[index] ?: false
+                val transition = updateTransition(expanded, label = "faq$index")
+                val arrowRotation by transition.animateFloat(
+                    transitionSpec = { tween(durationMillis = 240, easing = EaseOutBack) },
+                    label = "faqArrow$index"
+                ) { if (it) 180f else 0f }
+                GlowCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressAnimated(scaleDown = 0.97f)
+                        .clickable { openIndices[index] = !expanded }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                q,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Icon(
+                                imageVector = Icons.Outlined.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.rotate(arrowRotation),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        AnimatedVisibility(
+                            visible = expanded,
+                            enter = fadeIn(animationSpec = tween(200)) + slideInVertically { it / 4 },
+                            exit = fadeOut(animationSpec = tween(160))
+                        ) {
+                            Text(
+                                a,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            GlowCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Need more help?",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    PrimaryButton(text = "Chat with support") { /* stub: open chat */ }
+                    GhostButton(text = "Email support") { /* stub: email */ }
+                }
+            }
+        }
+    }
+}
+
+private fun generateTimeSlots(): List<String> {
+    val result = mutableListOf<String>()
+    val minutes = listOf(0, 30)
+    for (hour in 0 until 24) {
+        for (minute in minutes) {
+            val hour12 = when (val h = hour % 12) {
+                0 -> 12
+                else -> h
+            }
+            val suffix = if (hour < 12) "AM" else "PM"
+            val minuteLabel = if (minute == 0) "00" else minute.toString()
+            result.add("$hour12:$minuteLabel $suffix")
+        }
+    }
+    return result
+}
+
+@Composable
 private fun EventDetailScreen(
     event: org.example.project.data.EventItem,
     onBack: () -> Unit,
@@ -6081,11 +6730,19 @@ private fun CreateEventScreen(
     var flyerUploading by remember { mutableStateOf(false) }
     var flyerUploaded by remember { mutableStateOf(false) }
     var showDateTimePicker by remember { mutableStateOf(false) }
+    val timeSlots: List<String> = remember { generateTimeSlots() }
     val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
     var datePickerMonthIndex by remember { mutableStateOf(0) }
     var datePickerDay by remember { mutableStateOf(7) }
     var datePickerTime by remember { mutableStateOf("6:00 PM") }
     var showErrors by remember { mutableStateOf(false) }
+    val flyerImagePicker = rememberImagePicker { uri ->
+        flyerUploading = false
+        uri?.let {
+            flyerUploaded = true
+            flyerUrl = it.substringAfterLast('/')
+        }
+    }
 
     LaunchedEffect(showDateTimePicker) {
         if (showDateTimePicker) {
@@ -6093,7 +6750,8 @@ private fun CreateEventScreen(
             datePickerDay = selectedDate?.substringAfter(" ")?.toIntOrNull()
                 ?: userProfile.birthday.substringAfter(" ").toIntOrNull()
                 ?: 7
-            datePickerTime = selectedTime ?: "6:00 PM"
+            val resolvedTime = selectedTime ?: datePickerTime
+            datePickerTime = if (resolvedTime in timeSlots) resolvedTime else timeSlots.first()
         }
     }
 
@@ -6120,17 +6778,6 @@ private fun CreateEventScreen(
         (if (hasAnyPrice) 1 else 0) +
         if (flyerUploaded || flyerUrl.isNotBlank()) 1 else 0
     val progress = (completedFields / 12f).coerceIn(0f, 1f)
-
-    LaunchedEffect(flyerUploading) {
-        if (flyerUploading) {
-            delay(900)
-            if (flyerUrl.isBlank()) {
-                flyerUrl = "Flyer_${title.ifBlank { "New Event" }}.png"
-            }
-            flyerUploaded = true
-            flyerUploading = false
-        }
-    }
 
     Column(
         modifier = Modifier
@@ -6283,32 +6930,40 @@ private fun CreateEventScreen(
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline
                     )
                 )
-                OutlinedTextField(
-                    value = dateLabel,
-                    onValueChange = { dateLabel = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showDateTimePicker = true },
-                    label = { Text("Date & time") },
-                    placeholder = { Text("Tap to pick date and time") },
-                    isError = dateError,
-                    supportingText = {
-                        if (dateError) Text("Pick a date and time", color = MaterialTheme.colorScheme.error)
-                    },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Event,
-                            contentDescription = "Pick date",
-                            tint = MaterialTheme.colorScheme.primary
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = dateLabel,
+                        onValueChange = { dateLabel = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Date & time") },
+                        placeholder = { Text("Tap to pick date and time") },
+                        isError = dateError,
+                        supportingText = {
+                            if (dateError) Text("Pick a date and time", color = MaterialTheme.colorScheme.error)
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { showDateTimePicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Event,
+                                    contentDescription = "Pick date",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        readOnly = true,
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
-                    },
-                    readOnly = true,
-                    shape = goTickyShapes.medium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
                     )
-                )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clip(goTickyShapes.medium)
+                            .clickable { showDateTimePicker = true }
+                    )
+                }
                 OutlinedTextField(
                     value = priceFrom,
                     onValueChange = { priceFrom = it },
@@ -6499,7 +7154,10 @@ private fun CreateEventScreen(
                     PrimaryButton(
                         text = if (flyerUploading) "Uploading..." else "Upload flyer",
                         modifier = Modifier.weight(1f)
-                    ) { flyerUploading = true }
+                    ) {
+                        flyerUploading = true
+                        flyerImagePicker.pickFromGallery()
+                    }
                     GhostButton(
                         text = "Clear",
                         modifier = Modifier.weight(1f)
@@ -6513,7 +7171,10 @@ private fun CreateEventScreen(
                     isUploading = flyerUploading,
                     hasFlyer = flyerUploaded || flyerUrl.isNotBlank(),
                     flyerLabel = if (flyerUrl.isBlank()) "Your flyer will be shown here" else flyerUrl,
-                    onReplace = { flyerUploading = true },
+                    onReplace = {
+                        flyerUploading = true
+                        flyerImagePicker.pickFromGallery()
+                    },
                     onClear = {
                         flyerUrl = ""
                         flyerUploaded = false
@@ -6544,6 +7205,10 @@ private fun CreateEventScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
                 ) {
+                    GhostButton(
+                        text = "Cancel",
+                        modifier = Modifier.weight(1f)
+                    ) { onBack() }
                     PrimaryButton(
                         text = primaryLabel,
                         modifier = Modifier.weight(1f)
@@ -6569,10 +7234,6 @@ private fun CreateEventScreen(
                             showErrors = false
                         }
                     }
-                    GhostButton(
-                        text = "Cancel",
-                        modifier = Modifier.weight(1f)
-                    ) { onBack() }
                 }
             }
         }
@@ -6647,19 +7308,83 @@ private fun CreateEventScreen(
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf("6:00 PM", "7:30 PM", "9:00 PM", "10:30 PM").forEach { slot ->
-                            val selected = datePickerTime == slot
-                            NeonSelectablePill(
-                                text = slot,
-                                selected = selected,
-                                onClick = { datePickerTime = slot }
-                            )
+
+                    val timeSlotHeight = 46.dp
+                    val timeWheelState = rememberLazyListState(
+                        initialFirstVisibleItemIndex = timeSlots.indexOf(datePickerTime).coerceAtLeast(0)
+                    )
+                    LaunchedEffect(showDateTimePicker) {
+                        if (showDateTimePicker) {
+                            val target = timeSlots.indexOf(datePickerTime).coerceAtLeast(0)
+                            timeWheelState.scrollToItem(target)
                         }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(timeSlotHeight * 5)
+                            .clip(goTickyShapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                    ) {
+                        LazyColumn(
+                            state = timeWheelState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = timeSlotHeight * 2),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            itemsIndexed(timeSlots) { _: Int, slot: String ->
+                                val selected = datePickerTime == slot
+                                val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(timeSlotHeight)
+                                        .clip(goTickyShapes.medium)
+                                        .clickable { datePickerTime = slot }
+                                        .padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = slot,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = tint
+                                    )
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CheckCircle,
+                                            contentDescription = null,
+                                            tint = tint
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        0f to MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
+                                        0.2f to Color.Transparent,
+                                        0.8f to Color.Transparent,
+                                        1f to MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
+                                    )
+                                )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .fillMaxWidth()
+                                .height(timeSlotHeight + 6.dp)
+                                .clip(goTickyShapes.medium)
+                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), goTickyShapes.medium)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                        )
                     }
                 }
             },
