@@ -11,12 +11,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -218,6 +219,10 @@ import goticky.composeapp.generated.resources.Res
 import goticky.composeapp.generated.resources.allDrawableResources
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 
 private enum class MainScreen {
     Home, Browse, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
@@ -355,6 +360,7 @@ private fun AdminGateScreen(
                 )
             }
         }
+
     }
 }
 
@@ -512,6 +518,8 @@ private data class AdminApplication(
     val completeness: Int,
     val attachmentsReady: Boolean,
     val notes: String,
+    val eventDateTime: String = "",
+    val pricingTiers: List<String> = emptyList(),
 )
 private data class AdminReport(
     val id: String,
@@ -1068,10 +1076,66 @@ private fun GoTickyRoot() {
     var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
     val adminApplications = remember {
         mutableStateListOf(
-            AdminApplication("app-1", "Midnight Neon Fest", "Neon Live", "Harare", "EDM", "New", "Low", 4, 82, true, "All docs present"),
-            AdminApplication("app-2", "Bulawayo Street Fest", "City Beats", "Bulawayo", "Festival", "In Review", "High", 14, 54, false, "Missing permit upload"),
-            AdminApplication("app-3", "Family Lights Parade", "Sunrise Events", "Victoria Falls", "Family", "Needs Info", "Medium", 28, 70, true, "Clarify road closure"),
-            AdminApplication("app-4", "Savanna Sky Sessions", "VibeCo", "Maun", "Live band", "New", "Medium", 6, 66, true, "Check pricing rationale"),
+            AdminApplication(
+                id = "app-1",
+                title = "Midnight Neon Fest",
+                organizer = "Neon Live",
+                city = "Harare",
+                category = "EDM",
+                status = "New",
+                risk = "Low",
+                ageHours = 4,
+                completeness = 82,
+                attachmentsReady = true,
+                notes = "All docs present",
+                eventDateTime = "Dec 22, 2025 • 20:00",
+                pricingTiers = listOf("Early bird $25", "GA $40", "VIP $90")
+            ),
+            AdminApplication(
+                id = "app-2",
+                title = "Bulawayo Street Fest",
+                organizer = "City Beats",
+                city = "Bulawayo",
+                category = "Festival",
+                status = "In Review",
+                risk = "High",
+                ageHours = 14,
+                completeness = 54,
+                attachmentsReady = false,
+                notes = "Missing permit upload",
+                eventDateTime = "Jan 10, 2026 • 14:00",
+                pricingTiers = listOf("Free entry", "Food court tokens $10")
+            ),
+            AdminApplication(
+                id = "app-3",
+                title = "Family Lights Parade",
+                organizer = "Sunrise Events",
+                city = "Victoria Falls",
+                category = "Family",
+                status = "Needs Info",
+                risk = "Medium",
+                ageHours = 28,
+                completeness = 70,
+                attachmentsReady = true,
+                notes = "Clarify road closure",
+                eventDateTime = "Dec 29, 2025 • 18:30",
+                pricingTiers = listOf("Adult $15", "Child $8", "Family pack $40")
+            ),
+            AdminApplication(
+                id = "app-4",
+                title = "Savanna Sky Sessions",
+                organizer = "VibeCo",
+                city = "Maun",
+                category = "Live band",
+                status = "New",
+                risk = "Medium",
+                ageHours = 6,
+                completeness = 66,
+                attachmentsReady = true,
+                notes = "Check pricing rationale",
+                eventDateTime = "Jan 4, 2026 • 19:00",
+                pricingTiers = listOf("GA $35", "VIP deck $75")
+            ),
         )
     }
     val adminReports = remember {
@@ -1757,12 +1821,60 @@ private fun AdminDashboardScreen(
     commentsByApp: MutableMap<String, SnapshotStateList<String>>,
 ) {
     val scrollState = rememberScrollState()
+    val baseModifier = Modifier
+        .fillMaxSize()
+        .background(GoTickyGradients.CardGlow)
+        .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp)
+
+    if (adminSurface == AdminSurface.Applications) {
+        Column(
+            modifier = baseModifier,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                TopBar(
+                    title = "Admin dashboard",
+                    onBack = onBack,
+                    actions = {
+                        NeonTextButton(text = "Applications", onClick = onOpenApplications)
+                    },
+                    backgroundColor = Color.Transparent
+                )
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    AdminSurface.Dashboard to "Dashboard",
+                    AdminSurface.Applications to "Applications",
+                    AdminSurface.Moderation to "Moderation",
+                    AdminSurface.Organizer to "Organizer",
+                    AdminSurface.Catalog to "Catalog",
+                    AdminSurface.Settings to "Settings"
+                ).forEach { (surface, label) ->
+                    val selected = adminSurface == surface
+                    NeonSelectablePill(
+                        text = label,
+                        selected = selected,
+                        onClick = { onSurfaceChange(surface) }
+                    )
+                }
+            }
+            ApplicationsSection(
+                applications = applications,
+                onUpdateStatus = onUpdateApplicationStatus,
+                addActivity = addActivity,
+                activityLog = activityLog,
+                reviewers = reviewers,
+                reviewerByApp = reviewerByApp,
+                commentsByApp = commentsByApp,
+                organizers = organizers
+            )
+        }
+        return
+    }
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(GoTickyGradients.CardGlow)
-            .verticalScroll(scrollState)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+        modifier = baseModifier
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
@@ -1880,7 +1992,8 @@ private fun AdminDashboardScreen(
                     activityLog = activityLog,
                     reviewers = reviewers,
                     reviewerByApp = reviewerByApp,
-                    commentsByApp = commentsByApp
+                    commentsByApp = commentsByApp,
+                    organizers = organizers
                 )
             }
 
@@ -1923,7 +2036,7 @@ private fun AdminDashboardScreen(
                     onToggleFlag = onToggleFlag,
                     roles = roles,
                     onChangeRole = onChangeRole,
-                    auditLog = activityLog
+                    auditLog = activity
                 )
             }
         }
@@ -1939,8 +2052,10 @@ private fun ApplicationsSection(
     reviewers: List<String>,
     reviewerByApp: MutableMap<String, String>,
     commentsByApp: MutableMap<String, SnapshotStateList<String>>,
+    organizers: List<AdminOrganizer>,
 ) {
     var selectedAppId by remember { mutableStateOf(applications.firstOrNull()?.id) }
+    var detailAppId by remember { mutableStateOf<String?>(null) }
     var statusFilter by remember { mutableStateOf("All") }
     var riskFilter by remember { mutableStateOf("All") }
     var cityFilter by remember { mutableStateOf("All") }
@@ -1950,7 +2065,7 @@ private fun ApplicationsSection(
     val selectedBulk = remember { mutableStateListOf<String>() }
     val cities = remember(applications) { listOf("All") + applications.map { it.city }.distinct() }
     val categories = remember(applications) { listOf("All") + applications.map { it.category }.distinct() }
-    val organizers = remember(applications) { listOf("All") + applications.map { it.organizer }.distinct() }
+    val organizerFilters = remember(applications) { listOf("All") + applications.map { it.organizer }.distinct() }
     val riskWeight = mapOf("High" to 3, "Medium" to 2, "Low" to 1)
     val filtered = applications
         .filter { statusFilter == "All" || it.status == statusFilter }
@@ -1971,262 +2086,282 @@ private fun ApplicationsSection(
     val scrollState = rememberScrollState()
     val activityPrimaryAccent = MaterialTheme.colorScheme.primary
     val activitySecondaryAccent = MaterialTheme.colorScheme.secondary
-    val statusWarnAccent = Color(0xFFFFC94A)
     var bulkDialogAction by remember { mutableStateOf<String?>(null) }
     var bulkRationale by remember { mutableStateOf("") }
     var bulkReviewer by remember { mutableStateOf(reviewers.firstOrNull() ?: "") }
     var bulkError by remember { mutableStateOf<String?>(null) }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(
-            title = "Applications",
-            action = null
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("All", "New", "In Review", "Needs Info", "Approved", "Rejected").forEach { option ->
-                val selected = statusFilter == option
-                NeonSelectablePill(
-                    text = option,
-                    selected = selected,
-                    onClick = { statusFilter = option }
-                )
-            }
-            listOf("All", "Low", "Medium", "High").forEach { risk ->
-                val selected = riskFilter == risk
-                NeonSelectablePill(
-                    text = if (risk == "All") "All risk" else "Risk: $risk",
-                    selected = selected,
-                    onClick = { riskFilter = risk }
-                )
-            }
-            cities.forEach { city ->
-                NeonSelectablePill(
-                    text = if (city == "All") "All cities" else city,
-                    selected = cityFilter == city,
-                    onClick = { cityFilter = city }
-                )
-            }
-            categories.forEach { cat ->
-                NeonSelectablePill(
-                    text = if (cat == "All") "All categories" else cat,
-                    selected = categoryFilter == cat,
-                    onClick = { categoryFilter = cat }
-                )
-            }
-            organizers.forEach { org ->
-                NeonSelectablePill(
-                    text = if (org == "All") "All organizers" else org,
-                    selected = organizerFilter == org,
-                    onClick = { organizerFilter = org }
-                )
-            }
-            listOf("Oldest", "Newest", "Risk").forEach { mode ->
-                NeonSelectablePill(
-                    text = "Sort: $mode",
-                    selected = sortMode == mode,
-                    onClick = { sortMode = mode }
-                )
-            }
-        }
-        if (filtered.isEmpty()) {
-            GlowCard(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("No applications match these filters.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                    Text("Adjust filters to see the queue.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.verticalScroll(scrollState)
+        ) {
+            SectionHeader(
+                title = "Applications",
+                action = null
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("All", "New", "In Review", "Needs Info", "Approved", "Rejected").forEach { option ->
+                    val selected = statusFilter == option
+                    NeonSelectablePill(
+                        text = option,
+                        selected = selected,
+                        onClick = { statusFilter = option }
+                    )
                 }
-            }
-        } else {
-            if (selectedBulk.isNotEmpty()) {
-                GlowCard {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text("${selectedBulk.size} selected", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                        PrimaryButton(text = "Bulk approve", modifier = Modifier.weight(1f)) {
-                            bulkDialogAction = "Approve"
-                            bulkError = null
-                            bulkRationale = ""
-                        }
-                        GhostButton(text = "Bulk reject", modifier = Modifier.weight(1f)) {
-                            bulkDialogAction = "Reject"
-                            bulkError = null
-                            bulkRationale = ""
-                        }
-                        GhostButton(text = "Bulk assign", modifier = Modifier.weight(1f)) {
-                            bulkDialogAction = "Assign"
-                            bulkError = null
-                        }
-                    }
+                listOf("All", "Low", "Medium", "High").forEach { risk ->
+                    val selected = riskFilter == risk
+                    NeonSelectablePill(
+                        text = if (risk == "All") "All risk" else "Risk: $risk",
+                        selected = selected,
+                        onClick = { riskFilter = risk }
+                    )
                 }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                filtered.forEach { app ->
-                    val selectedForBulk = selectedBulk.contains(app.id)
-                    ApplicationCard(
-                        app = app,
-                        selected = app.id == selectedAppId,
-                        onSelect = { selectedAppId = app.id },
-                        onToggleSelect = {
-                            if (selectedForBulk) selectedBulk.remove(app.id) else selectedBulk.add(app.id)
-                        },
-                        selectedForBulk = selectedForBulk,
-                        onUpdateStatus = onUpdateStatus
+                cities.forEach { city ->
+                    NeonSelectablePill(
+                        text = if (city == "All") "All cities" else city,
+                        selected = cityFilter == city,
+                        onClick = { cityFilter = city }
+                    )
+                }
+                categories.forEach { cat ->
+                    NeonSelectablePill(
+                        text = if (cat == "All") "All categories" else cat,
+                        selected = categoryFilter == cat,
+                        onClick = { categoryFilter = cat }
+                    )
+                }
+                organizerFilters.forEach { org ->
+                    NeonSelectablePill(
+                        text = if (org == "All") "All organizers" else org,
+                        selected = organizerFilter == org,
+                        onClick = { organizerFilter = org }
+                    )
+                }
+                listOf("Oldest", "Newest", "Risk").forEach { mode ->
+                    NeonSelectablePill(
+                        text = "Sort: $mode",
+                        selected = sortMode == mode,
+                        onClick = { sortMode = mode }
                     )
                 }
             }
-        }
-        val selectedApp = applications.firstOrNull { it.id == selectedAppId }
-        selectedApp?.let { app ->
-            ApplicationDetailPanel(
-                app = app,
-                onUpdateStatus = { status, rationale ->
-                    onUpdateStatus(app.id, status)
-                    val accent = when (status) {
-                        "Approved" -> activityPrimaryAccent
-                        "Rejected" -> Color(0xFFFF6B6B)
-                        "Needs Info" -> Color(0xFFFFC94A)
-                        else -> activitySecondaryAccent
-                    }
-                    val suffix = if (rationale.isBlank()) "" else " — ${rationale.trim()}"
-                    addActivity("$status: ${app.title}$suffix", accent)
-                },
-                reviewers = reviewers,
-                reviewerByApp = reviewerByApp,
-                commentsByApp = commentsByApp,
-                addActivity = addActivity
-            )
-        }
-
-        GlowCard {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Notification templates", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                listOf(
-                    "Info needed" to "Ask organizer for missing docs",
-                    "Approved" to "Congrats + next steps",
-                    "Rejected" to "Provide rationale"
-                ).forEach { (title, desc) ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                            Text(desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        NeonTextButton(text = "Preview", onClick = { addActivity("Preview template: $title", activitySecondaryAccent) })
-                    }
-                }
-            }
-        }
-
-        GlowCard {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Audit log", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                val recent = activityLog.takeLast(10).reversed()
-                if (recent.isEmpty()) {
-                    Text("No activity yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    recent.forEach { item ->
-                        Text(item.text, style = MaterialTheme.typography.bodySmall, color = item.accent)
-                    }
-                }
-            }
-        }
-
-        bulkDialogAction?.let { action ->
-            AlertDialog(
-                onDismissRequest = {
-                    bulkDialogAction = null
-                    bulkRationale = ""
-                    bulkError = null
-                },
-                confirmButton = {
-                    PrimaryButton(
-                        text = "Confirm",
-                        modifier = Modifier.pressAnimated()
+            if (filtered.isEmpty()) {
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val ids = selectedBulk.toList()
-                        when (action) {
-                            "Approve" -> {
-                                ids.forEach { id -> onUpdateStatus(id, "Approved") }
-                                addActivity("Bulk approved ${ids.size} apps", activityPrimaryAccent)
-                                selectedBulk.clear()
-                                bulkDialogAction = null
+                        Text("No applications match these filters.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Adjust filters to see the queue.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            } else {
+                if (selectedBulk.isNotEmpty()) {
+                    GlowCard {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("${selectedBulk.size} selected", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                            PrimaryButton(text = "Bulk approve", modifier = Modifier.weight(1f)) {
+                                bulkDialogAction = "Approve"
+                                bulkError = null
+                                bulkRationale = ""
                             }
-                            "Reject" -> {
-                                if (bulkRationale.isBlank()) {
-                                    bulkError = "Rationale required for bulk reject."
-                                } else {
-                                    ids.forEach { id -> onUpdateStatus(id, "Rejected") }
-                                    addActivity("Bulk rejected ${ids.size} apps — ${bulkRationale.trim()}", Color(0xFFFF6B6B))
-                                    selectedBulk.clear()
-                                    bulkDialogAction = null
-                                    bulkRationale = ""
-                                    bulkError = null
-                                }
+                            GhostButton(text = "Bulk reject", modifier = Modifier.weight(1f)) {
+                                bulkDialogAction = "Reject"
+                                bulkError = null
+                                bulkRationale = ""
                             }
-                            "Assign" -> {
-                                if (bulkReviewer.isBlank()) {
-                                    bulkError = "Select a reviewer."
-                                } else {
-                                    ids.forEach { id -> reviewerByApp[id] = bulkReviewer }
-                                    addActivity("Bulk assigned ${ids.size} apps to $bulkReviewer", activitySecondaryAccent)
-                                    selectedBulk.clear()
-                                    bulkDialogAction = null
-                                    bulkError = null
-                                }
+                            GhostButton(text = "Bulk assign", modifier = Modifier.weight(1f)) {
+                                bulkDialogAction = "Assign"
+                                bulkError = null
                             }
                         }
                     }
-                },
-                dismissButton = {
-                    GhostButton(text = "Cancel") {
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    filtered.forEach { app ->
+                        val selectedForBulk = selectedBulk.contains(app.id)
+                        ApplicationCard(
+                            app = app,
+                            selected = app.id == selectedAppId,
+                            onSelect = {
+                                selectedAppId = app.id
+                                detailAppId = app.id
+                            },
+                            onToggleSelect = {
+                                if (selectedForBulk) selectedBulk.remove(app.id) else selectedBulk.add(app.id)
+                            },
+                            selectedForBulk = selectedForBulk,
+                            onUpdateStatus = onUpdateStatus
+                        )
+                    }
+                }
+            }
+
+            GlowCard {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Notification templates", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                    listOf(
+                        "Info needed" to "Ask organizer for missing docs",
+                        "Approved" to "Congrats + next steps",
+                        "Rejected" to "Provide rationale"
+                    ).forEach { (title, desc) ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                Text(desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            NeonTextButton(text = "Preview", onClick = { addActivity("Preview template: $title", activitySecondaryAccent) })
+                        }
+                    }
+                }
+            }
+
+            GlowCard {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Audit log", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                    val recent = activityLog.takeLast(10).reversed()
+                    if (recent.isEmpty()) {
+                        Text("No activity yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        recent.forEach { item ->
+                            Text(item.text, style = MaterialTheme.typography.bodySmall, color = item.accent)
+                        }
+                    }
+                }
+            }
+
+            bulkDialogAction?.let { action ->
+                AlertDialog(
+                    onDismissRequest = {
                         bulkDialogAction = null
                         bulkRationale = ""
                         bulkError = null
-                    }
-                },
-                title = { Text("Bulk ${action.lowercase()}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("${selectedBulk.size} applications selected.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                        if (action == "Assign") {
-                            Text("Assign reviewer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                reviewers.forEach { reviewer ->
-                                    NeonSelectablePill(
-                                        text = reviewer,
-                                        selected = bulkReviewer == reviewer,
-                                        onClick = { bulkReviewer = reviewer }
-                                    )
+                    },
+                    confirmButton = {
+                        PrimaryButton(
+                            text = "Confirm",
+                            modifier = Modifier.pressAnimated()
+                        ) {
+                            val ids = selectedBulk.toList()
+                            when (action) {
+                                "Approve" -> {
+                                    ids.forEach { id -> onUpdateStatus(id, "Approved") }
+                                    addActivity("Bulk approved ${ids.size} apps", activityPrimaryAccent)
+                                    selectedBulk.clear()
+                                    bulkDialogAction = null
+                                }
+                                "Reject" -> {
+                                    if (bulkRationale.isBlank()) {
+                                        bulkError = "Rationale required for bulk reject."
+                                    } else {
+                                        ids.forEach { id -> onUpdateStatus(id, "Rejected") }
+                                        addActivity("Bulk rejected ${ids.size} apps — ${bulkRationale.trim()}", Color(0xFFFF6B6B))
+                                        selectedBulk.clear()
+                                        bulkDialogAction = null
+                                        bulkRationale = ""
+                                        bulkError = null
+                                    }
+                                }
+                                "Assign" -> {
+                                    if (bulkReviewer.isBlank()) {
+                                        bulkError = "Select a reviewer."
+                                    } else {
+                                        ids.forEach { id -> reviewerByApp[id] = bulkReviewer }
+                                        addActivity("Bulk assigned ${ids.size} apps to $bulkReviewer", activitySecondaryAccent)
+                                        selectedBulk.clear()
+                                        bulkDialogAction = null
+                                        bulkError = null
+                                    }
                                 }
                             }
-                        } else {
-                            OutlinedTextField(
-                                value = bulkRationale,
-                                onValueChange = { bulkRationale = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("Add rationale (required for reject)") },
-                                singleLine = false,
-                                minLines = 2,
-                                shape = goTickyShapes.medium,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                ),
-                                isError = action == "Reject" && bulkRationale.isBlank()
-                            )
                         }
-                        bulkError?.let { err ->
-                            Text(err, style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF6B6B))
+                    },
+                    dismissButton = {
+                        GhostButton(text = "Cancel") {
+                            bulkDialogAction = null
+                            bulkRationale = ""
+                            bulkError = null
+                        }
+                    },
+                    title = { Text("Bulk ${action.lowercase()}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("${selectedBulk.size} applications selected.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                            if (action == "Assign") {
+                                Text("Assign reviewer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    reviewers.forEach { reviewer ->
+                                        NeonSelectablePill(
+                                            text = reviewer,
+                                            selected = bulkReviewer == reviewer,
+                                            onClick = { bulkReviewer = reviewer }
+                                        )
+                                    }
+                                }
+                            } else {
+                                OutlinedTextField(
+                                    value = bulkRationale,
+                                    onValueChange = { bulkRationale = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = { Text("Add rationale (required for reject)") },
+                                    singleLine = false,
+                                    minLines = 2,
+                                    shape = goTickyShapes.medium,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    ),
+                                    isError = action == "Reject" && bulkRationale.isBlank()
+                                )
+                            }
+                            bulkError?.let { err ->
+                                Text(err, style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF6B6B))
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = detailAppId != null,
+            enter = fadeIn() + slideInVertically { it / 6 },
+            exit = fadeOut() + slideOutVertically { it / 6 },
+            modifier = Modifier
+                .fillMaxSize()
+                .background(GoTickyGradients.CardGlow)
+        ) {
+            val app = applications.firstOrNull { it.id == detailAppId }
+            val organizer = organizers.firstOrNull { it.name == app?.organizer }
+            if (app != null) {
+                ApplicationDetailScreen(
+                    app = app,
+                    organizer = organizer,
+                    reviewers = reviewers,
+                    reviewerByApp = reviewerByApp,
+                    commentsByApp = commentsByApp,
+                    addActivity = addActivity,
+                    onClose = { detailAppId = null },
+                    onUpdateStatus = { status: String, rationale: String ->
+                        onUpdateStatus(app.id, status)
+                        val accent = when (status) {
+                            "Approved" -> activityPrimaryAccent
+                            "Rejected" -> Color(0xFFFF6B6B)
+                            "Needs Info" -> Color(0xFFFFC94A)
+                            else -> activitySecondaryAccent
+                        }
+                        val suffix = if (rationale.isBlank()) "" else " — ${rationale.trim()}"
+                        addActivity("$status: ${app.title}$suffix", accent)
+                    }
+                )
+            }
         }
     }
 }
@@ -2348,6 +2483,320 @@ private fun ApplicationCard(
             }
             NeonTextButton(text = "Reject", onClick = { onUpdateStatus(app.id, "Rejected") })
         }
+    }
+}
+
+@Composable
+private fun ApplicationDetailScreen(
+    app: AdminApplication,
+    organizer: AdminOrganizer?,
+    reviewers: List<String>,
+    reviewerByApp: MutableMap<String, String>,
+    commentsByApp: MutableMap<String, SnapshotStateList<String>>,
+    addActivity: (String, Color) -> Unit,
+    onClose: () -> Unit,
+    onUpdateStatus: (String, String) -> Unit,
+) {
+    val comments = remember(app.id) { commentsByApp.getOrPut(app.id) { mutableStateListOf<String>() } }
+    var commentDraft by remember { mutableStateOf("") }
+    var rationale by remember { mutableStateOf("") }
+    var rationaleError by remember { mutableStateOf(false) }
+    var showDocs by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val statusColor = when (app.risk) {
+        "High" -> Color(0xFFFF6B6B)
+        "Medium" -> Color(0xFFFFC94A)
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+    val commentAccent = MaterialTheme.colorScheme.primary
+    val heroPoster = remember(app.id) {
+        resolveProfilePhotoRes() ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
+    }
+    val organizerAvatar = remember(organizer?.id) {
+        Res.allDrawableResources["gotickypic"] ?: heroPoster
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow)
+            .padding(16.dp)
+    ) {
+        GlowCard(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .pressAnimated()
+                            .clickable { onClose() }
+                    )
+                    Text(
+                        "Application Detail",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.weight(1f))
+                }
+
+                GlowCard {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Basic", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        InfoRow("Title", app.title)
+                        InfoRow("Organizer", app.organizer)
+                        InfoRow("Category", app.category)
+                        InfoRow("City", app.city)
+                        if (app.eventDateTime.isNotBlank()) {
+                            InfoRow("Date / Time", app.eventDateTime)
+                        }
+                        AnimatedProgressBar(progress = app.completeness / 100f, modifier = Modifier.fillMaxWidth())
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            NeonSelectablePill(text = app.status, selected = true, onClick = {})
+                            NeonSelectablePill(text = "Risk ${app.risk}", selected = true, onClick = {})
+                            NeonSelectablePill(text = "${app.ageHours}h old", selected = false, onClick = {})
+                            NeonSelectablePill(text = if (app.attachmentsReady) "Docs ready" else "Docs missing", selected = app.attachmentsReady, onClick = {})
+                        }
+                    }
+                }
+
+                val pricingDisplay = remember(app.pricingTiers) { app.pricingTiers.take(4) }
+                if (pricingDisplay.isNotEmpty()) {
+                    GlowCard {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Pricing tiers", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            pricingDisplay.forEach { tier ->
+                                val priceStart = tier.indexOf('$')
+                                val price = when {
+                                    priceStart >= 0 -> tier.substring(priceStart).trim()
+                                    tier.split(" ").lastOrNull()?.any { it.isDigit() } == true -> tier.split(" ").last()
+                                    else -> "—"
+                                }
+                                val name = when {
+                                    priceStart >= 0 -> tier.substring(0, priceStart).trim().trimEnd('-', ':', '•').ifBlank { "Ticket" }
+                                    tier.contains(" ") -> tier.substringBeforeLast(" ").ifBlank { "Ticket" }
+                                    else -> tier.ifBlank { "Ticket" }
+                                }
+                                InfoRow(name, price)
+                            }
+                        }
+                    }
+                }
+
+                heroPoster?.let { drawable ->
+                    GlowCard {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .clip(goTickyShapes.large)
+                            ) {
+                                Image(
+                                    painter = painterResource(drawable),
+                                    contentDescription = "Event flyer",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.12f))
+                                )
+                            }
+                            Text("Flyer preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+
+                GlowCard {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Organizer", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        organizer?.let {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                organizerAvatar?.let { avatar ->
+                                    Image(
+                                        painter = painterResource(avatar),
+                                        contentDescription = "Organizer avatar",
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                                    Text(it.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                    Text("KYC: ${it.kycStatus}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Trust ${it.trustScore} • Strikes ${it.strikes} • Frozen: ${it.frozen}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                NeonSelectablePill(text = "View profile", selected = false, onClick = {})
+                            }
+                            if (it.notes.isNotBlank()) {
+                                Text(it.notes, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        } ?: Text("No organizer record linked", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                GlowCard {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Tickets", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        InfoRow("Completeness", "${app.completeness}%")
+                        InfoRow("Docs", if (app.attachmentsReady) "Ready" else "Missing")
+                        InfoRow("Submitted", "${app.ageHours}h ago")
+                    }
+                }
+
+                GlowCard {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Venue details", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        InfoRow("City", app.city)
+                        InfoRow("Category", app.category)
+                        if (app.notes.isNotBlank()) {
+                            InfoRow("Notes", app.notes)
+                        }
+                    }
+                }
+
+                NeonTextButton(
+                    text = if (showDocs) "Hide docs & checklist" else "Show docs & checklist",
+                    onClick = { showDocs = !showDocs }
+                )
+                AnimatedVisibility(visible = showDocs) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val docChecklist = listOf(
+                            "Venue permit" to app.attachmentsReady,
+                            "Insurance" to app.attachmentsReady,
+                            "ID upload" to true,
+                            "Floorplan" to true,
+                        )
+                        docChecklist.forEach { (label, done) ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(
+                                    imageVector = if (done) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    GhostButton(text = "Needs info", modifier = Modifier.weight(1f)) {
+                        if (rationale.isBlank()) {
+                            rationaleError = true
+                        } else {
+                            rationaleError = false
+                            onUpdateStatus("Needs Info", rationale)
+                            addActivity("Needs info: ${app.title}", Color(0xFFFFC94A))
+                        }
+                    }
+                    PrimaryButton(text = "Approve", modifier = Modifier.weight(1f)) {
+                        onUpdateStatus("Approved", rationale)
+                        rationaleError = false
+                    }
+                }
+                NeonTextButton(
+                    text = "Reject",
+                    onClick = {
+                        if (rationale.isBlank()) {
+                            rationaleError = true
+                        } else {
+                            rationaleError = false
+                            onUpdateStatus("Rejected", rationale)
+                            addActivity("Rejected: ${app.title}", Color(0xFFFF6B6B))
+                        }
+                    }
+                )
+                OutlinedTextField(
+                    value = rationale,
+                    onValueChange = { rationale = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Add rationale (required for reject/needs info)") },
+                    singleLine = false,
+                    minLines = 2,
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    ),
+                    isError = rationaleError
+                )
+                if (rationaleError) {
+                    Text("Rationale is required for Needs info / Reject.", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF6B6B))
+                }
+
+                Text("Comments", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (comments.isEmpty()) {
+                        Text("No comments yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        comments.forEach { msg ->
+                            GlowCard {
+                                Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(10.dp))
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = commentDraft,
+                        onValueChange = { commentDraft = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Add a comment") },
+                        singleLine = false,
+                        minLines = 2,
+                        shape = goTickyShapes.medium
+                    )
+                    PrimaryButton(text = "Post comment") {
+                        if (commentDraft.isNotBlank()) {
+                            comments.add(commentDraft.trim())
+                            addActivity("Commented on ${app.title}", commentAccent)
+                            commentDraft = ""
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.widthIn(min = 88.dp)
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
