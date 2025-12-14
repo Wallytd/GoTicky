@@ -47,10 +47,11 @@ val IconCategoryColors: Map<IconCategory, Color> = mapOf(
     IconCategory.Wallet to BrandPalette.amber,
     IconCategory.Alerts to BrandPalette.warning,
     IconCategory.Profile to BrandPalette.mint,
+    IconCategory.Admin to Color(0xFF56D4FF),
 )
 
 enum class IconCategory {
-    Discover, Calendar, Map, Ticket, Wallet, Alerts, Profile
+    Discover, Calendar, Map, Ticket, Wallet, Alerts, Profile, Admin
 }
 
 object GoTickyGradients {

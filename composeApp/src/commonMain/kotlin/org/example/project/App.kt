@@ -61,6 +61,8 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.filled.Favorite
@@ -98,10 +100,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -109,12 +114,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.snapshots.SnapshotStateSet
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -122,12 +128,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -142,12 +148,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import org.example.project.data.TicketPass
@@ -209,9 +217,10 @@ import kotlin.random.Random
 import goticky.composeapp.generated.resources.Res
 import goticky.composeapp.generated.resources.allDrawableResources
 import org.jetbrains.compose.resources.painterResource
+import androidx.compose.runtime.rememberUpdatedState
 
 private enum class MainScreen {
-    Home, Browse, Tickets, Alerts, Profile, Organizer, Map, PrivacyTerms, FAQ, Settings
+    Home, Browse, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
 }
 
 private fun currentGreeting(): String {
@@ -266,6 +275,86 @@ private fun currentGreetingColor(): Color {
         in 17..21 -> Color(0xFFC49A6C)
         // Deep night violet accent
         else -> Color(0xFF7C5BFF)
+    }
+}
+
+@Composable
+private fun AdminGateScreen(
+    role: String,
+    flagEnabled: Boolean,
+    onBack: () -> Unit,
+    onRequestAccess: () -> Unit
+) {
+    val tint = IconCategoryColors[IconCategory.Admin] ?: MaterialTheme.colorScheme.primary
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow)
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Admin access",
+                onBack = onBack,
+                actions = null,
+                backgroundColor = Color.Transparent
+            )
+        }
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(tint.copy(alpha = 0.18f))
+                            .border(1.dp, tint.copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Shield,
+                            contentDescription = "Admin shield",
+                            tint = tint,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = if (flagEnabled) "Restricted role" else "Feature disabled",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (flagEnabled) {
+                                "Current role: $role. Switch to Admin or Reviewer to enter the control room."
+                            } else {
+                                "Admin feature is turned off by feature flag right now."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                AnimatedProgressBar(progress = 0.55f)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    PrimaryButton(
+                        text = "Request access",
+                        modifier = Modifier.weight(1f),
+                        onClick = onRequestAccess
+                    )
+                    GhostButton(
+                        text = "Back home",
+                        modifier = Modifier.weight(1f),
+                        onClick = onBack
+                    )
+                }
+                NeonTextButton(
+                    text = "Why is this locked?",
+                    onClick = onRequestAccess
+                )
+            }
+        }
     }
 }
 
@@ -407,6 +496,52 @@ private data class NavItem(
 
 private data class PersonalizationPrefs(val genres: List<String>, val city: String)
 private data class LaunchCheck(val id: String, val title: String, val desc: String)
+private data class AdminKpi(val title: String, val value: String, val delta: String, val accent: Color)
+private data class AdminAttention(val title: String, val subtitle: String, val severity: String)
+private data class AdminActivity(val text: String, val time: String, val accent: Color)
+private enum class AdminSurface { Dashboard, Applications, Moderation, Catalog, Organizer, Settings }
+private data class AdminApplication(
+    val id: String,
+    val title: String,
+    val organizer: String,
+    val city: String,
+    val category: String,
+    var status: String,
+    val risk: String,
+    val ageHours: Int,
+    val completeness: Int,
+    val attachmentsReady: Boolean,
+    val notes: String,
+)
+private data class AdminReport(
+    val id: String,
+    val target: String,
+    val reason: String,
+    val severity: String,
+    val ageHours: Int,
+    var state: String,
+)
+private data class AdminFeatureFlag(
+    val key: String,
+    val label: String,
+    var enabled: Boolean,
+    val audience: String,
+)
+private data class AdminOrganizer(
+    val id: String,
+    val name: String,
+    val kycStatus: String,
+    val trustScore: Int,
+    val strikes: Int,
+    val frozen: Boolean,
+    val notes: String,
+)
+private data class AdminRoleEntry(
+    val id: String,
+    val name: String,
+    var role: String,
+    val email: String,
+)
 private data class HeroSlide(
     val id: String,
     val title: String,
@@ -782,6 +917,14 @@ private fun GoTickyRoot() {
     var showCheckout by remember { mutableStateOf(false) }
     var selectedTicketType by remember { mutableStateOf("General / Standard") }
     var userProfile by rememberSaveable(stateSaver = UserProfileSaver) { mutableStateOf(defaultUserProfile()) }
+    var currentUserRole by rememberSaveable { mutableStateOf("Admin") } // Admin shell gate: Admin/Reviewer only
+    val adminAccessRoles = remember { setOf("Admin", "Reviewer") }
+    val adminFeatureFlagEnabled = GoTickyFeatures.EnableAdmin
+    val hasAdminAccess by remember(adminFeatureFlagEnabled, currentUserRole) {
+        derivedStateOf { adminFeatureFlagEnabled && adminAccessRoles.contains(currentUserRole) }
+    }
+    var showAdminGateDialog by remember { mutableStateOf(false) }
+    var adminGateMessage by remember { mutableStateOf("Admin access is restricted to Admin or Reviewer roles.") }
     val favoriteEvents = rememberSaveable { mutableStateListOf<String>() }
     fun toggleFavorite(eventId: String) {
         if (favoriteEvents.contains(eventId)) favoriteEvents.remove(eventId) else favoriteEvents.add(eventId)
@@ -842,6 +985,14 @@ private fun GoTickyRoot() {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var forceOpenSearchDialog by remember { mutableStateOf(false) }
     var settingsPrefs by rememberSaveable(stateSaver = SettingsPrefsSaver) { mutableStateOf(SettingsPrefs()) }
+    LaunchedEffect(Unit) {
+        Analytics.log(
+            AnalyticsEvent(
+                name = "app_open",
+                params = mapOf("role" to currentUserRole, "admin_flag" to adminFeatureFlagEnabled.toString())
+            )
+        )
+    }
 
     fun recordSearch(query: String) {
         val normalized = query.trim()
@@ -887,14 +1038,176 @@ private fun GoTickyRoot() {
         return if (withSignal.isNotEmpty()) withSignal else prioritized
     }
 
-    val navItems = remember {
+    val adminPrimaryAccent = MaterialTheme.colorScheme.primary
+    val adminSecondaryAccent = MaterialTheme.colorScheme.secondary
+    val adminAlertsAccent = IconCategoryColors[IconCategory.Alerts] ?: adminPrimaryAccent
+    val adminWarningAccent = Color(0xFFFFC94A)
+
+    val adminKpis = remember(adminAlertsAccent, adminPrimaryAccent) {
         listOf(
-            NavItem(MainScreen.Home, "Home", { Icon(Icons.Outlined.Home, null) }, IconCategory.Discover),
-            NavItem(MainScreen.Browse, "Browse", { Icon(Icons.Outlined.Event, null) }, IconCategory.Calendar),
-            NavItem(MainScreen.Tickets, "My Tickets", { Icon(Icons.Outlined.ReceiptLong, null) }, IconCategory.Ticket),
-            NavItem(MainScreen.Alerts, "Alerts", { Icon(Icons.Outlined.Notifications, null) }, IconCategory.Alerts),
-            NavItem(MainScreen.Profile, "Profile", { Icon(Icons.Outlined.AccountCircle, null) }, IconCategory.Profile),
+            AdminKpi("Pending apps", "18", "+4 vs. avg", adminAlertsAccent),
+            AdminKpi("Approvals today", "12", "+8%", adminPrimaryAccent),
+            AdminKpi("SLA risk", "3", "under 6h", Color(0xFFFFC94A)),
+            AdminKpi("Flagged orgs", "2", "review now", Color(0xFFFF6B6B)),
         )
+    }
+    val adminAttention = remember {
+        listOf(
+            AdminAttention("Bulawayo Street Fest", "Missing permit • 14h old", "High"),
+            AdminAttention("Savanna Sky Sessions", "Pricing mismatch vs. last run", "Medium"),
+            AdminAttention("New Organizer: VibeCo", "KYC pending • needs ID upload", "Medium"),
+        )
+    }
+    val adminActivity = remember(adminPrimaryAccent, adminSecondaryAccent) {
+        mutableStateListOf(
+            AdminActivity("Tari approved “Midnight Neon Fest”", "2m ago", adminPrimaryAccent),
+            AdminActivity("Rudo requested info on “Family Lights Parade”", "18m ago", Color(0xFFFFC94A)),
+            AdminActivity("Kuda verified organizer “Courtside Group”", "45m ago", adminSecondaryAccent),
+        )
+    }
+    var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
+    val adminApplications = remember {
+        mutableStateListOf(
+            AdminApplication("app-1", "Midnight Neon Fest", "Neon Live", "Harare", "EDM", "New", "Low", 4, 82, true, "All docs present"),
+            AdminApplication("app-2", "Bulawayo Street Fest", "City Beats", "Bulawayo", "Festival", "In Review", "High", 14, 54, false, "Missing permit upload"),
+            AdminApplication("app-3", "Family Lights Parade", "Sunrise Events", "Victoria Falls", "Family", "Needs Info", "Medium", 28, 70, true, "Clarify road closure"),
+            AdminApplication("app-4", "Savanna Sky Sessions", "VibeCo", "Maun", "Live band", "New", "Medium", 6, 66, true, "Check pricing rationale"),
+        )
+    }
+    val adminReports = remember {
+        mutableStateListOf(
+            AdminReport("rep-1", "Courtside Classics", "Image inappropriate", "High", 3, "Open"),
+            AdminReport("rep-2", "Laugh Lab Live", "Misleading price", "Medium", 9, "Open"),
+            AdminReport("rep-3", "Family Lights Parade", "Copy plagiarism", "Low", 22, "Open"),
+        )
+    }
+    val adminFlags = remember {
+        mutableStateListOf(
+            AdminFeatureFlag("ff-alerts-beta", "Alerts beta", true, "organizer+admin"),
+            AdminFeatureFlag("ff-social-share", "Social share", true, "all"),
+            AdminFeatureFlag("ff-map-live", "Live map", false, "all"),
+            AdminFeatureFlag("ff-seat-stub", "Seat map stub", true, "all"),
+        )
+    }
+    val adminReviewers = remember { listOf("Tari", "Rudo", "Kuda", "Amina") }
+    val reviewerByApp = remember { mutableStateMapOf<String, String>() }
+    val commentsByApp = remember { mutableStateMapOf<String, SnapshotStateList<String>>() }
+    val adminOrganizers = remember {
+        mutableStateListOf(
+            AdminOrganizer("org-1", "Neon Live", "Verified", 86, 0, false, "Strong past performance; timely payouts."),
+            AdminOrganizer("org-2", "City Beats", "Pending", 62, 1, false, "Missing permit for Bulawayo Street Fest."),
+            AdminOrganizer("org-3", "VibeCo", "Pending", 55, 2, false, "Needs KYC refresh; pricing mismatch flagged."),
+            AdminOrganizer("org-4", "Sunrise Events", "Verified", 78, 0, false, "Family-friendly focus; clean history."),
+        )
+    }
+    val adminRoles = remember {
+        mutableStateListOf(
+            AdminRoleEntry("user-1", "Tari D.", "Admin", "tari@goticky.com"),
+            AdminRoleEntry("user-2", "Rudo M.", "Reviewer", "rudo@goticky.com"),
+            AdminRoleEntry("user-3", "Kuda P.", "Organizer", "kuda@goticky.com"),
+            AdminRoleEntry("user-4", "Amina S.", "Support", "amina@goticky.com"),
+        )
+    }
+    val featuredSlots = remember { mutableStateListOf(heroSlides[0].id, heroSlides[1].id) }
+    fun addAdminActivity(text: String, accent: Color) {
+        adminActivity.add(0, AdminActivity(text, "Just now", accent))
+        if (adminActivity.size > 30) adminActivity.removeLast()
+    }
+    fun updateApplicationStatus(id: String, status: String, log: (String, Color) -> Unit) {
+        val idx = adminApplications.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            adminApplications[idx] = adminApplications[idx].copy(status = status)
+            val accent = when (status) {
+                "Approved" -> adminPrimaryAccent
+                "Rejected" -> Color(0xFFFF6B6B)
+                "Needs Info" -> Color(0xFFFFC94A)
+                else -> adminSecondaryAccent
+            }
+            log("Set $status for ${adminApplications[idx].title}", accent)
+        }
+    }
+    fun resolveReport(id: String, log: (String, Color) -> Unit) {
+        val idx = adminReports.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            adminReports[idx] = adminReports[idx].copy(state = "Resolved")
+            log("Resolved report on ${adminReports[idx].target}", adminPrimaryAccent)
+        }
+    }
+    fun warnReport(id: String, template: String, note: String, log: (String, Color) -> Unit) {
+        val idx = adminReports.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            adminReports[idx] = adminReports[idx].copy(state = "Warned")
+            val suffix = if (note.isBlank()) "" else " — ${note.trim()}"
+            log("Warned organizer for ${adminReports[idx].target}: $template$suffix", adminWarningAccent)
+        }
+    }
+    fun toggleFlag(key: String, enabled: Boolean, log: (String, Color) -> Unit) {
+        val idx = adminFlags.indexOfFirst { it.key == key }
+        if (idx != -1) {
+            adminFlags[idx] = adminFlags[idx].copy(enabled = enabled)
+            log("Flag ${adminFlags[idx].label}: ${if (enabled) "enabled" else "disabled"}", adminSecondaryAccent)
+        }
+    }
+    fun verifyOrganizer(id: String, verified: Boolean, log: (String, Color) -> Unit) {
+        val idx = adminOrganizers.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            adminOrganizers[idx] = adminOrganizers[idx].copy(kycStatus = if (verified) "Verified" else "Pending")
+            log("${adminOrganizers[idx].name}: ${if (verified) "Verified" else "Set to pending"}", adminPrimaryAccent)
+        }
+    }
+    fun freezeOrganizer(id: String, frozen: Boolean, log: (String, Color) -> Unit) {
+        val idx = adminOrganizers.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            adminOrganizers[idx] = adminOrganizers[idx].copy(frozen = frozen)
+            log("${adminOrganizers[idx].name}: ${if (frozen) "Frozen publishing" else "Unfrozen"}", adminWarningAccent)
+        }
+    }
+    fun requestReKyc(id: String, log: (String, Color) -> Unit) {
+        val idx = adminOrganizers.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            log("Requested re-KYC from ${adminOrganizers[idx].name}", adminSecondaryAccent)
+        }
+    }
+    fun changeRole(id: String, role: String, log: (String, Color) -> Unit) {
+        val idx = adminRoles.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            adminRoles[idx] = adminRoles[idx].copy(role = role)
+            log("Role updated: ${adminRoles[idx].name} → $role", adminSecondaryAccent)
+        }
+    }
+    fun toggleFeaturedSlot(id: String, enabled: Boolean, log: (String, Color) -> Unit) {
+        val exists = featuredSlots.contains(id)
+        if (enabled && !exists) {
+            featuredSlots.add(id)
+            log("Featured slot added: ${heroSlides.firstOrNull { it.id == id }?.title ?: id}", adminPrimaryAccent)
+        } else if (!enabled && exists) {
+            featuredSlots.remove(id)
+            log("Featured slot removed: ${heroSlides.firstOrNull { it.id == id }?.title ?: id}", adminWarningAccent)
+        }
+    }
+    fun moveFeaturedSlot(id: String, delta: Int, log: (String, Color) -> Unit) {
+        val idx = featuredSlots.indexOf(id)
+        if (idx != -1) {
+            val newIdx = (idx + delta).coerceIn(0, featuredSlots.lastIndex)
+            if (newIdx != idx) {
+                featuredSlots.removeAt(idx)
+                featuredSlots.add(newIdx, id)
+                log("Featured order updated for ${heroSlides.firstOrNull { it.id == id }?.title ?: id}", adminSecondaryAccent)
+            }
+        }
+    }
+
+    val navItems = remember(hasAdminAccess) {
+        buildList {
+            add(NavItem(MainScreen.Home, "Home", { Icon(Icons.Outlined.Home, null) }, IconCategory.Discover))
+            add(NavItem(MainScreen.Browse, "Browse", { Icon(Icons.Outlined.Event, null) }, IconCategory.Calendar))
+            add(NavItem(MainScreen.Tickets, "My Tickets", { Icon(Icons.Outlined.ReceiptLong, null) }, IconCategory.Ticket))
+            add(NavItem(MainScreen.Alerts, "Alerts", { Icon(Icons.Outlined.Notifications, null) }, IconCategory.Alerts))
+            if (hasAdminAccess) {
+                add(NavItem(MainScreen.Admin, "Admin", { Icon(Icons.Outlined.Shield, null) }, IconCategory.Admin))
+            }
+            add(NavItem(MainScreen.Profile, "Profile", { Icon(Icons.Outlined.AccountCircle, null) }, IconCategory.Profile))
+        }
     }
 
     val showChromeOnScreen = currentScreen in setOf(
@@ -902,6 +1215,7 @@ private fun GoTickyRoot() {
         MainScreen.Browse,
         MainScreen.Tickets,
         MainScreen.Alerts,
+        MainScreen.Admin,
         MainScreen.Profile,
     )
     val showRootChrome = showChromeOnScreen &&
@@ -955,7 +1269,42 @@ private fun GoTickyRoot() {
                         navItems = navItems,
                         current = currentScreen,
                         chromeAlpha = fabAlpha,
-                    ) { tapped -> currentScreen = tapped }
+                    ) { tapped ->
+                        if (tapped == MainScreen.Admin) {
+                            if (hasAdminAccess) {
+                                Analytics.log(
+                                    AnalyticsEvent(
+                                        name = "admin_gate_allowed",
+                                        params = mapOf(
+                                            "role" to currentUserRole,
+                                            "source" to "bottom_nav",
+                                            "admin_flag" to adminFeatureFlagEnabled.toString()
+                                        )
+                                    )
+                                )
+                                currentScreen = tapped
+                            } else {
+                                adminGateMessage = if (!adminFeatureFlagEnabled) {
+                                    "Admin feature is currently disabled by feature flag."
+                                } else {
+                                    "Your role ($currentUserRole) does not have access. Switch to an Admin or Reviewer account."
+                                }
+                                showAdminGateDialog = true
+                                Analytics.log(
+                                    AnalyticsEvent(
+                                        name = "admin_gate_denied",
+                                        params = mapOf(
+                                            "role" to currentUserRole,
+                                            "source" to "bottom_nav",
+                                            "admin_flag" to adminFeatureFlagEnabled.toString()
+                                        )
+                                    )
+                                )
+                            }
+                        } else {
+                            currentScreen = tapped
+                        }
+                    }
                 }
             }
         },
@@ -976,6 +1325,29 @@ private fun GoTickyRoot() {
                 .padding(contentPadding)
                 .nestedScroll(scrollConnection)
         ) {
+            if (showAdminGateDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAdminGateDialog = false },
+                    icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
+                    title = { Text("Admin access required") },
+                    text = { Text(adminGateMessage) },
+                    confirmButton = {
+                        PrimaryButton(text = "Request access", modifier = Modifier.pressAnimated()) {
+                            showAdminGateDialog = false
+                            currentScreen = MainScreen.Profile
+                        }
+                    },
+                    dismissButton = {
+                        NeonTextButton(
+                            text = "Back to Home",
+                            onClick = {
+                                showAdminGateDialog = false
+                                currentScreen = MainScreen.Home
+                            }
+                        )
+                    }
+                )
+            }
             if (showCheckout) {
                 CheckoutScreen(
                     order = sampleOrder,
@@ -1270,6 +1642,64 @@ private fun GoTickyRoot() {
                             )
                         }
                     }
+                    MainScreen.Admin -> {
+                        if (hasAdminAccess) {
+                            AdminDashboardScreen(
+                                kpis = adminKpis,
+                                attention = adminAttention,
+                                activity = adminActivity,
+                                applications = adminApplications,
+                                reports = adminReports,
+                                flags = adminFlags,
+                                organizers = adminOrganizers,
+                                roles = adminRoles,
+                                featuredSlots = featuredSlots,
+                                adminSurface = adminSurface,
+                                onSurfaceChange = { adminSurface = it },
+                                onBack = { currentScreen = MainScreen.Home },
+                                onUpdateApplicationStatus = { id, status -> updateApplicationStatus(id, status, ::addAdminActivity) },
+                                onResolveReport = { id -> resolveReport(id, ::addAdminActivity) },
+                                onWarnReport = { id, template, note -> warnReport(id, template, note, ::addAdminActivity) },
+                                onToggleFlag = { key, enabled -> toggleFlag(key, enabled, ::addAdminActivity) },
+                                onOpenApplications = { adminSurface = AdminSurface.Applications },
+                                onOpenModeration = { adminSurface = AdminSurface.Moderation },
+                                onOpenCatalog = { adminSurface = AdminSurface.Catalog },
+                                onVerifyOrganizer = { id, verified -> verifyOrganizer(id, verified, ::addAdminActivity) },
+                                onFreezeOrganizer = { id, frozen -> freezeOrganizer(id, frozen, ::addAdminActivity) },
+                                onRequestReKyc = { id -> requestReKyc(id, ::addAdminActivity) },
+                                onChangeRole = { id, role -> changeRole(id, role, ::addAdminActivity) },
+                                onToggleFeaturedSlot = { id, enabled -> toggleFeaturedSlot(id, enabled, ::addAdminActivity) },
+                                onMoveFeaturedSlot = { id, delta -> moveFeaturedSlot(id, delta, ::addAdminActivity) },
+                                addActivity = ::addAdminActivity,
+                                activityLog = adminActivity,
+                                reviewers = adminReviewers,
+                                reviewerByApp = reviewerByApp,
+                                commentsByApp = commentsByApp,
+                            )
+                            LaunchedEffect(Unit) {
+                                Analytics.log(
+                                    AnalyticsEvent(
+                                        name = "admin_view",
+                                        params = mapOf(
+                                            "role" to currentUserRole,
+                                            "admin_flag" to adminFeatureFlagEnabled.toString(),
+                                            "surface" to adminSurface.name
+                                        )
+                                    )
+                                )
+                            }
+                        } else {
+                            AdminGateScreen(
+                                role = currentUserRole,
+                                flagEnabled = adminFeatureFlagEnabled,
+                                onBack = { currentScreen = MainScreen.Home },
+                                onRequestAccess = {
+                                    showAdminGateDialog = false
+                                    currentScreen = MainScreen.Profile
+                                }
+                            )
+                        }
+                    }
                     MainScreen.PrivacyTerms -> LegalScreen(
                         onBack = { currentScreen = MainScreen.Profile }
                     )
@@ -1288,6 +1718,1519 @@ private fun GoTickyRoot() {
                         onOpenEvent = { eventId -> openEventById(eventId) }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminDashboardScreen(
+    kpis: List<AdminKpi>,
+    attention: List<AdminAttention>,
+    activity: List<AdminActivity>,
+    applications: List<AdminApplication>,
+    reports: List<AdminReport>,
+    flags: List<AdminFeatureFlag>,
+    organizers: List<AdminOrganizer>,
+    roles: List<AdminRoleEntry>,
+    featuredSlots: List<String>,
+    adminSurface: AdminSurface,
+    onSurfaceChange: (AdminSurface) -> Unit,
+    onBack: () -> Unit,
+    onUpdateApplicationStatus: (String, String) -> Unit,
+    onResolveReport: (String) -> Unit,
+    onWarnReport: (String, String, String) -> Unit,
+    onToggleFlag: (String, Boolean) -> Unit,
+    onOpenApplications: () -> Unit,
+    onOpenModeration: () -> Unit,
+    onOpenCatalog: () -> Unit,
+    onVerifyOrganizer: (String, Boolean) -> Unit,
+    onFreezeOrganizer: (String, Boolean) -> Unit,
+    onRequestReKyc: (String) -> Unit,
+    onChangeRole: (String, String) -> Unit,
+    onToggleFeaturedSlot: (String, Boolean) -> Unit,
+    onMoveFeaturedSlot: (String, Int) -> Unit,
+    addActivity: (String, Color) -> Unit,
+    activityLog: List<AdminActivity> = activity,
+    reviewers: List<String>,
+    reviewerByApp: MutableMap<String, String>,
+    commentsByApp: MutableMap<String, SnapshotStateList<String>>,
+) {
+    val scrollState = rememberScrollState()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.CardGlow)
+            .verticalScroll(scrollState)
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "Admin dashboard",
+                onBack = onBack,
+                actions = {
+                    NeonTextButton(text = "Applications", onClick = onOpenApplications)
+                },
+                backgroundColor = Color.Transparent
+            )
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                AdminSurface.Dashboard to "Dashboard",
+                AdminSurface.Applications to "Applications",
+                AdminSurface.Moderation to "Moderation",
+                AdminSurface.Organizer to "Organizer",
+                AdminSurface.Catalog to "Catalog",
+                AdminSurface.Settings to "Settings"
+            ).forEach { (surface, label) ->
+                val selected = adminSurface == surface
+                NeonSelectablePill(
+                    text = label,
+                    selected = selected,
+                    onClick = { onSurfaceChange(surface) }
+                )
+            }
+        }
+
+        when (adminSurface) {
+            AdminSurface.Dashboard -> {
+                val searchPrimary = MaterialTheme.colorScheme.primary
+                val searchSecondary = MaterialTheme.colorScheme.secondary
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Global search", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        var query by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Search events, organizers, users") },
+                            singleLine = true,
+                            shape = goTickyShapes.medium,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            )
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            NeonTextButton(text = "Search", onClick = { addActivity("Searched: $query", searchPrimary) })
+                            NeonTextButton(text = "Advanced filters", onClick = { addActivity("Open advanced search", searchSecondary) })
+                        }
+                    }
+                }
+
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Top risk items", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        val highRiskApps = applications.filter { it.risk == "High" }.take(3)
+                        val highSeverityReports = reports.filter { it.severity == "High" }.take(3)
+                        if (highRiskApps.isEmpty() && highSeverityReports.isEmpty()) {
+                            Text("No high-risk items right now.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            highRiskApps.forEach { app ->
+                                Text("App: ${app.title} (${app.status}) • ${app.city}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            highSeverityReports.forEach { rep ->
+                                Text("Report: ${rep.target} • ${rep.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+
+                SectionHeader(
+                    title = "Health KPIs",
+                    action = { NeonTextButton(text = "View all", onClick = onOpenApplications) }
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(kpis) { kpi ->
+                        AdminKpiCard(kpi)
+                    }
+                }
+
+                SectionHeader(
+                    title = "Needs attention",
+                    action = { NeonTextButton(text = "Open queue", onClick = onOpenApplications) }
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    attention.forEach { item ->
+                        AdminAttentionCard(item)
+                    }
+                }
+
+                SectionHeader(
+                    title = "Recent activity",
+                    action = null
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    activity.forEach { item ->
+                        AdminActivityRow(item)
+                    }
+                }
+            }
+
+            AdminSurface.Applications -> {
+                ApplicationsSection(
+                    applications = applications,
+                    onUpdateStatus = onUpdateApplicationStatus,
+                    addActivity = addActivity,
+                    activityLog = activityLog,
+                    reviewers = reviewers,
+                    reviewerByApp = reviewerByApp,
+                    commentsByApp = commentsByApp
+                )
+            }
+
+            AdminSurface.Moderation -> {
+                ModerationSection(
+                    reports = reports,
+                    addActivity = addActivity,
+                    onResolve = onResolveReport,
+                    onWarn = onWarnReport
+                )
+            }
+
+            AdminSurface.Organizer -> {
+                OrganizerSection(
+                    organizers = organizers,
+                    onVerify = onVerifyOrganizer,
+                    onFreeze = onFreezeOrganizer,
+                    onRequestReKyc = onRequestReKyc,
+                    addActivity = addActivity
+                )
+            }
+
+            AdminSurface.Catalog -> {
+                CatalogSection(
+                    flags = flags,
+                    onToggleFlag = onToggleFlag,
+                    onOpenModeration = onOpenModeration,
+                    onOpenApplications = onOpenApplications,
+                    addActivity = addActivity,
+                    heroSlides = heroSlides,
+                    featuredSlots = featuredSlots,
+                    onToggleFeaturedSlot = onToggleFeaturedSlot,
+                    onMoveFeaturedSlot = onMoveFeaturedSlot
+                )
+            }
+
+            AdminSurface.Settings -> {
+                SettingsSection(
+                    flags = flags,
+                    onToggleFlag = onToggleFlag,
+                    roles = roles,
+                    onChangeRole = onChangeRole,
+                    auditLog = activityLog
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApplicationsSection(
+    applications: List<AdminApplication>,
+    onUpdateStatus: (String, String) -> Unit,
+    addActivity: (String, Color) -> Unit,
+    activityLog: List<AdminActivity>,
+    reviewers: List<String>,
+    reviewerByApp: MutableMap<String, String>,
+    commentsByApp: MutableMap<String, SnapshotStateList<String>>,
+) {
+    var selectedAppId by remember { mutableStateOf(applications.firstOrNull()?.id) }
+    var statusFilter by remember { mutableStateOf("All") }
+    var riskFilter by remember { mutableStateOf("All") }
+    var cityFilter by remember { mutableStateOf("All") }
+    var categoryFilter by remember { mutableStateOf("All") }
+    var organizerFilter by remember { mutableStateOf("All") }
+    var sortMode by remember { mutableStateOf("Oldest") }
+    val selectedBulk = remember { mutableStateListOf<String>() }
+    val cities = remember(applications) { listOf("All") + applications.map { it.city }.distinct() }
+    val categories = remember(applications) { listOf("All") + applications.map { it.category }.distinct() }
+    val organizers = remember(applications) { listOf("All") + applications.map { it.organizer }.distinct() }
+    val riskWeight = mapOf("High" to 3, "Medium" to 2, "Low" to 1)
+    val filtered = applications
+        .filter { statusFilter == "All" || it.status == statusFilter }
+        .filter { riskFilter == "All" || it.risk == riskFilter }
+        .filter { cityFilter == "All" || it.city == cityFilter }
+        .filter { categoryFilter == "All" || it.category == categoryFilter }
+        .filter { organizerFilter == "All" || it.organizer == organizerFilter }
+        .let { list ->
+            when (sortMode) {
+                "Newest" -> list.sortedByDescending { it.ageHours }
+                "Risk" -> list.sortedWith(
+                    compareByDescending<AdminApplication> { riskWeight[it.risk] ?: 0 }
+                        .thenBy { it.ageHours }
+                )
+                else -> list.sortedBy { it.ageHours }
+            }
+        }
+    val scrollState = rememberScrollState()
+    val activityPrimaryAccent = MaterialTheme.colorScheme.primary
+    val activitySecondaryAccent = MaterialTheme.colorScheme.secondary
+    val statusWarnAccent = Color(0xFFFFC94A)
+    var bulkDialogAction by remember { mutableStateOf<String?>(null) }
+    var bulkRationale by remember { mutableStateOf("") }
+    var bulkReviewer by remember { mutableStateOf(reviewers.firstOrNull() ?: "") }
+    var bulkError by remember { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(
+            title = "Applications",
+            action = null
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("All", "New", "In Review", "Needs Info", "Approved", "Rejected").forEach { option ->
+                val selected = statusFilter == option
+                NeonSelectablePill(
+                    text = option,
+                    selected = selected,
+                    onClick = { statusFilter = option }
+                )
+            }
+            listOf("All", "Low", "Medium", "High").forEach { risk ->
+                val selected = riskFilter == risk
+                NeonSelectablePill(
+                    text = if (risk == "All") "All risk" else "Risk: $risk",
+                    selected = selected,
+                    onClick = { riskFilter = risk }
+                )
+            }
+            cities.forEach { city ->
+                NeonSelectablePill(
+                    text = if (city == "All") "All cities" else city,
+                    selected = cityFilter == city,
+                    onClick = { cityFilter = city }
+                )
+            }
+            categories.forEach { cat ->
+                NeonSelectablePill(
+                    text = if (cat == "All") "All categories" else cat,
+                    selected = categoryFilter == cat,
+                    onClick = { categoryFilter = cat }
+                )
+            }
+            organizers.forEach { org ->
+                NeonSelectablePill(
+                    text = if (org == "All") "All organizers" else org,
+                    selected = organizerFilter == org,
+                    onClick = { organizerFilter = org }
+                )
+            }
+            listOf("Oldest", "Newest", "Risk").forEach { mode ->
+                NeonSelectablePill(
+                    text = "Sort: $mode",
+                    selected = sortMode == mode,
+                    onClick = { sortMode = mode }
+                )
+            }
+        }
+        if (filtered.isEmpty()) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("No applications match these filters.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Adjust filters to see the queue.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else {
+            if (selectedBulk.isNotEmpty()) {
+                GlowCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("${selectedBulk.size} selected", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        PrimaryButton(text = "Bulk approve", modifier = Modifier.weight(1f)) {
+                            bulkDialogAction = "Approve"
+                            bulkError = null
+                            bulkRationale = ""
+                        }
+                        GhostButton(text = "Bulk reject", modifier = Modifier.weight(1f)) {
+                            bulkDialogAction = "Reject"
+                            bulkError = null
+                            bulkRationale = ""
+                        }
+                        GhostButton(text = "Bulk assign", modifier = Modifier.weight(1f)) {
+                            bulkDialogAction = "Assign"
+                            bulkError = null
+                        }
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                filtered.forEach { app ->
+                    val selectedForBulk = selectedBulk.contains(app.id)
+                    ApplicationCard(
+                        app = app,
+                        selected = app.id == selectedAppId,
+                        onSelect = { selectedAppId = app.id },
+                        onToggleSelect = {
+                            if (selectedForBulk) selectedBulk.remove(app.id) else selectedBulk.add(app.id)
+                        },
+                        selectedForBulk = selectedForBulk,
+                        onUpdateStatus = onUpdateStatus
+                    )
+                }
+            }
+        }
+        val selectedApp = applications.firstOrNull { it.id == selectedAppId }
+        selectedApp?.let { app ->
+            ApplicationDetailPanel(
+                app = app,
+                onUpdateStatus = { status, rationale ->
+                    onUpdateStatus(app.id, status)
+                    val accent = when (status) {
+                        "Approved" -> activityPrimaryAccent
+                        "Rejected" -> Color(0xFFFF6B6B)
+                        "Needs Info" -> Color(0xFFFFC94A)
+                        else -> activitySecondaryAccent
+                    }
+                    val suffix = if (rationale.isBlank()) "" else " — ${rationale.trim()}"
+                    addActivity("$status: ${app.title}$suffix", accent)
+                },
+                reviewers = reviewers,
+                reviewerByApp = reviewerByApp,
+                commentsByApp = commentsByApp,
+                addActivity = addActivity
+            )
+        }
+
+        GlowCard {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Notification templates", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                listOf(
+                    "Info needed" to "Ask organizer for missing docs",
+                    "Approved" to "Congrats + next steps",
+                    "Rejected" to "Provide rationale"
+                ).forEach { (title, desc) ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Text(desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        NeonTextButton(text = "Preview", onClick = { addActivity("Preview template: $title", activitySecondaryAccent) })
+                    }
+                }
+            }
+        }
+
+        GlowCard {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Audit log", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                val recent = activityLog.takeLast(10).reversed()
+                if (recent.isEmpty()) {
+                    Text("No activity yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    recent.forEach { item ->
+                        Text(item.text, style = MaterialTheme.typography.bodySmall, color = item.accent)
+                    }
+                }
+            }
+        }
+
+        bulkDialogAction?.let { action ->
+            AlertDialog(
+                onDismissRequest = {
+                    bulkDialogAction = null
+                    bulkRationale = ""
+                    bulkError = null
+                },
+                confirmButton = {
+                    PrimaryButton(
+                        text = "Confirm",
+                        modifier = Modifier.pressAnimated()
+                    ) {
+                        val ids = selectedBulk.toList()
+                        when (action) {
+                            "Approve" -> {
+                                ids.forEach { id -> onUpdateStatus(id, "Approved") }
+                                addActivity("Bulk approved ${ids.size} apps", activityPrimaryAccent)
+                                selectedBulk.clear()
+                                bulkDialogAction = null
+                            }
+                            "Reject" -> {
+                                if (bulkRationale.isBlank()) {
+                                    bulkError = "Rationale required for bulk reject."
+                                } else {
+                                    ids.forEach { id -> onUpdateStatus(id, "Rejected") }
+                                    addActivity("Bulk rejected ${ids.size} apps — ${bulkRationale.trim()}", Color(0xFFFF6B6B))
+                                    selectedBulk.clear()
+                                    bulkDialogAction = null
+                                    bulkRationale = ""
+                                    bulkError = null
+                                }
+                            }
+                            "Assign" -> {
+                                if (bulkReviewer.isBlank()) {
+                                    bulkError = "Select a reviewer."
+                                } else {
+                                    ids.forEach { id -> reviewerByApp[id] = bulkReviewer }
+                                    addActivity("Bulk assigned ${ids.size} apps to $bulkReviewer", activitySecondaryAccent)
+                                    selectedBulk.clear()
+                                    bulkDialogAction = null
+                                    bulkError = null
+                                }
+                            }
+                        }
+                    }
+                },
+                dismissButton = {
+                    GhostButton(text = "Cancel") {
+                        bulkDialogAction = null
+                        bulkRationale = ""
+                        bulkError = null
+                    }
+                },
+                title = { Text("Bulk ${action.lowercase()}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("${selectedBulk.size} applications selected.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        if (action == "Assign") {
+                            Text("Assign reviewer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                reviewers.forEach { reviewer ->
+                                    NeonSelectablePill(
+                                        text = reviewer,
+                                        selected = bulkReviewer == reviewer,
+                                        onClick = { bulkReviewer = reviewer }
+                                    )
+                                }
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = bulkRationale,
+                                onValueChange = { bulkRationale = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Add rationale (required for reject)") },
+                                singleLine = false,
+                                minLines = 2,
+                                shape = goTickyShapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                ),
+                                isError = action == "Reject" && bulkRationale.isBlank()
+                            )
+                        }
+                        bulkError?.let { err ->
+                            Text(err, style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF6B6B))
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ApplicationCard(
+    app: AdminApplication,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onToggleSelect: () -> Unit = {},
+    selectedForBulk: Boolean = false,
+    onUpdateStatus: (String, String) -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(targetValue = if (pressed) 0.97f else 1f, animationSpec = tween(180), label = "appCardScale")
+    val severityColor = when (app.risk) {
+        "High" -> Color(0xFFFF6B6B)
+        "Medium" -> Color(0xFFFFC94A)
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+    val poster = remember(app.id) {
+        resolveProfilePhotoRes() ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
+    }
+    GlowCard(
+        modifier = Modifier
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .pressAnimated()
+            .then(
+                if (selected) {
+                    Modifier.border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                } else {
+                    Modifier
+                }
+            )
+            .clickable(interactionSource = interaction, indication = null) { onSelect() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Checkbox(checked = selectedForBulk, onCheckedChange = { onToggleSelect() })
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(severityColor)
+                )
+                Text(app.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.weight(1f))
+                Pill(text = app.status, modifier = Modifier.background(severityColor.copy(alpha = 0.18f), shape = goTickyShapes.small).padding(horizontal = 10.dp, vertical = 6.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                poster?.let { drawable ->
+                    Box(
+                        modifier = Modifier
+                            .size(78.dp)
+                            .clip(goTickyShapes.medium)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.25f))
+                    ) {
+                        Image(
+                            painter = painterResource(drawable),
+                            contentDescription = "Event poster",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.12f))
+                        )
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                    Text("${app.organizer} • ${app.city} • ${app.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Risk ${app.risk} • ${app.ageHours}h old", style = MaterialTheme.typography.labelSmall, color = severityColor)
+                    Text("Attachments: ${if (app.attachmentsReady) "Ready" else "Missing"} • Completeness ${app.completeness}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                    Text("Completeness", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    AnimatedProgressBar(progress = app.completeness / 100f, modifier = Modifier.fillMaxWidth())
+                }
+                NeonSelectablePill(text = if (app.attachmentsReady) "Docs ready" else "Docs missing", selected = app.attachmentsReady, onClick = {})
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                NeonSelectablePill(text = "Risk ${app.risk}", selected = true, onClick = {})
+                NeonSelectablePill(text = "${app.ageHours}h old", selected = false, onClick = {})
+            }
+            if (app.notes.isNotBlank()) {
+                Text(app.notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                GhostButton(
+                    text = "Needs info",
+                    modifier = Modifier.weight(1f),
+                    onClick = { onUpdateStatus(app.id, "Needs Info") }
+                )
+                PrimaryButton(
+                    text = "Approve",
+                    modifier = Modifier.weight(1f),
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    },
+                    onClick = { onUpdateStatus(app.id, "Approved") }
+                )
+            }
+            NeonTextButton(text = "Reject", onClick = { onUpdateStatus(app.id, "Rejected") })
+        }
+    }
+}
+
+@Composable
+private fun ApplicationDetailPanel(
+    app: AdminApplication,
+    onUpdateStatus: (String, String) -> Unit,
+    reviewers: List<String>,
+    reviewerByApp: MutableMap<String, String>,
+    commentsByApp: MutableMap<String, SnapshotStateList<String>>,
+    addActivity: (String, Color) -> Unit,
+) {
+    var showNotes by remember { mutableStateOf(false) }
+    var selectedReviewer by remember(app.id) { mutableStateOf(reviewerByApp[app.id] ?: reviewers.firstOrNull()) }
+    val comments = remember(app.id) { commentsByApp.getOrPut(app.id) { mutableStateListOf<String>() } }
+    var commentDraft by remember { mutableStateOf("") }
+    val activityPrimaryAccent = MaterialTheme.colorScheme.primary
+    val activitySecondaryAccent = MaterialTheme.colorScheme.secondary
+    val slaHoursRemaining = (36 - app.ageHours).coerceAtLeast(0)
+    val attachments = listOf("Venue permit", "Insurance", "ID upload", "Floorplan")
+    val checklist = listOf(
+        "Organizer verified" to app.attachmentsReady,
+        "Pricing rationale provided" to (app.completeness > 60),
+        "Media quality ok" to true,
+        "Venue capacity ok" to true,
+    )
+    var rationale by remember { mutableStateOf("") }
+    var rationaleError by remember { mutableStateOf(false) }
+    val timeline = remember(app.id) {
+        listOf(
+            "Submitted ${app.ageHours}h ago by ${app.organizer}",
+            "Auto validation flagged ${if (app.attachmentsReady) "0" else "2"} items",
+            "Assigned reviewer: ${selectedReviewer ?: reviewers.firstOrNull().orEmpty()}",
+            "Awaiting permit upload" + if (app.attachmentsReady) " (received)" else "",
+        )
+    }
+    GlowCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Application detail", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+            Text("${app.title} • ${app.city}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AnimatedProgressBar(progress = app.completeness / 100f, modifier = Modifier.fillMaxWidth())
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                NeonSelectablePill(text = app.status, selected = true, onClick = {})
+                NeonSelectablePill(text = "Risk ${app.risk}", selected = true, onClick = {})
+                NeonSelectablePill(text = "${app.ageHours}h old", selected = false, onClick = {})
+                NeonSelectablePill(text = "SLA ${slaHoursRemaining}h left", selected = slaHoursRemaining > 0, onClick = {})
+            }
+            Text("Reviewer", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                reviewers.forEach { reviewer ->
+                    val selected = reviewer == selectedReviewer
+                    NeonSelectablePill(
+                        text = reviewer,
+                        selected = selected,
+                        onClick = {
+                            selectedReviewer = reviewer
+                            reviewerByApp[app.id] = reviewer
+                            addActivity("Assigned $reviewer to ${app.title}", activitySecondaryAccent)
+                        }
+                    )
+                }
+            }
+            Text("Checklist", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                checklist.forEach { (label, done) ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(
+                            imageVector = if (done) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                            contentDescription = null,
+                            tint = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+            Text("Attachments", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                attachments.forEach { att ->
+                    NeonSelectablePill(text = att, selected = app.attachmentsReady, onClick = {})
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                GhostButton(text = "Needs info", modifier = Modifier.weight(1f)) {
+                    if (rationale.isBlank()) {
+                        rationaleError = true
+                    } else {
+                        rationaleError = false
+                        onUpdateStatus("Needs Info", rationale)
+                        addActivity("Needs info: ${app.title}", Color(0xFFFFC94A))
+                    }
+                }
+                PrimaryButton(text = "Approve", modifier = Modifier.weight(1f)) {
+                    onUpdateStatus("Approved", rationale)
+                    rationaleError = false
+                }
+            }
+            NeonTextButton(text = "Reject", onClick = {
+                if (rationale.isBlank()) {
+                    rationaleError = true
+                } else {
+                    rationaleError = false
+                    onUpdateStatus("Rejected", rationale)
+                    addActivity("Rejected: ${app.title}", Color(0xFFFF6B6B))
+                }
+            })
+            OutlinedTextField(
+                value = rationale,
+                onValueChange = { rationale = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Add rationale (required for reject/needs info)") },
+                singleLine = false,
+                minLines = 2,
+                shape = goTickyShapes.medium,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                ),
+                isError = rationaleError
+            )
+            if (rationaleError) {
+                Text("Rationale is required for Needs info / Reject.", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF6B6B))
+            }
+            NeonTextButton(
+                text = if (showNotes) "Hide internal notes" else "Show internal notes",
+                onClick = { showNotes = !showNotes }
+            )
+            AnimatedVisibility(visible = showNotes) {
+                Text("Internal notes: ${app.notes.ifBlank { "No notes yet" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("Comments", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (comments.isEmpty()) {
+                    Text("No comments yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    comments.forEach { msg ->
+                        GlowCard {
+                            Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(10.dp))
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = commentDraft,
+                    onValueChange = { commentDraft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Add internal comment") },
+                    singleLine = true,
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    PrimaryButton(
+                        text = "Post",
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            if (commentDraft.isNotBlank()) {
+                                comments.add(0, commentDraft.trim())
+                                addActivity("Comment on ${app.title}", activityPrimaryAccent)
+                                commentDraft = ""
+                            }
+                        }
+                    )
+                    GhostButton(text = "Clear", modifier = Modifier.weight(1f)) { commentDraft = "" }
+                }
+            }
+            Text("Timeline", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                timeline.forEach { entry ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                        )
+                        Text(entry, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModerationSection(
+    reports: List<AdminReport>,
+    addActivity: (String, Color) -> Unit,
+    onResolve: (String) -> Unit,
+    onWarn: (String, String, String) -> Unit,
+) {
+    val resolveAccent by rememberUpdatedState(MaterialTheme.colorScheme.primary)
+    var warnTargetId by remember { mutableStateOf<String?>(null) }
+    var warnTemplate by remember { mutableStateOf("Copy/brand violation") }
+    var warnNote by remember { mutableStateOf("") }
+    val resolving = remember { mutableStateMapOf<String, Boolean>() }
+    val warning = remember { mutableStateMapOf<String, Boolean>() }
+    val templates = listOf(
+        "Copy/brand violation",
+        "Pricing transparency issue",
+        "Image inappropriate",
+        "Spam / misleading"
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(title = "Moderation", action = null)
+        if (reports.isEmpty()) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "No reports right now.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(14.dp)
+                )
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                reports.forEach { report ->
+                    val isResolving = resolving[report.id] == true
+                    val isWarning = warning[report.id] == true
+                    ModerationCard(
+                        report = report,
+                        isResolving = isResolving,
+                        isWarning = isWarning,
+                        onResolve = {
+                            resolving[report.id] = true
+                            onResolve(report.id)
+                            addActivity("Resolved report for ${report.target}", resolveAccent)
+                            resolving[report.id] = false
+                        },
+                        onWarn = {
+                            warnTargetId = report.id
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    warnTargetId?.let { targetId ->
+        AlertDialog(
+            onDismissRequest = {
+                warnTargetId = null
+                warnNote = ""
+            },
+            confirmButton = {
+                PrimaryButton(
+                    text = "Send warning",
+                    onClick = {
+                        warning[targetId] = true
+                        onWarn(targetId, warnTemplate, warnNote)
+                        addActivity("Warned ${reports.firstOrNull { it.id == targetId }?.target ?: targetId}", Color(0xFFFFC94A))
+                        warnTargetId = null
+                        warnNote = ""
+                        warning[targetId] = false
+                    }
+                )
+            },
+            dismissButton = {
+                GhostButton(text = "Cancel") {
+                    warnTargetId = null
+                    warnNote = ""
+                }
+            },
+            title = {
+                Text("Send warning", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Template", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    templates.forEach { template ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RadioButton(selected = warnTemplate == template, onClick = { warnTemplate = template })
+                            Text(template, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                    OutlinedTextField(
+                        value = warnNote,
+                        onValueChange = { warnNote = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Optional note to organizer") },
+                        singleLine = false,
+                        minLines = 2,
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ModerationCard(
+    report: AdminReport,
+    isResolving: Boolean,
+    isWarning: Boolean,
+    onResolve: () -> Unit,
+    onWarn: () -> Unit,
+) {
+    val severityColor = when (report.severity) {
+        "High" -> Color(0xFFFF6B6B)
+        "Medium" -> Color(0xFFFFC94A)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    GlowCard {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(severityColor)
+                )
+                Text(report.target, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.weight(1f))
+                Pill(text = report.state, modifier = Modifier.background(severityColor.copy(alpha = 0.18f), shape = goTickyShapes.small).padding(horizontal = 10.dp, vertical = 6.dp))
+            }
+            Text(report.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                NeonSelectablePill(text = report.severity, selected = true, onClick = {})
+                NeonSelectablePill(text = "${report.ageHours}h old", selected = false, onClick = {})
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                GhostButton(text = if (isWarning) "Sending..." else "Warn", modifier = Modifier.weight(1f)) { onWarn() }
+                PrimaryButton(
+                    text = if (isResolving) "Resolving..." else "Resolve",
+                    modifier = Modifier.weight(1f),
+                    onClick = onResolve
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrganizerSection(
+    organizers: List<AdminOrganizer>,
+    onVerify: (String, Boolean) -> Unit,
+    onFreeze: (String, Boolean) -> Unit,
+    onRequestReKyc: (String) -> Unit,
+    addActivity: (String, Color) -> Unit,
+) {
+    val amOptions = remember { listOf("Tari", "Rudo", "Kuda", "Amina") }
+    val amAssignments = remember { mutableStateMapOf<String, String>() }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(title = "Organizers", action = null)
+        if (organizers.isEmpty()) {
+            GlowCard(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "No organizers found.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(14.dp)
+                )
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                organizers.forEach { org ->
+                    OrganizerCard(
+                        organizer = org,
+                        onVerify = onVerify,
+                        onFreeze = onFreeze,
+                        onRequestReKyc = onRequestReKyc,
+                        addActivity = addActivity,
+                        amOptions = amOptions,
+                        amAssignments = amAssignments
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrganizerCard(
+    organizer: AdminOrganizer,
+    onVerify: (String, Boolean) -> Unit,
+    onFreeze: (String, Boolean) -> Unit,
+    onRequestReKyc: (String) -> Unit,
+    addActivity: (String, Color) -> Unit,
+    amOptions: List<String>,
+    amAssignments: MutableMap<String, String>,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(targetValue = if (pressed) 0.98f else 1f, animationSpec = tween(180), label = "orgCardScale")
+    val trustColor = when {
+        organizer.trustScore >= 80 -> MaterialTheme.colorScheme.primary
+        organizer.trustScore >= 60 -> Color(0xFFFFC94A)
+        else -> Color(0xFFFF6B6B)
+    }
+    val docChecklist = listOf(
+        "KYC document" to true,
+        "Business cert" to (organizer.trustScore >= 70),
+        "Banking verified" to !organizer.frozen,
+        "Pricing rationale" to (organizer.trustScore >= 60),
+    )
+    var showDocs by remember { mutableStateOf(false) }
+    var amExpanded by remember { mutableStateOf(false) }
+    val assigned = amAssignments[organizer.id]
+    GlowCard(
+        modifier = Modifier
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .pressAnimated()
+            .fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(organizer.name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                Pill(text = organizer.kycStatus, modifier = Modifier)
+                Pill(text = "Strikes: ${organizer.strikes}", modifier = Modifier)
+                Spacer(Modifier.weight(1f))
+                if (organizer.frozen) {
+                    NeonSelectablePill(text = "Frozen", selected = true, onClick = {})
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Trust score", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                AnimatedProgressBar(progress = organizer.trustScore / 100f, modifier = Modifier.fillMaxWidth())
+            }
+            Text(organizer.notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Account manager", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.weight(1f))
+                Box {
+                    NeonTextButton(text = assigned ?: "Assign", onClick = { amExpanded = true })
+                    DropdownMenu(expanded = amExpanded, onDismissRequest = { amExpanded = false }) {
+                        amOptions.forEach { am ->
+                            DropdownMenuItem(
+                                text = { Text(am) },
+                                onClick = {
+                                    amAssignments[organizer.id] = am
+                                    amExpanded = false
+                                    addActivity("Assigned $am to ${organizer.name}", trustColor)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            NeonTextButton(
+                text = if (showDocs) "Hide docs & checklist" else "Show docs & checklist",
+                onClick = { showDocs = !showDocs }
+            )
+            AnimatedVisibility(visible = showDocs) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Docs & checklist", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                    docChecklist.forEach { (label, done) ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(
+                                imageVector = if (done) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                                contentDescription = null,
+                                tint = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                val isVerified = organizer.kycStatus == "Verified"
+                PrimaryButton(
+                    text = if (isVerified) "Mark pending" else "Verify",
+                    modifier = Modifier.weight(1f)
+                ) {
+                    onVerify(organizer.id, !isVerified)
+                }
+                val isFrozen = organizer.frozen
+                GhostButton(
+                    text = if (isFrozen) "Unfreeze" else "Freeze",
+                    modifier = Modifier.weight(1f)
+                ) {
+                    onFreeze(organizer.id, !isFrozen)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                NeonTextButton(text = "Request re-KYC", onClick = { onRequestReKyc(organizer.id) })
+                NeonTextButton(text = "Log note", onClick = { addActivity("Note on ${organizer.name}", trustColor) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogSection(
+    flags: List<AdminFeatureFlag>,
+    onToggleFlag: (String, Boolean) -> Unit,
+    onOpenModeration: () -> Unit,
+    onOpenApplications: () -> Unit,
+    addActivity: (String, Color) -> Unit,
+    heroSlides: List<HeroSlide>,
+    featuredSlots: List<String>,
+    onToggleFeaturedSlot: (String, Boolean) -> Unit,
+    onMoveFeaturedSlot: (String, Int) -> Unit,
+) {
+    val flagAccent = MaterialTheme.colorScheme.secondary
+    val featuredSlides = featuredSlots.mapNotNull { id -> heroSlides.firstOrNull { it.id == id } }
+    var scheduleNote by remember { mutableStateOf("Weekend drop - 9am PST") }
+    var scheduleTime by remember { mutableStateOf("Tomorrow 09:00") }
+    var isLive by remember { mutableStateOf(false) }
+    val badgeOptions = listOf("Hot", "Limited", "Early Bird")
+    val badgesBySlide = remember { mutableStateMapOf<String, String>() }
+    var promoProgress by remember { mutableStateOf(0.35f) }
+    val promoAnim = animateFloatAsState(targetValue = if (isLive) 1f else promoProgress, animationSpec = tween(400), label = "promoProgress")
+    val publishAccent = MaterialTheme.colorScheme.primary
+    val scheduleAccent = MaterialTheme.colorScheme.secondary
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(
+            title = "Catalog controls",
+            action = {
+                NeonTextButton(text = "Applications", onClick = onOpenApplications)
+            }
+        )
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(14.dp)) {
+                Text("Publish & scheduling", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                Text("Stub controls for publish/unpublish and schedule. Hook to backend later.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PrimaryButton(text = if (isLive) "Unpublish now" else "Publish now", modifier = Modifier.weight(1f)) {
+                        isLive = !isLive
+                        addActivity(if (isLive) "Catalog published" else "Catalog unpublished", publishAccent)
+                    }
+                    GhostButton(text = "Schedule", modifier = Modifier.weight(1f)) {
+                        addActivity("Scheduled catalog: $scheduleTime — $scheduleNote", scheduleAccent)
+                        promoProgress = 0.6f
+                    }
+                }
+                AnimatedProgressBar(progress = promoAnim.value, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = scheduleTime,
+                    onValueChange = { scheduleTime = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("e.g. Tomorrow 09:00") },
+                    singleLine = true,
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = scheduleNote,
+                    onValueChange = { scheduleNote = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Rationale / note") },
+                    singleLine = false,
+                    minLines = 2,
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+            }
+        }
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(14.dp)) {
+                Text("Featured slots", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                if (featuredSlides.isEmpty()) {
+                    Text("No featured slots selected.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        featuredSlides.forEachIndexed { idx, slide ->
+                            GlowCard {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text("Slot ${idx + 1}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(slide.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                        Text(slide.subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        IconButton(onClick = { onMoveFeaturedSlot(slide.id, -1) }, enabled = idx > 0) {
+                                            Icon(Icons.Outlined.ArrowUpward, contentDescription = "Move up", tint = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                        IconButton(onClick = { onMoveFeaturedSlot(slide.id, +1) }, enabled = idx < featuredSlides.lastIndex) {
+                                            Icon(Icons.Outlined.ArrowDownward, contentDescription = "Move down", tint = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("All hero slides", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    heroSlides.forEach { slide ->
+                        val isFeatured = featuredSlots.contains(slide.id)
+                        val currentBadge = badgesBySlide[slide.id]
+                        GlowCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Pill(text = if (isFeatured) "Featured" else "Available", modifier = Modifier)
+                                    Text(slide.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                }
+                                Text(slide.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                    PrimaryButton(
+                                        text = if (isFeatured) "Remove from featured" else "Add to featured",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { onToggleFeaturedSlot(slide.id, !isFeatured) }
+                                    )
+                                    if (isFeatured) {
+                                        GhostButton(text = "Move up", modifier = Modifier.weight(1f)) { onMoveFeaturedSlot(slide.id, -1) }
+                                        GhostButton(text = "Move down", modifier = Modifier.weight(1f)) { onMoveFeaturedSlot(slide.id, +1) }
+                                    }
+                                }
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    badgeOptions.forEach { badge ->
+                                        val selected = currentBadge == badge
+                                        NeonSelectablePill(
+                                            text = badge,
+                                            selected = selected,
+                                            onClick = {
+                                                if (selected) {
+                                                    badgesBySlide.remove(slide.id)
+                                                    addActivity("Removed badge $badge from ${slide.title}", flagAccent)
+                                                } else {
+                                                    badgesBySlide[slide.id] = badge
+                                                    addActivity("Badge $badge set for ${slide.title}", flagAccent)
+                                                }
+                                            }
+                                        )
+                                    }
+                                    if (currentBadge != null) {
+                                        NeonSelectablePill(text = "Clear badge", selected = false, onClick = {
+                                            badgesBySlide.remove(slide.id)
+                                            addActivity("Cleared badge for ${slide.title}", flagAccent)
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        SectionHeader(title = "Feature flags", action = null)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            flags.forEach { flag ->
+                FlagRow(flag = flag, onToggle = { enabled ->
+                    onToggleFlag(flag.key, enabled)
+                    addActivity("Flag ${flag.label} ${if (enabled) "enabled" else "disabled"}", flagAccent)
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlagRow(
+    flag: AdminFeatureFlag,
+    onToggle: (Boolean) -> Unit,
+) {
+    GlowCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                Text(flag.label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                Text("Audience: ${flag.audience}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = flag.enabled, onCheckedChange = onToggle)
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    flags: List<AdminFeatureFlag>,
+    onToggleFlag: (String, Boolean) -> Unit,
+    roles: List<AdminRoleEntry>,
+    onChangeRole: (String, String) -> Unit,
+    auditLog: List<AdminActivity> = emptyList(),
+) {
+    var expandedRoleId by remember { mutableStateOf<String?>(null) }
+    val roleOptions = listOf("Admin", "Reviewer", "Organizer", "Support", "Suspended")
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(title = "Role matrix", action = null)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            roles.forEach { entry ->
+                GlowCard {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(entry.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Pill(text = entry.role, modifier = Modifier)
+                            Spacer(Modifier.weight(1f))
+                            NeonTextButton(text = "Change role", onClick = { expandedRoleId = entry.id })
+                        }
+                        Text(entry.email, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                DropdownMenu(expanded = expandedRoleId == entry.id, onDismissRequest = { expandedRoleId = null }) {
+                    roleOptions.forEach { role ->
+                        DropdownMenuItem(
+                            text = { Text(role) },
+                            onClick = {
+                                onChangeRole(entry.id, role)
+                                expandedRoleId = null
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        SectionHeader(title = "Feature flags", action = null)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            flags.forEach { flag ->
+                FlagRow(flag = flag, onToggle = { enabled ->
+                    onToggleFlag(flag.key, enabled)
+                })
+            }
+        }
+
+        GlowCard {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Audit log (sample)", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                if (auditLog.isEmpty()) {
+                    Text("View detailed audit in future backend hookup. Current feed is visible in Dashboard.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    auditLog.takeLast(6).reversed().forEach { item ->
+                        Text(item.text, style = MaterialTheme.typography.bodySmall, color = item.accent)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminKpiCard(kpi: AdminKpi) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(targetValue = if (pressed) 0.97f else 1f, animationSpec = tween(180), label = "adminKpiScale")
+    GlowCard(
+        modifier = Modifier
+            .width(180.dp)
+            .pressAnimated()
+    ) {
+        Column(
+            modifier = Modifier
+                .graphicsLayer(scaleX = scale, scaleY = scale)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = kpi.title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = kpi.value,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                color = kpi.accent
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(kpi.accent)
+                )
+                Text(
+                    text = kpi.delta,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminAttentionCard(item: AdminAttention) {
+    val severityColor = when (item.severity) {
+        "High" -> Color(0xFFFF6B6B)
+        "Medium" -> Color(0xFFFFC94A)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    GlowCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(severityColor)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = item.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            NeonTextButton(text = "Review", onClick = { /* TODO */ })
+        }
+    }
+}
+
+@Composable
+private fun AdminActivityRow(item: AdminActivity) {
+    GlowCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(item.accent)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = item.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = item.time,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
