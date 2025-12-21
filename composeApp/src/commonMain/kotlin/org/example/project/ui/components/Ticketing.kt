@@ -858,8 +858,7 @@ fun CheckoutScreen(
                                     Box(
                                         modifier = Modifier
                                             .size(60.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)),
+                                            .clip(CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -879,7 +878,8 @@ fun CheckoutScreen(
                                                     offset = Offset(0f, 1.5f),
                                                     blurRadius = 8f
                                                 )
-                                            )
+                                            ),
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
                                             text = "We’ll place your order and show your tickets next.",

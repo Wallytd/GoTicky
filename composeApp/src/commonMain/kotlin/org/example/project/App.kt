@@ -2,24 +2,25 @@
 
 package org.example.project
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -573,6 +574,13 @@ private fun parsePrice(value: String): Double? {
     return numeric.toDoubleOrNull()
 }
 
+private fun formatPriceTwoDecimals(value: Double): String {
+    val roundedCents = (value * 100.0).roundToInt()
+    val major = roundedCents / 100
+    val minor = roundedCents % 100
+    return "$major.${minor.toString().padStart(2, '0')}"
+}
+
 private fun buildEarlyBirdWindow(app: AdminApplication?, approvedAt: Instant?): EarlyBirdWindow? {
     if (app == null) return null
     // Only allow time window once admin has approved to avoid selling before review.
@@ -588,9 +596,9 @@ private fun buildEarlyBirdWindow(app: AdminApplication?, approvedAt: Instant?): 
     val base = parsePrice(baseLabel) ?: 0.0
     val discount = app.earlyBirdDiscountPercent.coerceIn(5, 80)
     val earlyPrice = (base * (1 - discount / 100.0)).coerceAtLeast(1.0)
-    val earlyLabel = if (earlyPrice % 1.0 == 0.0) "$$${earlyPrice.toInt()}" else "$$${"%.2f".format(earlyPrice)}"
+    val earlyLabel = if (earlyPrice % 1.0 == 0.0) "$$${earlyPrice.toInt()}" else "$$${formatPriceTwoDecimals(earlyPrice)}"
     val baseDisplay = if (base > 0) {
-        if (base % 1.0 == 0.0) "$$${base.toInt()}" else "$$${"%.2f".format(base)}"
+        if (base % 1.0 == 0.0) "$$${base.toInt()}" else "$$${formatPriceTwoDecimals(base)}"
     } else baseLabel.ifBlank { "Base price" }
     return EarlyBirdWindow(
         start = startAnchor,
@@ -1094,7 +1102,7 @@ private fun GoTickyRoot() {
     var showCreateEvent by remember { mutableStateOf(false) }
     var selectedOrganizerEvent by remember { mutableStateOf<OrganizerEvent?>(null) }
     var isScrolling by remember { mutableStateOf(false) }
-    var showSplash by rememberSaveable { mutableStateOf(true) }
+    var showIntro by rememberSaveable { mutableStateOf(true) }
     var isAuthenticated by rememberSaveable { mutableStateOf(false) }
     val authRepo = remember { FirebaseAuthRepository() }
     val profileImageStorage = rememberProfileImageStorage()
@@ -1193,7 +1201,7 @@ private fun GoTickyRoot() {
                 organizer = "Neon Live",
                 city = "Harare",
                 category = "EDM",
-                status = "New",
+                status = "Approved",
                 risk = "Low",
                 ageHours = 4,
                 completeness = 82,
@@ -1545,584 +1553,468 @@ private fun GoTickyRoot() {
         }
     }
 
-    when {
-        showSplash || !authInitDone -> SplashScreen(onContinue = { showSplash = false })
-        !isAuthenticated -> AuthScreen(
-            onSignIn = { email, password, rememberMe ->
-                val result = authRepo.signIn(email, password)
-                if (result is AuthResult.Success) {
-                    val authUser = authRepo.currentUser()
-                    if (authUser != null) {
-                        val remote = loadUserSettingsFromFirestore(authUser.uid)
-                        val merged = (remote ?: SettingsPrefs()).copy(rememberMe = rememberMe)
-                        settingsPrefs = merged
-                        saveUserSettingsToFirestore(authUser.uid, merged)
-                    } else {
-                        settingsPrefs = settingsPrefs.copy(rememberMe = rememberMe)
-                    }
-                    val fetched = authRepo.fetchProfile()
-                    if (fetched != null) userProfile = fetched
-                    isAuthenticated = true
-                    currentScreen = MainScreen.Home
-                }
-                result
-            },
-            onSignUp = { profile, password ->
-                // Create the account first, then upload the photo (now authenticated) and persist the download URL.
-                postSignUpUploadError = null
-                postSignUpUploadMessage = null
-                postSignUpUploadProgress = 0f
-                pendingUploadProfile = null
-                autoRetryAttempted = false
-
-                suspend fun uploadOnce(target: UserProfile): Boolean {
-                    postSignUpUploadInProgress = true
-                    postSignUpUploadError = null
-                    postSignUpUploadMessage = "Uploading profile photo…"
-                    postSignUpUploadProgress = 0f
-                    val downloadUrl = profileImageStorage.uploadProfileImage(target.photoUri!!) { p ->
-                        postSignUpUploadProgress = p
-                    }
-                    val success = if (downloadUrl != null) {
-                        val updateResult = authRepo.updateProfile(target.copy(photoUri = downloadUrl, photoResKey = null))
-                        if (updateResult is AuthResult.Error) {
-                            postSignUpUploadError = updateResult.message
-                            postSignUpUploadMessage = "Photo saved locally, but profile update failed."
-                            false
-                        } else {
-                            postSignUpUploadProgress = 1f
-                            postSignUpUploadMessage = "Profile photo saved."
-                            true
+    AnimatedContent(
+        targetState = showIntro,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(durationMillis = 900)) togetherWith
+                fadeOut(animationSpec = tween(durationMillis = 900))
+        },
+        label = "introCrossfade",
+    ) { introShowing ->
+        if (introShowing) {
+            IntroScreen(onContinue = { showIntro = false })
+        } else {
+            if (!isAuthenticated) {
+                AuthScreen(
+                    onSignIn = { email, password, rememberMe ->
+                        val result = authRepo.signIn(email, password)
+                        if (result is AuthResult.Success) {
+                            val authUser = authRepo.currentUser()
+                            if (authUser != null) {
+                                val remote = loadUserSettingsFromFirestore(authUser.uid)
+                                val merged = (remote ?: SettingsPrefs()).copy(rememberMe = rememberMe)
+                                settingsPrefs = merged
+                                saveUserSettingsToFirestore(authUser.uid, merged)
+                            } else {
+                                settingsPrefs = settingsPrefs.copy(rememberMe = rememberMe)
+                            }
+                            val fetched = authRepo.fetchProfile()
+                            if (fetched != null) userProfile = fetched
+                            isAuthenticated = true
+                            currentScreen = MainScreen.Home
                         }
-                    } else {
-                        postSignUpUploadError = "Upload failed. Please retry after signing in."
-                        postSignUpUploadMessage = "Upload failed."
+                        result
+                    },
+                    onSignUp = { profile, password ->
+                        // Create the account first, then upload the photo (now authenticated) and persist the download URL.
+                        postSignUpUploadError = null
+                        postSignUpUploadMessage = null
                         postSignUpUploadProgress = 0f
-                        false
-                    }
-                    postSignUpUploadInProgress = false
-                    return success
-                }
-                val baseResult = authRepo.signUp(profile.copy(photoUri = null), password)
-                if (baseResult is AuthResult.Success && profile.photoUri != null) {
-                    pendingUploadProfile = profile
-                    var success = uploadOnce(profile)
-                    if (!success && !autoRetryAttempted) {
-                        autoRetryAttempted = true
-                        postSignUpUploadMessage = "Retrying upload…"
-                        delay(900)
-                        success = uploadOnce(profile)
-                    }
-                }
-                baseResult
-            },
-            onSkip = {
-                isAuthenticated = true
-                currentScreen = MainScreen.Home
-            },
-            findProfileByEmail = { email -> authRepo.findProfileByEmail(email) },
-            externalUploadInProgress = postSignUpUploadInProgress,
-            externalUploadProgress = postSignUpUploadProgress,
-            externalUploadMessage = postSignUpUploadMessage ?: postSignUpUploadError
-        )
-        else -> {
-            Scaffold(
-                containerColor = Color.Transparent,
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                floatingActionButton = {
-                    if (showRootChrome) {
-                        FabGlow(
-                            modifier = Modifier.graphicsLayer(alpha = fabAlpha),
-                            icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
-                            onClick = { currentScreen = MainScreen.Alerts }
-                        )
-                    }
-                },
-                bottomBar = {
-                    if (showRootChrome) {
-                        Box(
-                            modifier = Modifier
-                                .navigationBarsPadding()
-                                .padding(bottom = 15.dp)
-                        ) {
-                            BottomBar(
-                                navItems = navItems,
-                                current = currentScreen,
-                                chromeAlpha = fabAlpha,
-                            ) { tapped ->
-                                if (tapped == MainScreen.Admin) {
-                                    if (hasAdminAccess) {
-                                        Analytics.log(
-                                            AnalyticsEvent(
-                                                name = "admin_gate_allowed",
-                                                params = mapOf(
-                                                    "role" to currentUserRole,
-                                                    "source" to "bottom_nav",
-                                                    "admin_flag" to adminFeatureFlagEnabled.toString()
-                                                )
-                                            )
-                                        )
-                                        currentScreen = tapped
-                                    } else {
-                                        adminGateMessage = if (!adminFeatureFlagEnabled) {
-                                            "Admin feature is currently disabled by feature flag."
-                                        } else {
-                                            "Your role ($currentUserRole) does not have access. Switch to an Admin or Reviewer account."
-                                        }
-                                        showAdminGateDialog = true
-                                        Analytics.log(
-                                            AnalyticsEvent(
-                                                name = "admin_gate_denied",
-                                                params = mapOf(
-                                                    "role" to currentUserRole,
-                                                    "source" to "bottom_nav",
-                                                    "admin_flag" to adminFeatureFlagEnabled.toString()
-                                                )
-                                            )
-                                        )
-                                    }
+                        pendingUploadProfile = null
+                        autoRetryAttempted = false
+
+                        suspend fun uploadOnce(target: UserProfile): Boolean {
+                            postSignUpUploadInProgress = true
+                            postSignUpUploadError = null
+                            postSignUpUploadMessage = "Uploading profile photo…"
+                            postSignUpUploadProgress = 0f
+                            val downloadUrl = profileImageStorage.uploadProfileImage(target.photoUri!!) { p ->
+                                postSignUpUploadProgress = p
+                            }
+                            val success = if (downloadUrl != null) {
+                                val updateResult = authRepo.updateProfile(target.copy(photoUri = downloadUrl, photoResKey = null))
+                                if (updateResult is AuthResult.Error) {
+                                    postSignUpUploadError = updateResult.message
+                                    postSignUpUploadMessage = "Photo saved locally, but profile update failed."
+                                    false
                                 } else {
-                                    currentScreen = tapped
+                                    postSignUpUploadProgress = 1f
+                                    postSignUpUploadMessage = "Profile photo saved."
+                                    true
                                 }
+                            } else {
+                                postSignUpUploadError = "Upload failed. Please retry after signing in."
+                                postSignUpUploadMessage = "Upload failed."
+                                postSignUpUploadProgress = 0f
+                                false
+                            }
+                            postSignUpUploadInProgress = false
+                            return success
+                        }
+                        val baseResult = authRepo.signUp(profile.copy(photoUri = null), password)
+                        if (baseResult is AuthResult.Success && profile.photoUri != null) {
+                            pendingUploadProfile = profile
+                            var success = uploadOnce(profile)
+                            if (!success && !autoRetryAttempted) {
+                                autoRetryAttempted = true
+                                postSignUpUploadMessage = "Retrying upload…"
+                                delay(900)
+                                success = uploadOnce(profile)
                             }
                         }
-                    }
-                },
-            ) { inner ->
-
-                val layoutDirection = LocalLayoutDirection.current
-                val contentPadding = PaddingValues(
-                    start = inner.calculateStartPadding(layoutDirection),
-                    end = inner.calculateEndPadding(layoutDirection),
-                    top = inner.calculateTopPadding(),
-                    bottom = 0.dp
+                        if (baseResult is AuthResult.Success) {
+                            isAuthenticated = true
+                            currentScreen = MainScreen.Home
+                        }
+                        baseResult
+                    },
+                    onSkip = {
+                        isAuthenticated = true
+                        currentScreen = MainScreen.Home
+                    },
+                    findProfileByEmail = { email -> authRepo.findProfileByEmail(email) },
+                    externalUploadInProgress = postSignUpUploadInProgress,
+                    externalUploadProgress = postSignUpUploadProgress,
+                    externalUploadMessage = postSignUpUploadMessage ?: postSignUpUploadError
                 )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(contentPadding)
-                        .nestedScroll(scrollConnection)
-                ) {
-                    if (showAdminGateDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showAdminGateDialog = false },
-                            icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
-                            title = { Text("Admin access required") },
-                            text = { Text(adminGateMessage) },
-                            confirmButton = {
-                                PrimaryButton(text = "Request access", modifier = Modifier.pressAnimated()) {
-                                    showAdminGateDialog = false
-                                    currentScreen = MainScreen.Profile
-                                }
-                            },
-                            dismissButton = {
-                                NeonTextButton(
-                                    text = "Back to Home",
-                                    onClick = {
-                                        showAdminGateDialog = false
-                                        currentScreen = MainScreen.Home
-                                    }
-                                )
-                            }
-                        )
-                    }
-                    if (showCheckout) {
-                        CheckoutScreen(
-                            order = sampleOrder,
-                            selectedTicketType = selectedTicketType,
-                            onBack = {
-                                showCheckout = false
-                            },
-                            onPlaceOrder = { paymentMethod, totalAmount ->
-                                if (GoTickyFeatures.EnableRealPayments) {
-                                    // TODO: integrate real payment processor; for now keep mock success flow for demos.
-                                }
-                                Analytics.log(
-                                    AnalyticsEvent(
-                                        name = "checkout_success",
-                                        params = mapOf(
-                                            "order_id" to sampleOrder.id,
-                                            "payment_method" to paymentMethod,
-                                            "total_amount" to totalAmount.toString()
-                                        )
-                                    )
-                                )
-                                showCheckout = false
-                                detailEvent = null
-                                selectedTicket = null
-                                currentScreen = MainScreen.Tickets
-                            }
-                        )
-                    } else if (selectedTicket != null) {
-                        TicketDetailScreen(
-                            ticket = selectedTicket!!,
-                            onBack = { selectedTicket = null },
-                            onAddToWallet = { /* TODO wallet */ },
-                            onTransfer = { /* TODO transfer */ }
-                        )
-                    } else if (detailEvent != null) {
-                        val organizerMeta = organizerEvents.firstOrNull { it.eventId == detailEvent!!.id }
-                        val detailApp = adminApplications.firstOrNull { it.eventId == detailEvent!!.id }
-                        val earlyBirdWindow = remember(detailApp?.id, detailApp?.approvedAt, detailApp?.status) {
-                            buildEarlyBirdWindow(detailApp, detailApp?.approvedAt)
+            } else {
+                Scaffold(
+                    containerColor = Color.Transparent,
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    floatingActionButton = {
+                        if (showRootChrome) {
+                            FabGlow(
+                                modifier = Modifier.graphicsLayer(alpha = fabAlpha),
+                                icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
+                                onClick = { currentScreen = MainScreen.Alerts }
+                            )
                         }
-                        EventDetailScreen(
-                            event = detailEvent!!,
-                            isFavorite = favoriteEvents.contains(detailEvent!!.id),
-                            onToggleFavorite = { detailEvent?.let { toggleFavorite(it.id) } },
-                            onBack = { detailEvent = null },
-                            onProceedToCheckout = { ticketType ->
-                                // Always proceed into checkout when a ticket is selected.
-                                selectedTicketType = ticketType
-                                if (GoTickyFeatures.EnableRealSeatMap) {
-                                    // For now, pick a representative sample ticket; real seat selection can refine this.
-                                    selectedTicket = sampleTickets.firstOrNull { it.eventTitle.contains("Golden", ignoreCase = true) }
-                                }
-                                detailEvent?.let { event ->
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "checkout_styled_cta",
-                                            params = mapOf(
-                                                "event_id" to event.id,
-                                                "title" to event.title,
-                                                "ticket_type" to ticketType
-                                            )
-                                        )
-                                    )
-                                }
-                                showCheckout = true
-                            },
-                            onAlert = {
-                                detailEvent?.let { event ->
-                                    val basePrice = parsePrice(event.priceFrom) ?: 0.0
-                                    val targetPrice = if (basePrice > 0.0) {
-                                        (basePrice * 0.85).roundToInt().coerceAtLeast(1)
-                                    } else 0
-                                    val currentPrice = basePrice.roundToInt().coerceAtLeast(0)
-                                    val dropPercent = if (currentPrice > 0 && targetPrice > 0) {
-                                        ((currentPrice - targetPrice) * 100 / currentPrice).coerceAtLeast(0)
-                                    } else 0
-                                    alerts.add(
-                                        PriceAlert(
-                                            id = "alert-${alerts.size + 1}",
-                                            eventId = event.id,
-                                            title = event.title,
-                                            venue = "${event.city}  ${event.dateLabel}",
-                                            section = "Auto-best available",
-                                            targetPrice = targetPrice,
-                                            currentPrice = currentPrice,
-                                            dropPercent = dropPercent,
-                                            expiresInDays = 7,
-                                            status = "Watching",
-                                        )
-                                    )
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "price_alert_set",
-                                            params = mapOf(
-                                                "event_id" to event.id,
-                                                "title" to event.title
-                                            )
-                                        )
-                                    )
-                                }
-                            },
-                            totalTickets = organizerMeta?.ticketCount,
-                            ticketsSold = organizerMeta?.sales,
-                            adminApplication = detailApp,
-                            earlyBirdWindow = earlyBirdWindow
-                        )
-                    } else {
-                        when (currentScreen) {
-                            MainScreen.Home -> HomeScreen(
-                                userProfile = userProfile,
-                                onOpenAlerts = { currentScreen = MainScreen.Profile },
-                                onEventSelected = { event ->
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "event_tap",
-                                            params = mapOf(
-                                                "event_id" to event.id,
-                                                "title" to event.title
-                                            )
-                                        )
-                                    )
-                                    detailEvent = event
-                                },
-                                recommendations = personalize(recommendations),
-                                adminApplications = adminApplications,
-                                onOpenMap = { currentScreen = MainScreen.Map },
-                                searchQuery = searchQuery,
-                                onSearchQueryChange = { searchQuery = it },
-                                forceOpenSearchDialog = forceOpenSearchDialog,
-                                onConsumeForceOpenSearchDialog = { forceOpenSearchDialog = false },
-                                onSearchExecuted = { query -> recordSearch(query) },
-                                favoriteEvents = favoriteEvents,
-                                onToggleFavorite = { id -> toggleFavorite(id) }
-                            )
-                            MainScreen.Tickets -> TicketsScreen(
-                                tickets = sampleTickets,
-                                onTicketSelected = { ticket ->
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "ticket_view",
-                                            params = mapOf(
-                                                "ticket_id" to ticket.id,
-                                                "event_title" to ticket.eventTitle
-                                            )
-                                        )
-                                    )
-                                    selectedTicket = ticket
-                                },
-                                onCheckout = { showCheckout = true }
-                            )
-                            MainScreen.Alerts -> AlertsScreen(
-                                alerts = alerts,
-                                recommendations = personalize(recommendations),
-                                personalizationPrefs = personalizationPrefs,
-                                onBack = { currentScreen = MainScreen.Home },
-                                onOpenEvent = { eventId ->
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "event_from_alert",
-                                            params = mapOf("event_id" to eventId)
-                                        )
-                                    )
-                                    openEventById(eventId)
-                                },
-                                onCreateAlert = {
-                                    alerts.add(
-                                        PriceAlert(
-                                            id = "alert-${alerts.size + 1}",
-                                            eventId = "1",
-                                            title = "New drop watch",
-                                            venue = "Any city",
-                                            section = "Auto-best available",
-                                            targetPrice = 99,
-                                            currentPrice = 120,
-                                            dropPercent = 0,
-                                            expiresInDays = 7,
-                                            status = "Watching"
-                                        )
-                                    )
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "alert_create",
-                                            params = mapOf(
-                                                "source" to "alerts_screen"
-                                            )
-                                        )
-                                    )
-                                },
-                                onAdjustAlert = { updated ->
-                                    val idx = alerts.indexOfFirst { it.id == updated.id }
-                                    if (idx != -1) {
-                                        alerts[idx] = updated
-                                    }
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "alert_update",
-                                            params = mapOf(
-                                                "alert_id" to updated.id,
-                                                "event_id" to updated.eventId
-                                            )
-                                        )
-                                    )
-                                },
-                                onUpdatePersonalization = { prefs ->
-                                    personalizationPrefs = prefs
-                                }
-                            )
-                            MainScreen.Profile -> ProfileScreen(
-                                userProfile = userProfile,
-                                onUpdateProfile = { updated ->
-                                    userProfile = updated
-                                },
-                                checklistState = checklistState,
-                                onToggleCheck = { id ->
-                                    checklistState[id] = !(checklistState[id] ?: false)
-                                },
-                                favorites = favoriteEvents,
-                                onToggleFavorite = { id -> toggleFavorite(id) },
-                                adminApplications = adminApplications,
-                                onOpenEvent = { event ->
-                                    detailEvent = event
-                                },
-                                onOpenOrganizer = { currentScreen = MainScreen.Organizer },
-                                onGoHome = { currentScreen = MainScreen.Home },
-                                onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
-                                onOpenFaq = { currentScreen = MainScreen.FAQ },
-                                searchHistory = searchHistory,
-                                onClearSearchHistory = { searchHistory.clear() },
-                                onSelectHistoryQuery = { query ->
-                                    searchQuery = query
-                                    forceOpenSearchDialog = true
-                                },
-                                onOpenSettings = { currentScreen = MainScreen.Settings },
-                                onLogout = {
-                                    scope.launch {
-                                        val user = authRepo.currentUser()
-                                        if (user != null) {
-                                            saveUserSettingsToFirestore(user.uid, settingsPrefs.copy(rememberMe = false))
-                                        }
-                                        authRepo.signOut()
-                                        settingsPrefs = settingsPrefs.copy(rememberMe = false)
-                                        isAuthenticated = false
-                                        showSplash = false
-                                        currentScreen = MainScreen.Home
-                                    }
-                                },
-                                isGuest = !isAuthenticated
-                            )
-                            MainScreen.Organizer -> when {
-                                selectedOrganizerEvent != null -> {
-                                    OrganizerEventDetailScreen(
-                                        event = selectedOrganizerEvent!!,
-                                        onBack = { selectedOrganizerEvent = null }
-                                    )
-                                }
-                                showCreateEvent -> {
-                                    CreateEventScreen(
-                                        userProfile = userProfile,
-                                        onBack = { showCreateEvent = false },
-                                        onSaveDraft = { title, city, venue, dateLabel, priceFrom, status, ticketCountStr ->
-                                            val index = organizerEvents.size + 1
-                                            val newEvent = OrganizerEvent(
-                                                id = "org-$index",
-                                                eventId = "new-$index",
-                                                title = if (title.isNotBlank()) title else "Untitled event $index",
-                                                city = city.ifBlank { "City TBD" },
-                                                venue = venue.ifBlank { "Venue TBD" },
-                                                dateLabel = dateLabel,
-                                                priceFrom = priceFrom.ifBlank { "From $0" },
-                                                status = status,
-                                                views = 0,
-                                                saves = 0,
-                                                sales = 0,
-                                                ticketCount = ticketCountStr.toIntOrNull() ?: 0,
-                                                isVerified = false
-                                            )
-                                            organizerEvents.add(0, newEvent)
+                    },
+                    bottomBar = {
+                        if (showRootChrome) {
+                            Box(
+                                modifier = Modifier
+                                    .navigationBarsPadding()
+                                    .padding(bottom = 15.dp)
+                            ) {
+                                BottomBar(
+                                    navItems = navItems,
+                                    current = currentScreen,
+                                    chromeAlpha = fabAlpha,
+                                ) { tapped ->
+                                    if (tapped == MainScreen.Admin) {
+                                        if (hasAdminAccess) {
                                             Analytics.log(
                                                 AnalyticsEvent(
-                                                    name = "organizer_event_saved",
+                                                    name = "admin_gate_allowed",
                                                     params = mapOf(
-                                                        "event_id" to newEvent.eventId,
-                                                        "status" to newEvent.status
+                                                        "role" to currentUserRole,
+                                                        "source" to "bottom_nav",
+                                                        "admin_flag" to adminFeatureFlagEnabled.toString()
                                                     )
                                                 )
                                             )
-                                            showCreateEvent = false
+                                            currentScreen = tapped
+                                        } else {
+                                            adminGateMessage = if (!adminFeatureFlagEnabled) {
+                                                "Admin feature is currently disabled by feature flag."
+                                            } else {
+                                                "Your role ($currentUserRole) does not have access. Switch to an Admin or Reviewer account."
+                                            }
+                                            showAdminGateDialog = true
+                                            Analytics.log(
+                                                AnalyticsEvent(
+                                                    name = "admin_gate_denied",
+                                                    params = mapOf(
+                                                        "role" to currentUserRole,
+                                                        "source" to "bottom_nav",
+                                                        "admin_flag" to adminFeatureFlagEnabled.toString()
+                                                    )
+                                                )
+                                            )
+                                        }
+                                    } else {
+                                        currentScreen = tapped
+                                    }
+                                }
+                            }
+                        }
+                    },
+                ) { inner ->
+                    val layoutDirection = LocalLayoutDirection.current
+                    val contentPadding = PaddingValues(
+                        start = inner.calculateStartPadding(layoutDirection),
+                        end = inner.calculateEndPadding(layoutDirection),
+                        top = inner.calculateTopPadding(),
+                        bottom = 0.dp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(contentPadding)
+                            .nestedScroll(scrollConnection)
+                    ) {
+                        if (showAdminGateDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showAdminGateDialog = false },
+                                icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
+                                title = { Text("Admin access required") },
+                                text = { Text(adminGateMessage) },
+                                confirmButton = {
+                                    PrimaryButton(text = "Request access", modifier = Modifier.pressAnimated()) {
+                                        showAdminGateDialog = false
+                                        currentScreen = MainScreen.Profile
+                                    }
+                                },
+                                dismissButton = {
+                                    NeonTextButton(
+                                        text = "Back to Home",
+                                        onClick = {
+                                            showAdminGateDialog = false
+                                            currentScreen = MainScreen.Home
+                                        }
+                                    )
+                                }
+                            )
+                        } else {
+                            when {
+                                detailEvent != null -> {
+                                    val event = detailEvent!!
+                                    EventDetailScreen(
+                                        event = event,
+                                        isFavorite = favoriteEvents.contains(event.id),
+                                        onToggleFavorite = { toggleFavorite(event.id) },
+                                        onBack = { detailEvent = null },
+                                        onProceedToCheckout = { ticketType ->
+                                            selectedTicketType = ticketType
+                                            // Exit detail view before showing checkout so the checkout screen can render.
+                                            detailEvent = null
+                                            showCheckout = true
+                                        },
+                                        onAlert = { currentScreen = MainScreen.Alerts },
+                                    )
+                                }
+                                showCheckout -> {
+                                    CheckoutScreen(
+                                        order = sampleOrder,
+                                        selectedTicketType = selectedTicketType,
+                                        onBack = { showCheckout = false },
+                                        onPlaceOrder = { paymentMethod, totalAmount ->
+                                            Analytics.log(
+                                                AnalyticsEvent(
+                                                    name = "checkout_place_order",
+                                                    params = mapOf(
+                                                        "method" to paymentMethod,
+                                                        "amount" to totalAmount.toString(),
+                                                        "ticket_type" to selectedTicketType
+                                                    )
+                                                )
+                                            )
+                                            showCheckout = false
+                                            currentScreen = MainScreen.Tickets
                                         }
                                     )
                                 }
                                 else -> {
-                                    OrganizerDashboardScreen(
-                                        events = organizerEvents,
-                                        onBack = { currentScreen = MainScreen.Profile },
-                                        onCreateEvent = {
-                                            Analytics.log(
-                                                AnalyticsEvent(
-                                                    name = "organizer_create_event_start",
-                                                    params = emptyMap()
-                                                )
+                                    when (currentScreen) {
+                                        MainScreen.Home -> {
+                                            HomeScreen(
+                                                userProfile = userProfile,
+                                                onOpenAlerts = { currentScreen = MainScreen.Alerts },
+                                                onEventSelected = { event ->
+                                                    detailEvent = event
+                                                },
+                                                recommendations = personalize(recommendations),
+                                                adminApplications = adminApplications,
+                                                onOpenMap = { currentScreen = MainScreen.Map },
+                                                searchQuery = searchQuery,
+                                                onSearchQueryChange = { searchQuery = it },
+                                                forceOpenSearchDialog = forceOpenSearchDialog,
+                                                onConsumeForceOpenSearchDialog = { forceOpenSearchDialog = false },
+                                                onSearchExecuted = { query -> recordSearch(query) },
+                                                favoriteEvents = favoriteEvents,
+                                                onToggleFavorite = { id -> toggleFavorite(id) },
                                             )
-                                            showCreateEvent = true
-                                        },
-                                        onOpenEvent = { event ->
-                                            selectedOrganizerEvent = event
-                                        },
-                                        chromeAlpha = fabAlpha
-                                    )
-                                }
-                            }
-                            MainScreen.Admin -> {
-                                if (hasAdminAccess) {
-                                    AdminDashboardScreen(
-                                        kpis = adminKpis,
-                                        attention = adminAttention,
-                                        activity = adminActivity,
-                                        applications = adminApplications,
-                                        reports = adminReports,
-                                        flags = adminFlags,
-                                        organizers = adminOrganizers,
-                                        roles = adminRoles,
-                                        featuredSlots = featuredSlots,
-                                        adminSurface = adminSurface,
-                                        onSurfaceChange = { adminSurface = it },
-                                        onBack = { currentScreen = MainScreen.Home },
-                                        onUpdateApplicationStatus = { id, status -> updateApplicationStatus(id, status, ::addAdminActivity) },
-                                        onUpdateEarlyBird = { id, enabled, discount, hours, startNow, paused ->
-                                            updateEarlyBirdConfig(id, enabled, discount, hours, startNow, paused, ::addAdminActivity)
-                                        },
-                                        onResolveReport = { id -> resolveReport(id, ::addAdminActivity) },
-                                        onWarnReport = { id, template, note -> warnReport(id, template, note, ::addAdminActivity) },
-                                        onToggleFlag = { key, enabled -> toggleFlag(key, enabled, ::addAdminActivity) },
-                                        onOpenApplications = { adminSurface = AdminSurface.Applications },
-                                        onOpenModeration = { adminSurface = AdminSurface.Moderation },
-                                        onOpenCatalog = { adminSurface = AdminSurface.Catalog },
-                                        onVerifyOrganizer = { id, verified -> verifyOrganizer(id, verified, ::addAdminActivity) },
-                                        onFreezeOrganizer = { id, frozen -> freezeOrganizer(id, frozen, ::addAdminActivity) },
-                                        onRequestReKyc = { id -> requestReKyc(id, ::addAdminActivity) },
-                                        onChangeRole = { id, role -> changeRole(id, role, ::addAdminActivity) },
-                                        onToggleFeaturedSlot = { id, enabled -> toggleFeaturedSlot(id, enabled, ::addAdminActivity) },
-                                        onMoveFeaturedSlot = { id, delta -> moveFeaturedSlot(id, delta, ::addAdminActivity) },
-                                        addActivity = ::addAdminActivity,
-                                        activityLog = adminActivity,
-                                        reviewers = adminReviewers,
-                                        reviewerByApp = reviewerByApp,
-                                        commentsByApp = commentsByApp,
-                                    )
-                                    LaunchedEffect(Unit) {
-                                        Analytics.log(
-                                            AnalyticsEvent(
-                                                name = "admin_view",
-                                                params = mapOf(
-                                                    "role" to currentUserRole,
-                                                    "admin_flag" to adminFeatureFlagEnabled.toString(),
-                                                    "surface" to adminSurface.name
-                                                )
+                                        }
+                                        MainScreen.Tickets -> {
+                                            TicketsScreen(
+                                                tickets = sampleTickets,
+                                                onTicketSelected = { ticket ->
+                                                    selectedTicket = ticket
+                                                },
+                                                onCheckout = {
+                                                    showCheckout = true
+                                                }
                                             )
+                                        }
+                                        MainScreen.Alerts -> {
+                                            AlertsScreen(
+                                                alerts = alerts,
+                                                recommendations = personalize(recommendations),
+                                                personalizationPrefs = personalizationPrefs,
+                                                onBack = { currentScreen = MainScreen.Home },
+                                                onOpenEvent = { eventId -> openEventById(eventId) },
+                                                onCreateAlert = { },
+                                                onAdjustAlert = { },
+                                                onUpdatePersonalization = { newPrefs ->
+                                                    personalizationPrefs = newPrefs
+                                                },
+                                            )
+                                        }
+                                        MainScreen.Profile -> {
+                                            ProfileScreen(
+                                                userProfile = userProfile,
+                                                onUpdateProfile = { updated -> userProfile = updated },
+                                                checklistState = checklistState,
+                                                onToggleCheck = { id ->
+                                                    val current = checklistState[id] ?: false
+                                                    checklistState[id] = !current
+                                                },
+                                                favorites = favoriteEvents,
+                                                onToggleFavorite = { id -> toggleFavorite(id) },
+                                                adminApplications = adminApplications,
+                                                onOpenEvent = { event ->
+                                                    detailEvent = event
+                                                },
+                                                onOpenOrganizer = { currentScreen = MainScreen.Organizer },
+                                                onGoHome = { currentScreen = MainScreen.Home },
+                                                onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
+                                                onOpenFaq = { currentScreen = MainScreen.FAQ },
+                                                searchHistory = searchHistory,
+                                                onClearSearchHistory = { searchHistory.clear() },
+                                                onSelectHistoryQuery = { query ->
+                                                    searchQuery = query
+                                                    recordSearch(query)
+                                                },
+                                                onOpenSettings = { currentScreen = MainScreen.Settings },
+                                                onLogout = { },
+                                                isGuest = !isAuthenticated,
+                                            )
+                                        }
+                                        MainScreen.Organizer -> {
+                                            when {
+                                                selectedOrganizerEvent != null -> {
+                                                    OrganizerEventDetailScreen(
+                                                        event = selectedOrganizerEvent!!,
+                                                        onBack = { selectedOrganizerEvent = null }
+                                                    )
+                                                }
+                                                showCreateEvent -> {
+                                                    CreateEventScreen(
+                                                        userProfile = userProfile,
+                                                        onBack = { showCreateEvent = false },
+                                                        onSaveDraft = { title, city, venue, dateLabel, priceFrom, status, ticketCountStr ->
+                                                            val index = organizerEvents.size + 1
+                                                            val newEvent = OrganizerEvent(
+                                                                id = "org-$index",
+                                                                eventId = "new-$index",
+                                                                title = if (title.isNotBlank()) title else "Untitled event $index",
+                                                                city = city.ifBlank { "City TBD" },
+                                                                venue = venue.ifBlank { "Venue TBD" },
+                                                                dateLabel = dateLabel,
+                                                                priceFrom = priceFrom.ifBlank { "From $0" },
+                                                                status = status,
+                                                                views = 0,
+                                                                saves = 0,
+                                                                sales = 0,
+                                                                ticketCount = ticketCountStr.toIntOrNull() ?: 0,
+                                                                isVerified = false
+                                                            )
+                                                            organizerEvents.add(0, newEvent)
+                                                            Analytics.log(
+                                                                AnalyticsEvent(
+                                                                    name = "organizer_event_saved",
+                                                                    params = mapOf(
+                                                                        "event_id" to newEvent.eventId,
+                                                                        "status" to newEvent.status
+                                                                    )
+                                                                )
+                                                            )
+                                                            showCreateEvent = false
+                                                        }
+                                                    )
+                                                }
+                                                else -> {
+                                                    OrganizerDashboardScreen(
+                                                        events = organizerEvents,
+                                                        onBack = { currentScreen = MainScreen.Profile },
+                                                        onCreateEvent = {
+                                                            Analytics.log(
+                                                                AnalyticsEvent(
+                                                                    name = "organizer_create_event_start",
+                                                                    params = emptyMap()
+                                                                )
+                                                            )
+                                                            showCreateEvent = true
+                                                        },
+                                                        onOpenEvent = { event ->
+                                                            selectedOrganizerEvent = event
+                                                        },
+                                                        chromeAlpha = fabAlpha
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        MainScreen.Admin -> {
+                                            if (hasAdminAccess) {
+                                                AdminDashboardScreen(
+                                                    kpis = adminKpis,
+                                                    attention = adminAttention,
+                                                    activity = adminActivity,
+                                                    applications = adminApplications,
+                                                    reports = adminReports,
+                                                    flags = adminFlags,
+                                                    organizers = adminOrganizers,
+                                                    roles = adminRoles,
+                                                    featuredSlots = featuredSlots,
+                                                    adminSurface = adminSurface,
+                                                    onSurfaceChange = { adminSurface = it },
+                                                    onBack = { currentScreen = MainScreen.Home },
+                                                    onUpdateApplicationStatus = { id, status -> updateApplicationStatus(id, status, ::addAdminActivity) },
+                                                    onUpdateEarlyBird = { id, enabled, discount, hours, startNow, paused ->
+                                                        updateEarlyBirdConfig(id, enabled, discount, hours, startNow, paused, ::addAdminActivity)
+                                                    },
+                                                    onResolveReport = { id -> resolveReport(id, ::addAdminActivity) },
+                                                    onWarnReport = { id, template, note -> warnReport(id, template, note, ::addAdminActivity) },
+                                                    onToggleFlag = { key, enabled -> toggleFlag(key, enabled, ::addAdminActivity) },
+                                                    onOpenApplications = { adminSurface = AdminSurface.Applications },
+                                                    onOpenModeration = { adminSurface = AdminSurface.Moderation },
+                                                    onOpenCatalog = { adminSurface = AdminSurface.Catalog },
+                                                    onVerifyOrganizer = { id, verified -> verifyOrganizer(id, verified, ::addAdminActivity) },
+                                                    onFreezeOrganizer = { id, frozen -> freezeOrganizer(id, frozen, ::addAdminActivity) },
+                                                    onRequestReKyc = { id -> requestReKyc(id, ::addAdminActivity) },
+                                                    onChangeRole = { id, role -> changeRole(id, role, ::addAdminActivity) },
+                                                    onToggleFeaturedSlot = { id, enabled -> toggleFeaturedSlot(id, enabled, ::addAdminActivity) },
+                                                    onMoveFeaturedSlot = { id, delta -> moveFeaturedSlot(id, delta, ::addAdminActivity) },
+                                                    addActivity = ::addAdminActivity,
+                                                    activityLog = adminActivity,
+                                                    reviewers = adminReviewers,
+                                                    reviewerByApp = reviewerByApp,
+                                                    commentsByApp = commentsByApp,
+                                                )
+                                                LaunchedEffect(Unit) {
+                                                    Analytics.log(
+                                                        AnalyticsEvent(
+                                                            name = "admin_view",
+                                                            params = mapOf(
+                                                                "role" to currentUserRole,
+                                                                "admin_flag" to adminFeatureFlagEnabled.toString(),
+                                                                "surface" to adminSurface.name
+                                                            )
+                                                        )
+                                                    )
+                                                }
+                                            } else {
+                                                AdminGateScreen(
+                                                    role = currentUserRole,
+                                                    flagEnabled = adminFeatureFlagEnabled,
+                                                    onBack = { currentScreen = MainScreen.Home },
+                                                    onRequestAccess = {
+                                                        showAdminGateDialog = false
+                                                        currentScreen = MainScreen.Profile
+                                                    }
+                                                )
+                                            }
+                                        }
+                                        MainScreen.PrivacyTerms -> LegalScreen(
+                                            onBack = { currentScreen = MainScreen.Profile }
+                                        )
+                                        MainScreen.FAQ -> FaqScreen(
+                                            onBack = { currentScreen = MainScreen.Profile }
+                                        )
+                                        MainScreen.Settings -> SettingsScreen(
+                                            prefs = settingsPrefs,
+                                            onPrefsChange = { newPrefs ->
+                                                settingsPrefs = newPrefs
+                                                scope.launch {
+                                                    val user = authRepo.currentUser()
+                                                    if (user != null) {
+                                                        saveUserSettingsToFirestore(user.uid, newPrefs)
+                                                    }
+                                                }
+                                            },
+                                            onBack = { currentScreen = MainScreen.Profile },
+                                            onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
+                                            onOpenFaq = { currentScreen = MainScreen.FAQ }
+                                        )
+                                        MainScreen.Map -> EventMapScreen(
+                                            onBack = { currentScreen = MainScreen.Home },
+                                            onOpenEvent = { eventId -> openEventById(eventId) }
                                         )
                                     }
-                                } else {
-                                    AdminGateScreen(
-                                        role = currentUserRole,
-                                        flagEnabled = adminFeatureFlagEnabled,
-                                        onBack = { currentScreen = MainScreen.Home },
-                                        onRequestAccess = {
-                                            showAdminGateDialog = false
-                                            currentScreen = MainScreen.Profile
-                                        }
-                                    )
                                 }
                             }
-                            MainScreen.PrivacyTerms -> LegalScreen(
-                                onBack = { currentScreen = MainScreen.Profile }
-                            )
-                            MainScreen.FAQ -> FaqScreen(
-                                onBack = { currentScreen = MainScreen.Profile }
-                            )
-                            MainScreen.Settings -> SettingsScreen(
-                                prefs = settingsPrefs,
-                                onPrefsChange = { newPrefs ->
-                                    settingsPrefs = newPrefs
-                                    scope.launch {
-                                        val user = authRepo.currentUser()
-                                        if (user != null) {
-                                            saveUserSettingsToFirestore(user.uid, newPrefs)
-                                        }
-                                    }
-                                },
-                                onBack = { currentScreen = MainScreen.Profile },
-                                onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
-                                onOpenFaq = { currentScreen = MainScreen.FAQ }
-                            )
-                            MainScreen.Map -> EventMapScreen(
-                                onBack = { currentScreen = MainScreen.Home },
-                                onOpenEvent = { eventId -> openEventById(eventId) }
-                            )
                         }
                     }
                 }

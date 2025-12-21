@@ -2,6 +2,8 @@ package org.example.project
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -18,6 +20,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -30,6 +33,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -77,11 +81,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -91,7 +97,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -109,6 +118,10 @@ import org.example.project.ui.theme.GoTickyGradients
 import org.example.project.ui.theme.IconCategory
 import org.example.project.ui.theme.IconCategoryColors
 import org.example.project.ui.theme.goTickyShapes
+import goticky.composeapp.generated.resources.Res
+import goticky.composeapp.generated.resources.allDrawableResources
+import org.jetbrains.compose.resources.painterResource
+import kotlin.random.Random
 
 data class CountryOption(
     val name: String,
@@ -117,53 +130,228 @@ data class CountryOption(
 )
 
 @Composable
-fun SplashScreen(
+fun IntroScreen(
     modifier: Modifier = Modifier,
     onContinue: () -> Unit,
 ) {
-    val pulse by animateFloatAsState(
-        targetValue = 1.05f,
-        animationSpec = tween(durationMillis = GoTickyMotion.Comfort, easing = EaseOutBack),
-        label = "splashPulse"
-    )
-    LaunchedEffect(Unit) {
-        delay(1200)
-        onContinue()
-    }
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(GoTickyGradients.Hero)
-            .padding(26.dp),
-        contentAlignment = Alignment.Center
+    val introLogoRes = remember { Res.allDrawableResources["intro_logo"] }
+    val introBackgroundRes = remember { Res.allDrawableResources["intro_background"] }
+    val introBackgroundPainter: Painter? = introBackgroundRes?.let { painterResource(it) }
+
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize()
     ) {
-        SplashHalo()
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                text = "GoTicky",
-                color = MaterialTheme.colorScheme.onPrimary,
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 36.sp
+        val brandLetters = remember { listOf("G", "o", "T", "i", "c", "k", "y") }
+        val density = LocalDensity.current
+        val widthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
+        val heightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+        val offscreenX = widthPx * 0.35f + 80f
+        val offscreenY = heightPx * 0.35f + 80f
+
+        fun randomOffscreenOffset(): Pair<Float, Float> {
+            val side = Random.nextInt(0, 4)
+            return when (side) {
+                // Left of screen
+                0 -> Pair(
+                    Random.nextDouble(-offscreenX * 1.4, -offscreenX * 0.6).toFloat(),
+                    Random.nextDouble(-heightPx * 0.25, heightPx * 0.25).toFloat()
                 )
-            )
-            Text(
-                text = "Events that pulse with the city.\nSign in to keep the neon flowing.",
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center
-            )
-            LoadingSpinner(modifier = Modifier.size(64.dp))
-            PrimaryButton(
-                text = "Jump in",
+                // Right of screen
+                1 -> Pair(
+                    Random.nextDouble(widthPx + offscreenX * 0.6, widthPx + offscreenX * 1.4).toFloat(),
+                    Random.nextDouble(-heightPx * 0.25, heightPx * 0.25).toFloat()
+                )
+                // Above screen
+                2 -> Pair(
+                    Random.nextDouble(-widthPx * 0.25, widthPx * 0.25).toFloat(),
+                    Random.nextDouble(-offscreenY * 1.2, -offscreenY * 0.6).toFloat()
+                )
+                // Below screen
+                else -> Pair(
+                    Random.nextDouble(-widthPx * 0.25, widthPx * 0.25).toFloat(),
+                    Random.nextDouble(heightPx + offscreenY * 0.6, heightPx + offscreenY * 1.2).toFloat()
+                )
+            }
+        }
+
+        val letterOffsetsPx = remember(maxWidth, maxHeight, density) {
+            List(brandLetters.size) { randomOffscreenOffset() }
+        }
+        val letterAnimX = remember(letterOffsetsPx) { letterOffsetsPx.map { Animatable(it.first) } }
+        val letterAnimY = remember(letterOffsetsPx) { letterOffsetsPx.map { Animatable(it.second) } }
+        val taglineLeftOffset = remember { Animatable(-180f) }
+        val taglineRightOffset = remember { Animatable(180f) }
+        val descriptionAlpha = remember { Animatable(0f) }
+        val glowIntensity = remember { Animatable(0f) }
+        val dissolveAlpha = remember { Animatable(1f) }
+
+        // Timings (ms)
+        val titleDuration = 5_000
+        val taglineStart = 4_000L // when letters are mostly gathered
+        val taglineDuration = 1_800
+        val descriptionStart = 6_000L
+        val descriptionDuration = 2_000
+        val glowStart = 8_100L
+        val glowDuration = 900
+        // Dissolve is aligned with glow so the sequence ends when the glow finishes.
+        val dissolveStart = glowStart
+        val dissolveDuration = glowDuration
+        // Cut total duration so the whole intro finishes when the glow ends.
+        val totalDuration = glowStart + glowDuration
+
+        LaunchedEffect(Unit) {
+            // Title letters gather for ~5s from scattered offsets with random delays so they're not in sync.
+            letterAnimX.forEachIndexed { index, anim ->
+                val startDelay = Random.nextInt(0, 900)
+                val duration = Random.nextInt((titleDuration * 0.65).toInt(), titleDuration + 1200)
+                launch {
+                    delay(startDelay.toLong())
+                    anim.animateTo(0f, animationSpec = tween(durationMillis = duration, easing = EaseOutBack))
+                }
+                launch {
+                    delay(startDelay.toLong())
+                    letterAnimY[index].animateTo(0f, animationSpec = tween(durationMillis = duration, easing = EaseOutBack))
+                }
+            }
+
+            // Tagline slides from left/right starting at taglineStart.
+            launch {
+                delay(taglineStart)
+                taglineLeftOffset.animateTo(0f, animationSpec = tween(durationMillis = taglineDuration, easing = EaseOutBack))
+            }
+            launch {
+                delay(taglineStart)
+                taglineRightOffset.animateTo(0f, animationSpec = tween(durationMillis = taglineDuration, easing = EaseOutBack))
+            }
+
+            // Description fades in starting at descriptionStart.
+            launch {
+                delay(descriptionStart)
+                descriptionAlpha.animateTo(1f, animationSpec = tween(durationMillis = descriptionDuration))
+            }
+
+            // Title glow (and scale pulse) from glowStart to glowStart + glowDuration.
+            launch {
+                delay(glowStart)
+                glowIntensity.animateTo(1f, animationSpec = tween(durationMillis = glowDuration, easing = EaseOutBack))
+            }
+
+            // Dissolve aligned with glow so everything completes together.
+            launch {
+                delay(dissolveStart)
+                dissolveAlpha.animateTo(0f, animationSpec = tween(durationMillis = dissolveDuration))
+            }
+
+            // Start the transition to the next screen when the dissolve begins so AnimatedContent can crossfade.
+            delay(dissolveStart)
+            onContinue()
+        }
+
+        Box(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (introBackgroundPainter != null) {
+                Image(
+                    painter = introBackgroundPainter,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF05070D))
+                )
+            }
+
+            Box(
                 modifier = Modifier
-                    .pressAnimated()
-                    .graphicsLayer(scaleX = pulse, scaleY = pulse),
-                onClick = onContinue
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xE6000000),
+                                Color(0xCC000000),
+                                Color(0xF2000000)
+                            )
+                        )
+                    )
             )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(26.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                SplashHalo()
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    modifier = Modifier.graphicsLayer(alpha = dissolveAlpha.value)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        brandLetters.forEachIndexed { index, letter ->
+                            val glowAlpha = 0.25f + 0.55f * glowIntensity.value
+                            val glowBlur = 10f + 14f * glowIntensity.value
+                            val titleScale = 1f + 0.05f * glowIntensity.value
+                            Text(
+                                text = letter,
+                                color = Color(0xFFD6FF1F),
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    shadow = androidx.compose.ui.graphics.Shadow(
+                                        color = Color(0xFF40FFAA).copy(alpha = glowAlpha),
+                                        offset = androidx.compose.ui.geometry.Offset(0f, 2f),
+                                        blurRadius = glowBlur
+                                    )
+                                ),
+                                modifier = Modifier.graphicsLayer(
+                                    rotationZ = if (index % 2 == 0) -2f else 2f,
+                                    translationX = letterAnimX[index].value,
+                                    translationY = letterAnimY[index].value,
+                                    scaleX = titleScale,
+                                    scaleY = titleScale
+                                )
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Find it. Feel it.",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.graphicsLayer(translationX = taglineLeftOffset.value)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "GoTicky.",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.graphicsLayer(translationX = taglineRightOffset.value)
+                        )
+                    }
+
+                    Text(
+                        text = "Discover the hottest events around you and grab tickets in a few taps with GoTicky.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.graphicsLayer(alpha = descriptionAlpha.value)
+                    )
+                }
+            }
         }
     }
 }
