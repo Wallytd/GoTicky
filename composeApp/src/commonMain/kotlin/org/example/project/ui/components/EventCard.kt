@@ -47,7 +47,9 @@ fun EventCard(
     distanceLabel: String? = null,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    earlyBirdLabel: String? = null,
+    earlyBirdHighlight: Boolean = false,
 ) {
     val accent = IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.primary
     val interaction = rememberPressInteractionSource()
@@ -88,7 +90,16 @@ fun EventCard(
             }
             Text("${item.city} • ${item.dateLabel}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(item.priceFrom, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = accent)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(item.priceFrom, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = accent)
+                    earlyBirdLabel?.let { label ->
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (earlyBirdHighlight) Color(0xFFFFC94A) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     distanceLabel?.let { label ->
                         Text(

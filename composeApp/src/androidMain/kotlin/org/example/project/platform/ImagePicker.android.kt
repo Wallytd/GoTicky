@@ -3,20 +3,26 @@ package org.example.project.platform
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import coil.compose.rememberAsyncImagePainter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 import java.io.OutputStream
 
 /**
@@ -69,15 +75,8 @@ actual fun rememberImagePicker(onImagePicked: (String?) -> Unit): ImagePickerLau
 
 @Composable
 actual fun rememberUriPainter(uri: String): Painter? {
-    val context = LocalContext.current
-    return remember(uri) {
-        val parsed = Uri.parse(uri)
-        context.contentResolver.openInputStream(parsed)?.use { stream ->
-            BitmapFactory.decodeStream(stream)?.let { bmp ->
-                BitmapPainter(bmp.asImageBitmap())
-            }
-        }
-    }
+    // Use Coil for both remote (http/https) and local/content URIs.
+    return rememberAsyncImagePainter(model = uri)
 }
 
 private fun saveBitmapToMediaStore(context: Context, bitmap: Bitmap): Uri? {

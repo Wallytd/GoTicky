@@ -58,7 +58,8 @@ fun PrimaryButton(
             .background(GoTickyGradients.Cta)
             .shadow(elevation = 8.dp, shape = goTickyShapes.large, spotColor = Color(0x66D6FF1F))
             .clickable(interactionSource = interactionSource, indication = null) { onClick() }
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            // Slightly lower vertical padding so there is more text room inside short pills (e.g. height = 44.dp).
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {

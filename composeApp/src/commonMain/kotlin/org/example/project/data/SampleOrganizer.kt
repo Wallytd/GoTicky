@@ -12,6 +12,7 @@ data class OrganizerEvent(
     val views: Int,
     val saves: Int,
     val sales: Int,
+    val ticketCount: Int,
     val isVerified: Boolean,
 )
 
@@ -28,6 +29,7 @@ val sampleOrganizerEvents = listOf(
         views = 4200,
         saves = 560,
         sales = 980,
+        ticketCount = 2500,
         isVerified = true,
     ),
     OrganizerEvent(
@@ -42,6 +44,7 @@ val sampleOrganizerEvents = listOf(
         views = 3100,
         saves = 430,
         sales = 760,
+        ticketCount = 1800,
         isVerified = true,
     ),
     OrganizerEvent(
@@ -56,6 +59,7 @@ val sampleOrganizerEvents = listOf(
         views = 420,
         saves = 80,
         sales = 0,
+        ticketCount = 900,
         isVerified = false,
     ),
     OrganizerEvent(
@@ -70,6 +74,7 @@ val sampleOrganizerEvents = listOf(
         views = 980,
         saves = 210,
         sales = 320,
+        ticketCount = 1200,
         isVerified = true,
     ),
     OrganizerEvent(
@@ -84,6 +89,7 @@ val sampleOrganizerEvents = listOf(
         views = 640,
         saves = 95,
         sales = 150,
+        ticketCount = 800,
         isVerified = false,
     ),
 )

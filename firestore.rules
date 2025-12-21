@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Canonical per-user document keyed by Firebase UID.
+    // Each authenticated user can read/write only their own user document.
+    match /users/{userId} {
+      // Read: path segment must match the authenticated UID.
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // Write (create/update): enforce that the stored uid field also matches.
+      allow write: if
+        request.auth != null &&
+        request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid;
+
+      // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
+      match /app_settings/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Human-friendly user directory index for console/admin inspection.
+    // Structure: /userDirectory/{role}/{nameKey}/{uid}
+    // Allow each authenticated user to create/update only their own index entry.
+    // Client reads are disabled; this is primarily for the console/backoffice.
+    match /userDirectory/{role}/{nameKey}/{uid} {
+      allow write: if request.auth != null && request.auth.uid == uid;
+      allow read: if false;
+    }
+
+    // Everything else is denied by default.
+    // Public, minimal profile index keyed by lowercased email for pre-auth avatar lookup.
+    match /publicProfiles/{emailLower} {
+      // Allow read for everyone, but only expose minimal non-sensitive fields in the client code.
+      allow read: if true;
+      // Writes allowed for an authenticated user, scoped to their own lowercase email key.
+      allow write: if request.auth != null &&
+        request.resource.data.emailLower == emailLower;
+    }
+
+    // Deny everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

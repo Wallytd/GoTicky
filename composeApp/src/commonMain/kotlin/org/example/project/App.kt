@@ -1,3 +1,5 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
+
 package org.example.project
 
 import androidx.compose.animation.AnimatedVisibility
@@ -98,6 +100,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
@@ -202,6 +205,7 @@ import org.example.project.ui.theme.IconCategoryColors
 import org.example.project.ui.theme.goTickyShapes
 import org.example.project.platform.ImagePickerLauncher
 import org.example.project.platform.rememberImagePicker
+import org.example.project.platform.rememberProfileImageStorage
 import org.example.project.platform.rememberUriPainter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
@@ -223,9 +227,21 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.text.SpanStyle
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
+import kotlin.math.roundToInt
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.days
+import kotlin.time.DurationUnit
+import kotlin.time.toDuration
+import dev.gitlive.firebase.Firebase
+import dev.gitlive.firebase.firestore.firestore
 
 private enum class MainScreen {
-    Home, Browse, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
+    Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
 }
 
 private fun currentGreeting(): String {
@@ -508,6 +524,7 @@ private data class AdminActivity(val text: String, val time: String, val accent:
 private enum class AdminSurface { Dashboard, Applications, Moderation, Catalog, Organizer, Settings }
 private data class AdminApplication(
     val id: String,
+    val eventId: String,
     val title: String,
     val organizer: String,
     val city: String,
@@ -520,7 +537,89 @@ private data class AdminApplication(
     val notes: String,
     val eventDateTime: String = "",
     val pricingTiers: List<String> = emptyList(),
+    var approvedAt: Instant? = null,
+    val earlyBirdEnabled: Boolean = true,
+    val earlyBirdDiscountPercent: Int = 20,
+    val earlyBirdDurationHours: Int = 72,
+    val earlyBirdManualStartAt: Instant? = null,
+    val earlyBirdPaused: Boolean = false,
 )
+private data class EarlyBirdWindow(
+    val start: Instant,
+    val end: Instant,
+    val discountPercent: Int,
+    val basePriceLabel: String,
+    val earlyPriceLabel: String,
+)
+
+@kotlin.OptIn(kotlin.time.ExperimentalTime::class)
+private fun formatDurationShort(duration: Duration): String {
+    if (duration <= ZERO) return "0m"
+    var rem = duration
+    val days = rem.inWholeDays
+    rem -= days.days
+    val hours = rem.inWholeHours
+    rem -= hours.hours
+    val minutes = (rem.inWholeMinutes).coerceAtLeast(0)
+    return buildString {
+        if (days > 0) append("${days}d ")
+        if (hours > 0) append("${hours}h ")
+        append("${minutes}m")
+    }.trim()
+}
+
+private fun parsePrice(value: String): Double? {
+    val numeric = Regex("[0-9]+(\\.[0-9]+)?").find(value)?.value ?: return null
+    return numeric.toDoubleOrNull()
+}
+
+private fun buildEarlyBirdWindow(app: AdminApplication?, approvedAt: Instant?): EarlyBirdWindow? {
+    if (app == null) return null
+    // Only allow time window once admin has approved to avoid selling before review.
+    if (app.status != "Approved") return null
+    if (!app.earlyBirdEnabled || app.earlyBirdDurationHours <= 0 || app.earlyBirdDiscountPercent <= 0) return null
+    if (app.earlyBirdPaused) return null
+    val startAnchor = app.earlyBirdManualStartAt ?: approvedAt ?: currentInstant()
+    val durationHours = app.earlyBirdDurationHours.coerceIn(1, 24 * 14)
+    val end = startAnchor + durationHours.hours
+    val baseLabel = app.pricingTiers.firstOrNull {
+        it.contains("GA", ignoreCase = true) || it.contains("General", ignoreCase = true)
+    } ?: app.pricingTiers.firstOrNull().orEmpty()
+    val base = parsePrice(baseLabel) ?: 0.0
+    val discount = app.earlyBirdDiscountPercent.coerceIn(5, 80)
+    val earlyPrice = (base * (1 - discount / 100.0)).coerceAtLeast(1.0)
+    val earlyLabel = if (earlyPrice % 1.0 == 0.0) "$$${earlyPrice.toInt()}" else "$$${"%.2f".format(earlyPrice)}"
+    val baseDisplay = if (base > 0) {
+        if (base % 1.0 == 0.0) "$$${base.toInt()}" else "$$${"%.2f".format(base)}"
+    } else baseLabel.ifBlank { "Base price" }
+    return EarlyBirdWindow(
+        start = startAnchor,
+        end = end,
+        discountPercent = discount,
+        basePriceLabel = baseDisplay,
+        earlyPriceLabel = earlyLabel
+    )
+}
+
+private fun isEventPublic(eventId: String, apps: List<AdminApplication>): Boolean {
+    val app = apps.firstOrNull { it.eventId == eventId } ?: return true
+    return app.status == "Approved"
+}
+
+private fun buildEarlyBirdBadgeForEvent(
+    event: EventItem,
+    apps: List<AdminApplication>,
+): Pair<String?, Boolean> {
+    if (!isEventPublic(event.id, apps)) return null to false
+    val app = apps.firstOrNull { it.eventId == event.id } ?: return null to false
+    val window = buildEarlyBirdWindow(app, app.approvedAt) ?: return null to false
+    val now = currentInstant()
+    if (now < window.start || now > window.end) return null to false
+    val remaining = (window.end - now).coerceAtLeast(ZERO)
+    val highlight = remaining <= 6.hours
+    val label = "Early Bird ${window.earlyPriceLabel} • ${formatDurationShort(remaining)} left"
+    return label to highlight
+}
 private data class AdminReport(
     val id: String,
     val target: String,
@@ -569,7 +668,7 @@ private data class MenuItemSpec(
     val onClick: () -> Unit,
 )
 
-private data class UserProfile(
+data class UserProfile(
     val fullName: String,
     val email: String,
     val countryName: String,
@@ -662,14 +761,14 @@ private fun resolveProfilePhotoRes() =
         ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
 
 private fun defaultUserProfile() = UserProfile(
-    fullName = "Walter Banda",
+    fullName = "GoTicky Guest",
     email = "guest@goticky.app",
     countryName = "Zimbabwe",
     countryFlag = "🇿🇼",
     phoneCode = "+263",
-    phoneNumber = "771234567",
-    birthday = "1992-06-14",
-    gender = "Prefer not to say",
+    phoneNumber = "",
+    birthday = "",
+    gender = "Guest",
     photoResKey = "gotickypic",
     photoUri = null
 )
@@ -687,8 +786,8 @@ private fun profilePainter(profile: UserProfile): Painter? {
 private val PersonalizationPrefsSaver = listSaver<PersonalizationPrefs, Any>(
     save = { listOf(it.genres, it.city) },
     restore = {
-        val genres = it[0] as List<String>
-        val city = it[1] as String
+        val genres = (it.getOrNull(0) as? List<String>) ?: emptyList()
+        val city = (it.getOrNull(1) as? String) ?: ""
         PersonalizationPrefs(genres, city)
     }
 )
@@ -699,17 +798,19 @@ private data class SettingsPrefs(
     val dataSaver: Boolean = false,
     val hapticsEnabled: Boolean = true,
     val theme: String = "Auto", // Auto | Light | Dark
+    val rememberMe: Boolean = false,
 )
 
 private val SettingsPrefsSaver = listSaver<SettingsPrefs, Any>(
-    save = { listOf(it.pushEnabled, it.emailUpdates, it.dataSaver, it.hapticsEnabled, it.theme) },
+    save = { listOf(it.pushEnabled, it.emailUpdates, it.dataSaver, it.hapticsEnabled, it.theme, it.rememberMe) },
     restore = {
         SettingsPrefs(
-            pushEnabled = it[0] as Boolean,
-            emailUpdates = it[1] as Boolean,
-            dataSaver = it[2] as Boolean,
-            hapticsEnabled = it[3] as Boolean,
-            theme = it[4] as String
+            pushEnabled = (it.getOrNull(0) as? Boolean) ?: true,
+            emailUpdates = (it.getOrNull(1) as? Boolean) ?: true,
+            dataSaver = (it.getOrNull(2) as? Boolean) ?: false,
+            hapticsEnabled = (it.getOrNull(3) as? Boolean) ?: true,
+            theme = (it.getOrNull(4) as? String) ?: "Auto",
+            rememberMe = (it.getOrNull(5) as? Boolean) ?: false,
         )
     }
 )
@@ -719,8 +820,58 @@ private val SearchHistorySaver = listSaver<SnapshotStateList<String>, String>(
     restore = { saved -> mutableStateListOf(*saved.toTypedArray()) }
 )
 
+private suspend fun loadUserSettingsFromFirestore(uid: String): SettingsPrefs? {
+    return try {
+        val doc = Firebase.firestore
+            .collection("users")
+            .document(uid)
+            .collection("app_settings")
+            .document("preferences")
+            .get()
+
+        if (!doc.exists) {
+            null
+        } else {
+            SettingsPrefs(
+                pushEnabled = doc.get<Boolean?>("pushEnabled") ?: true,
+                emailUpdates = doc.get<Boolean?>("emailUpdates") ?: true,
+                dataSaver = doc.get<Boolean?>("dataSaver") ?: false,
+                hapticsEnabled = doc.get<Boolean?>("hapticsEnabled") ?: true,
+                theme = doc.get<String?>("theme") ?: "Auto",
+                rememberMe = doc.get<Boolean?>("rememberMe") ?: false,
+            )
+        }
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPrefs) {
+    try {
+        Firebase.firestore
+            .collection("users")
+            .document(uid)
+            .collection("app_settings")
+            .document("preferences")
+            .set(
+                mapOf(
+                    "pushEnabled" to prefs.pushEnabled,
+                    "emailUpdates" to prefs.emailUpdates,
+                    "dataSaver" to prefs.dataSaver,
+                    "hapticsEnabled" to prefs.hapticsEnabled,
+                    "theme" to prefs.theme,
+                    "rememberMe" to prefs.rememberMe,
+                ),
+                merge = true
+            )
+    } catch (_: Throwable) {
+        // Best-effort only: settings persistence issues should not break the app.
+    }
+}
+
 @Composable
 fun App() {
+    LaunchedEffect(Unit) { initFirebase() }
     GoTickyTheme {
         GoTickyRoot()
     }
@@ -943,7 +1094,17 @@ private fun GoTickyRoot() {
     var showCreateEvent by remember { mutableStateOf(false) }
     var selectedOrganizerEvent by remember { mutableStateOf<OrganizerEvent?>(null) }
     var isScrolling by remember { mutableStateOf(false) }
+    var showSplash by rememberSaveable { mutableStateOf(true) }
+    var isAuthenticated by rememberSaveable { mutableStateOf(false) }
+    val authRepo = remember { FirebaseAuthRepository() }
+    val profileImageStorage = rememberProfileImageStorage()
     val scope = rememberCoroutineScope()
+    var postSignUpUploadInProgress by remember { mutableStateOf(false) }
+    var postSignUpUploadProgress by remember { mutableStateOf(0f) }
+    var postSignUpUploadMessage by remember { mutableStateOf<String?>(null) }
+    var postSignUpUploadError by remember { mutableStateOf<String?>(null) }
+    var pendingUploadProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var autoRetryAttempted by remember { mutableStateOf(false) }
     var relaxJob by remember { mutableStateOf<Job?>(null) }
     val checklistState = remember {
         mutableStateMapOf<String, Boolean>().apply {
@@ -993,12 +1154,102 @@ private fun GoTickyRoot() {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var forceOpenSearchDialog by remember { mutableStateOf(false) }
     var settingsPrefs by rememberSaveable(stateSaver = SettingsPrefsSaver) { mutableStateOf(SettingsPrefs()) }
+    var authInitDone by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val existing = authRepo.currentUser()
+        val uid = existing?.uid
+        if (uid != null) {
+            val remote = loadUserSettingsFromFirestore(uid)
+            if (remote != null) {
+                settingsPrefs = remote
+            }
+
+            if (settingsPrefs.rememberMe && !isAuthenticated) {
+                val fetched = authRepo.fetchProfile()
+                if (fetched != null) {
+                    userProfile = fetched
+                }
+                isAuthenticated = true
+                currentScreen = MainScreen.Home
+            }
+        }
+        authInitDone = true
+    }
     LaunchedEffect(Unit) {
         Analytics.log(
             AnalyticsEvent(
                 name = "app_open",
                 params = mapOf("role" to currentUserRole, "admin_flag" to adminFeatureFlagEnabled.toString())
             )
+        )
+    }
+
+    val adminApplications = remember {
+        mutableStateListOf(
+            AdminApplication(
+                id = "app-1",
+                eventId = "1",
+                title = "Midnight Neon Fest",
+                organizer = "Neon Live",
+                city = "Harare",
+                category = "EDM",
+                status = "New",
+                risk = "Low",
+                ageHours = 4,
+                completeness = 82,
+                attachmentsReady = true,
+                notes = "All docs present",
+                eventDateTime = "Dec 22, 2025 • 20:00",
+                pricingTiers = listOf("Early bird $25", "GA $40", "VIP $90")
+            ),
+            AdminApplication(
+                id = "app-2",
+                eventId = "6",
+                title = "Bulawayo Street Fest",
+                organizer = "City Beats",
+                city = "Bulawayo",
+                category = "Festival",
+                status = "In Review",
+                risk = "High",
+                ageHours = 14,
+                completeness = 54,
+                attachmentsReady = false,
+                notes = "Missing permit upload",
+                eventDateTime = "Jan 10, 2026 • 14:00",
+                pricingTiers = listOf("Free entry", "Food court tokens $10")
+            ),
+            AdminApplication(
+                id = "app-3",
+                eventId = "4",
+                title = "Family Lights Parade",
+                organizer = "Sunrise Events",
+                city = "Victoria Falls",
+                category = "Family",
+                status = "Needs Info",
+                risk = "Medium",
+                ageHours = 28,
+                completeness = 70,
+                attachmentsReady = true,
+                notes = "Clarify road closure",
+                eventDateTime = "Dec 29, 2025 • 18:30",
+                pricingTiers = listOf("Adult $15", "Child $8", "Family pack $40")
+            ),
+            AdminApplication(
+                id = "app-4",
+                eventId = "5",
+                title = "Savanna Sky Sessions",
+                organizer = "VibeCo",
+                city = "Maun",
+                category = "Live band",
+                status = "New",
+                risk = "Medium",
+                ageHours = 6,
+                completeness = 66,
+                attachmentsReady = true,
+                notes = "Check pricing rationale",
+                eventDateTime = "Jan 4, 2026 • 19:00",
+                pricingTiers = listOf("GA $35", "VIP deck $75")
+            ),
         )
     }
 
@@ -1013,7 +1264,10 @@ private fun GoTickyRoot() {
     }
 
     fun openEventById(id: String) {
-        sampleEvents.firstOrNull { it.id == id }?.let { detailEvent = it }
+        val event = sampleEvents.firstOrNull { it.id == id }
+        if (event != null && isEventPublic(event.id, adminApplications)) {
+            detailEvent = event
+        }
     }
 
     fun personalize(recs: List<Recommendation>): List<Recommendation> {
@@ -1043,7 +1297,8 @@ private fun GoTickyRoot() {
             .filter { it.second > 0 }
             .sortedByDescending { it.second }
             .map { it.first }
-        return if (withSignal.isNotEmpty()) withSignal else prioritized
+        val base = if (withSignal.isNotEmpty()) withSignal else prioritized
+        return base.filter { isEventPublic(it.eventId, adminApplications) }
     }
 
     val adminPrimaryAccent = MaterialTheme.colorScheme.primary
@@ -1074,70 +1329,6 @@ private fun GoTickyRoot() {
         )
     }
     var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
-    val adminApplications = remember {
-        mutableStateListOf(
-            AdminApplication(
-                id = "app-1",
-                title = "Midnight Neon Fest",
-                organizer = "Neon Live",
-                city = "Harare",
-                category = "EDM",
-                status = "New",
-                risk = "Low",
-                ageHours = 4,
-                completeness = 82,
-                attachmentsReady = true,
-                notes = "All docs present",
-                eventDateTime = "Dec 22, 2025 • 20:00",
-                pricingTiers = listOf("Early bird $25", "GA $40", "VIP $90")
-            ),
-            AdminApplication(
-                id = "app-2",
-                title = "Bulawayo Street Fest",
-                organizer = "City Beats",
-                city = "Bulawayo",
-                category = "Festival",
-                status = "In Review",
-                risk = "High",
-                ageHours = 14,
-                completeness = 54,
-                attachmentsReady = false,
-                notes = "Missing permit upload",
-                eventDateTime = "Jan 10, 2026 • 14:00",
-                pricingTiers = listOf("Free entry", "Food court tokens $10")
-            ),
-            AdminApplication(
-                id = "app-3",
-                title = "Family Lights Parade",
-                organizer = "Sunrise Events",
-                city = "Victoria Falls",
-                category = "Family",
-                status = "Needs Info",
-                risk = "Medium",
-                ageHours = 28,
-                completeness = 70,
-                attachmentsReady = true,
-                notes = "Clarify road closure",
-                eventDateTime = "Dec 29, 2025 • 18:30",
-                pricingTiers = listOf("Adult $15", "Child $8", "Family pack $40")
-            ),
-            AdminApplication(
-                id = "app-4",
-                title = "Savanna Sky Sessions",
-                organizer = "VibeCo",
-                city = "Maun",
-                category = "Live band",
-                status = "New",
-                risk = "Medium",
-                ageHours = 6,
-                completeness = 66,
-                attachmentsReady = true,
-                notes = "Check pricing rationale",
-                eventDateTime = "Jan 4, 2026 • 19:00",
-                pricingTiers = listOf("GA $35", "VIP deck $75")
-            ),
-        )
-    }
     val adminReports = remember {
         mutableStateListOf(
             AdminReport("rep-1", "Courtside Classics", "Image inappropriate", "High", 3, "Open"),
@@ -1180,14 +1371,58 @@ private fun GoTickyRoot() {
     fun updateApplicationStatus(id: String, status: String, log: (String, Color) -> Unit) {
         val idx = adminApplications.indexOfFirst { it.id == id }
         if (idx != -1) {
-            adminApplications[idx] = adminApplications[idx].copy(status = status)
+            val now = currentInstant()
+            val app = adminApplications[idx]
+            val newApprovedAt = if (status == "Approved" && app.approvedAt == null) now else app.approvedAt
+            adminApplications[idx] = app.copy(status = status, approvedAt = newApprovedAt)
             val accent = when (status) {
                 "Approved" -> adminPrimaryAccent
                 "Rejected" -> Color(0xFFFF6B6B)
                 "Needs Info" -> Color(0xFFFFC94A)
                 else -> adminSecondaryAccent
             }
-            log("Set $status for ${adminApplications[idx].title}", accent)
+            val suffix = if (status == "Approved") " + Early Bird opens for 72h" else ""
+            log("Set $status for ${adminApplications[idx].title}$suffix", accent)
+        }
+    }
+    fun updateEarlyBirdConfig(
+        id: String,
+        enabled: Boolean,
+        discountPercent: Int,
+        durationHours: Int,
+        startNow: Boolean,
+        paused: Boolean,
+        log: (String, Color) -> Unit,
+    ) {
+        val idx = adminApplications.indexOfFirst { it.id == id }
+        if (idx != -1) {
+            val now = currentInstant()
+            val app = adminApplications[idx]
+            val clampedDiscount = discountPercent.coerceIn(5, 80)
+            val clampedDuration = durationHours.coerceIn(1, 24 * 14)
+            val newManualStart = if (startNow) now else app.earlyBirdManualStartAt
+            val updated = app.copy(
+                earlyBirdEnabled = enabled,
+                earlyBirdDiscountPercent = clampedDiscount,
+                earlyBirdDurationHours = clampedDuration,
+                earlyBirdManualStartAt = newManualStart,
+                earlyBirdPaused = paused
+            )
+            adminApplications[idx] = updated
+            val statusLabel = when {
+                !updated.earlyBirdEnabled -> "disabled"
+                updated.earlyBirdPaused -> "paused"
+                else -> "live"
+            }
+            val accent = when {
+                !updated.earlyBirdEnabled -> Color(0xFFFFC94A)
+                updated.earlyBirdPaused -> Color(0xFFFFC94A)
+                else -> adminPrimaryAccent
+            }
+            log(
+                "Early Bird $statusLabel for ${updated.title} — ${updated.earlyBirdDiscountPercent}% for ${updated.earlyBirdDurationHours}h",
+                accent
+            )
         }
     }
     fun resolveReport(id: String, log: (String, Color) -> Unit) {
@@ -1264,7 +1499,7 @@ private fun GoTickyRoot() {
     val navItems = remember(hasAdminAccess) {
         buildList {
             add(NavItem(MainScreen.Home, "Home", { Icon(Icons.Outlined.Home, null) }, IconCategory.Discover))
-            add(NavItem(MainScreen.Browse, "Browse", { Icon(Icons.Outlined.Event, null) }, IconCategory.Calendar))
+            // Removed "Browse" from bottom navigation – no functionality wired yet.
             add(NavItem(MainScreen.Tickets, "My Tickets", { Icon(Icons.Outlined.ReceiptLong, null) }, IconCategory.Ticket))
             add(NavItem(MainScreen.Alerts, "Alerts", { Icon(Icons.Outlined.Notifications, null) }, IconCategory.Alerts))
             if (hasAdminAccess) {
@@ -1276,13 +1511,13 @@ private fun GoTickyRoot() {
 
     val showChromeOnScreen = currentScreen in setOf(
         MainScreen.Home,
-        MainScreen.Browse,
         MainScreen.Tickets,
         MainScreen.Alerts,
         MainScreen.Admin,
         MainScreen.Profile,
     )
-    val showRootChrome = showChromeOnScreen &&
+    val showRootChrome = isAuthenticated &&
+        showChromeOnScreen &&
         !showCheckout &&
         selectedTicket == null &&
         detailEvent == null
@@ -1310,477 +1545,586 @@ private fun GoTickyRoot() {
         }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        floatingActionButton = {
-            if (showRootChrome) {
-                FabGlow(
-                    modifier = Modifier.graphicsLayer(alpha = fabAlpha),
-                    icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
-                    onClick = { currentScreen = MainScreen.Alerts }
-                )
-            }
-        },
-        bottomBar = {
-            if (showRootChrome) {
-                Box(
-                    modifier = Modifier
-                        .navigationBarsPadding()
-                        .padding(bottom = 15.dp)
-                ) {
-                    BottomBar(
-                        navItems = navItems,
-                        current = currentScreen,
-                        chromeAlpha = fabAlpha,
-                    ) { tapped ->
-                        if (tapped == MainScreen.Admin) {
-                            if (hasAdminAccess) {
-                                Analytics.log(
-                                    AnalyticsEvent(
-                                        name = "admin_gate_allowed",
-                                        params = mapOf(
-                                            "role" to currentUserRole,
-                                            "source" to "bottom_nav",
-                                            "admin_flag" to adminFeatureFlagEnabled.toString()
-                                        )
-                                    )
-                                )
-                                currentScreen = tapped
-                            } else {
-                                adminGateMessage = if (!adminFeatureFlagEnabled) {
-                                    "Admin feature is currently disabled by feature flag."
-                                } else {
-                                    "Your role ($currentUserRole) does not have access. Switch to an Admin or Reviewer account."
-                                }
-                                showAdminGateDialog = true
-                                Analytics.log(
-                                    AnalyticsEvent(
-                                        name = "admin_gate_denied",
-                                        params = mapOf(
-                                            "role" to currentUserRole,
-                                            "source" to "bottom_nav",
-                                            "admin_flag" to adminFeatureFlagEnabled.toString()
-                                        )
-                                    )
-                                )
-                            }
+    when {
+        showSplash || !authInitDone -> SplashScreen(onContinue = { showSplash = false })
+        !isAuthenticated -> AuthScreen(
+            onSignIn = { email, password, rememberMe ->
+                val result = authRepo.signIn(email, password)
+                if (result is AuthResult.Success) {
+                    val authUser = authRepo.currentUser()
+                    if (authUser != null) {
+                        val remote = loadUserSettingsFromFirestore(authUser.uid)
+                        val merged = (remote ?: SettingsPrefs()).copy(rememberMe = rememberMe)
+                        settingsPrefs = merged
+                        saveUserSettingsToFirestore(authUser.uid, merged)
+                    } else {
+                        settingsPrefs = settingsPrefs.copy(rememberMe = rememberMe)
+                    }
+                    val fetched = authRepo.fetchProfile()
+                    if (fetched != null) userProfile = fetched
+                    isAuthenticated = true
+                    currentScreen = MainScreen.Home
+                }
+                result
+            },
+            onSignUp = { profile, password ->
+                // Create the account first, then upload the photo (now authenticated) and persist the download URL.
+                postSignUpUploadError = null
+                postSignUpUploadMessage = null
+                postSignUpUploadProgress = 0f
+                pendingUploadProfile = null
+                autoRetryAttempted = false
+
+                suspend fun uploadOnce(target: UserProfile): Boolean {
+                    postSignUpUploadInProgress = true
+                    postSignUpUploadError = null
+                    postSignUpUploadMessage = "Uploading profile photo…"
+                    postSignUpUploadProgress = 0f
+                    val downloadUrl = profileImageStorage.uploadProfileImage(target.photoUri!!) { p ->
+                        postSignUpUploadProgress = p
+                    }
+                    val success = if (downloadUrl != null) {
+                        val updateResult = authRepo.updateProfile(target.copy(photoUri = downloadUrl, photoResKey = null))
+                        if (updateResult is AuthResult.Error) {
+                            postSignUpUploadError = updateResult.message
+                            postSignUpUploadMessage = "Photo saved locally, but profile update failed."
+                            false
                         } else {
-                            currentScreen = tapped
+                            postSignUpUploadProgress = 1f
+                            postSignUpUploadMessage = "Profile photo saved."
+                            true
                         }
+                    } else {
+                        postSignUpUploadError = "Upload failed. Please retry after signing in."
+                        postSignUpUploadMessage = "Upload failed."
+                        postSignUpUploadProgress = 0f
+                        false
+                    }
+                    postSignUpUploadInProgress = false
+                    return success
+                }
+                val baseResult = authRepo.signUp(profile.copy(photoUri = null), password)
+                if (baseResult is AuthResult.Success && profile.photoUri != null) {
+                    pendingUploadProfile = profile
+                    var success = uploadOnce(profile)
+                    if (!success && !autoRetryAttempted) {
+                        autoRetryAttempted = true
+                        postSignUpUploadMessage = "Retrying upload…"
+                        delay(900)
+                        success = uploadOnce(profile)
                     }
                 }
-            }
-        },
-    ) { inner ->
-
-        val layoutDirection = LocalLayoutDirection.current
-        val density = LocalDensity.current
-        val contentPadding = PaddingValues(
-            start = inner.calculateStartPadding(layoutDirection),
-            end = inner.calculateEndPadding(layoutDirection),
-            top = inner.calculateTopPadding(),
-            bottom = 0.dp
+                baseResult
+            },
+            onSkip = {
+                isAuthenticated = true
+                currentScreen = MainScreen.Home
+            },
+            findProfileByEmail = { email -> authRepo.findProfileByEmail(email) },
+            externalUploadInProgress = postSignUpUploadInProgress,
+            externalUploadProgress = postSignUpUploadProgress,
+            externalUploadMessage = postSignUpUploadMessage ?: postSignUpUploadError
         )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(contentPadding)
-                .nestedScroll(scrollConnection)
-        ) {
-            if (showAdminGateDialog) {
-                AlertDialog(
-                    onDismissRequest = { showAdminGateDialog = false },
-                    icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
-                    title = { Text("Admin access required") },
-                    text = { Text(adminGateMessage) },
-                    confirmButton = {
-                        PrimaryButton(text = "Request access", modifier = Modifier.pressAnimated()) {
-                            showAdminGateDialog = false
-                            currentScreen = MainScreen.Profile
-                        }
-                    },
-                    dismissButton = {
-                        NeonTextButton(
-                            text = "Back to Home",
-                            onClick = {
-                                showAdminGateDialog = false
-                                currentScreen = MainScreen.Home
-                            }
+        else -> {
+            Scaffold(
+                containerColor = Color.Transparent,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                floatingActionButton = {
+                    if (showRootChrome) {
+                        FabGlow(
+                            modifier = Modifier.graphicsLayer(alpha = fabAlpha),
+                            icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
+                            onClick = { currentScreen = MainScreen.Alerts }
                         )
                     }
-                )
-            }
-            if (showCheckout) {
-                CheckoutScreen(
-                    order = sampleOrder,
-                    selectedTicketType = selectedTicketType,
-                    onBack = {
-                        showCheckout = false
-                    },
-                    onPlaceOrder = { paymentMethod, totalAmount ->
-                        if (GoTickyFeatures.EnableRealPayments) {
-                            // TODO: integrate real payment processor; for now keep mock success flow for demos.
-                        }
-                        Analytics.log(
-                            AnalyticsEvent(
-                                name = "checkout_success",
-                                params = mapOf(
-                                    "order_id" to sampleOrder.id,
-                                    "payment_method" to paymentMethod,
-                                    "total_amount" to totalAmount.toString()
-                                )
-                            )
-                        )
-                        showCheckout = false
-                        detailEvent = null
-                        selectedTicket = null
-                        currentScreen = MainScreen.Tickets
-                    }
-                )
-            } else if (selectedTicket != null) {
-                TicketDetailScreen(
-                    ticket = selectedTicket!!,
-                    onBack = { selectedTicket = null },
-                    onAddToWallet = { /* TODO wallet */ },
-                    onTransfer = { /* TODO transfer */ }
-                )
-            } else if (detailEvent != null) {
-                EventDetailScreen(
-                    event = detailEvent!!,
-                    isFavorite = favoriteEvents.contains(detailEvent!!.id),
-                    onToggleFavorite = { detailEvent?.let { toggleFavorite(it.id) } },
-                    onBack = { detailEvent = null },
-                    onProceedToCheckout = { ticketType ->
-                        selectedTicketType = ticketType
-                        detailEvent?.let { event ->
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "select_seat",
-                                    params = mapOf(
-                                        "event_id" to event.id,
-                                        "title" to event.title,
-                                        "ticket_type" to ticketType
-                                    )
-                                )
-                            )
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "checkout_start",
-                                    params = mapOf(
-                                        "event_id" to event.id,
-                                        "title" to event.title,
-                                        "ticket_type" to ticketType
-                                    )
-                                )
-                            )
-                        }
-                        if (GoTickyFeatures.EnableRealSeatMap) {
-                            // TODO: navigate to real seat map screen; for now fall through to checkout for demos.
-                        }
-                        showCheckout = true
-                    },
-                    onAlert = {
-                        detailEvent?.let { event ->
-                            val numericPrice = event.priceFrom.filter { it.isDigit() }.toIntOrNull() ?: 100
-                            val targetPrice = (numericPrice * 0.9f).toInt().coerceAtLeast(1)
-                            alerts.add(
-                                PriceAlert(
-                                    id = "alert-${alerts.size + 1}",
-                                    eventId = event.id,
-                                    title = event.title,
-                                    venue = "${event.city} • Venue",
-                                    section = "Best available",
-                                    targetPrice = targetPrice,
-                                    currentPrice = numericPrice,
-                                    dropPercent = 0,
-                                    expiresInDays = 7,
-                                    status = "Watching"
-                                )
-                            )
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "alert_create",
-                                    params = mapOf(
-                                        "source" to "event_detail",
-                                        "event_id" to event.id,
-                                        "title" to event.title
-                                    )
-                                )
-                            )
-                        }
-                        currentScreen = MainScreen.Alerts
-                    }
-                )
-            } else {
-                when (currentScreen) {
-                    MainScreen.Home -> HomeScreen(
-                        userProfile = userProfile,
-                        onOpenAlerts = { currentScreen = MainScreen.Profile },
-                        onEventSelected = { event ->
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "event_tap",
-                                    params = mapOf(
-                                        "event_id" to event.id,
-                                        "title" to event.title
-                                    )
-                                )
-                            )
-                            detailEvent = event
-                        },
-                        recommendations = personalize(recommendations),
-                        onOpenMap = { currentScreen = MainScreen.Map },
-                        searchQuery = searchQuery,
-                        onSearchQueryChange = { searchQuery = it },
-                        forceOpenSearchDialog = forceOpenSearchDialog,
-                        onConsumeForceOpenSearchDialog = { forceOpenSearchDialog = false },
-                        onSearchExecuted = { query -> recordSearch(query) },
-                        favoriteEvents = favoriteEvents,
-                        onToggleFavorite = { id -> toggleFavorite(id) }
-                    )
-                    MainScreen.Browse -> PlaceholderScreen("Browse events") { currentScreen = MainScreen.Home }
-                    MainScreen.Tickets -> TicketsScreen(
-                        tickets = sampleTickets,
-                        onTicketSelected = { ticket ->
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "ticket_view",
-                                    params = mapOf(
-                                        "ticket_id" to ticket.id,
-                                        "event_title" to ticket.eventTitle
-                                    )
-                                )
-                            )
-                            selectedTicket = ticket
-                        },
-                        onCheckout = { showCheckout = true }
-                    )
-                    MainScreen.Alerts -> AlertsScreen(
-                        alerts = alerts,
-                        recommendations = personalize(recommendations),
-                        personalizationPrefs = personalizationPrefs,
-                        onBack = { currentScreen = MainScreen.Home },
-                        onOpenEvent = { eventId ->
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "event_from_alert",
-                                    params = mapOf("event_id" to eventId)
-                                )
-                            )
-                            openEventById(eventId)
-                        },
-                        onCreateAlert = {
-                            alerts.add(
-                                PriceAlert(
-                                    id = "alert-${alerts.size + 1}",
-                                    eventId = "1",
-                                    title = "New drop watch",
-                                    venue = "Any city",
-                                    section = "Auto-best available",
-                                    targetPrice = 99,
-                                    currentPrice = 120,
-                                    dropPercent = 0,
-                                    expiresInDays = 7,
-                                    status = "Watching"
-                                )
-                            )
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "alert_create",
-                                    params = mapOf(
-                                        "source" to "alerts_screen"
-                                    )
-                                )
-                            )
-                        },
-                        onAdjustAlert = { updated ->
-                            val idx = alerts.indexOfFirst { it.id == updated.id }
-                            if (idx != -1) {
-                                alerts[idx] = updated
-                            }
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "alert_update",
-                                    params = mapOf(
-                                        "alert_id" to updated.id,
-                                        "event_id" to updated.eventId
-                                    )
-                                )
-                            )
-                        },
-                        onUpdatePersonalization = { newPrefs ->
-                            personalizationPrefs = newPrefs
-                        }
-                    )
-                    MainScreen.Profile -> ProfileScreen(
-                        userProfile = userProfile,
-                        onUpdateProfile = { updated -> userProfile = updated },
-                        checklistState = checklistState,
-                        onToggleCheck = { id -> checklistState[id] = !(checklistState[id] ?: false) },
-                        favorites = favoriteEvents,
-                        onToggleFavorite = { id -> toggleFavorite(id) },
-                        onOpenEvent = { event ->
-                            detailEvent = event
-                        },
-                        onOpenOrganizer = {
-                            Analytics.log(
-                                AnalyticsEvent(
-                                    name = "organizer_open",
-                                    params = emptyMap()
-                                )
-                            )
-                            currentScreen = MainScreen.Organizer
-                        },
-                        onGoHome = { currentScreen = MainScreen.Home },
-                        onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
-                        onOpenFaq = { currentScreen = MainScreen.FAQ },
-                        searchHistory = searchHistory,
-                        onClearSearchHistory = { searchHistory.clear() },
-                        onSelectHistoryQuery = { query ->
-                            searchQuery = query
-                            forceOpenSearchDialog = true
-                            currentScreen = MainScreen.Home
-                        },
-                        onOpenSettings = { currentScreen = MainScreen.Settings }
-                    )
-                    MainScreen.Organizer -> when {
-                        selectedOrganizerEvent != null -> {
-                            OrganizerEventDetailScreen(
-                                event = selectedOrganizerEvent!!,
-                                onBack = { selectedOrganizerEvent = null }
-                            )
-                        }
-                        showCreateEvent -> {
-                            CreateEventScreen(
-                                userProfile = userProfile,
-                                onBack = { showCreateEvent = false },
-                                onSaveDraft = { title, city, venue, dateLabel, priceFrom, status ->
-                                    val index = organizerEvents.size + 1
-                                    val newEvent = OrganizerEvent(
-                                        id = "org-$index",
-                                        eventId = "new-$index",
-                                        title = if (title.isNotBlank()) title else "Untitled event $index",
-                                        city = city.ifBlank { "City TBD" },
-                                        venue = venue.ifBlank { "Venue TBD" },
-                                        dateLabel = dateLabel.ifBlank { "Date TBD" },
-                                        priceFrom = if (priceFrom.isNotBlank()) priceFrom else "From $0",
-                                        status = status,
-                                        views = 0,
-                                        saves = 0,
-                                        sales = 0,
-                                        isVerified = false
-                                    )
-                                    organizerEvents.add(0, newEvent)
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "organizer_event_saved",
-                                            params = mapOf(
-                                                "event_id" to newEvent.eventId,
-                                                "status" to newEvent.status
+                },
+                bottomBar = {
+                    if (showRootChrome) {
+                        Box(
+                            modifier = Modifier
+                                .navigationBarsPadding()
+                                .padding(bottom = 15.dp)
+                        ) {
+                            BottomBar(
+                                navItems = navItems,
+                                current = currentScreen,
+                                chromeAlpha = fabAlpha,
+                            ) { tapped ->
+                                if (tapped == MainScreen.Admin) {
+                                    if (hasAdminAccess) {
+                                        Analytics.log(
+                                            AnalyticsEvent(
+                                                name = "admin_gate_allowed",
+                                                params = mapOf(
+                                                    "role" to currentUserRole,
+                                                    "source" to "bottom_nav",
+                                                    "admin_flag" to adminFeatureFlagEnabled.toString()
+                                                )
                                             )
                                         )
-                                    )
-                                    showCreateEvent = false
-                                }
-                            )
-                        }
-                        else -> {
-                            OrganizerDashboardScreen(
-                                events = organizerEvents,
-                                onBack = { currentScreen = MainScreen.Profile },
-                                onCreateEvent = {
-                                    Analytics.log(
-                                        AnalyticsEvent(
-                                            name = "organizer_create_event_start",
-                                            params = emptyMap()
+                                        currentScreen = tapped
+                                    } else {
+                                        adminGateMessage = if (!adminFeatureFlagEnabled) {
+                                            "Admin feature is currently disabled by feature flag."
+                                        } else {
+                                            "Your role ($currentUserRole) does not have access. Switch to an Admin or Reviewer account."
+                                        }
+                                        showAdminGateDialog = true
+                                        Analytics.log(
+                                            AnalyticsEvent(
+                                                name = "admin_gate_denied",
+                                                params = mapOf(
+                                                    "role" to currentUserRole,
+                                                    "source" to "bottom_nav",
+                                                    "admin_flag" to adminFeatureFlagEnabled.toString()
+                                                )
+                                            )
                                         )
-                                    )
-                                    showCreateEvent = true
-                                },
-                                onOpenEvent = { event ->
-                                    selectedOrganizerEvent = event
-                                },
-                                chromeAlpha = fabAlpha
-                            )
+                                    }
+                                } else {
+                                    currentScreen = tapped
+                                }
+                            }
                         }
                     }
-                    MainScreen.Admin -> {
-                        if (hasAdminAccess) {
-                            AdminDashboardScreen(
-                                kpis = adminKpis,
-                                attention = adminAttention,
-                                activity = adminActivity,
-                                applications = adminApplications,
-                                reports = adminReports,
-                                flags = adminFlags,
-                                organizers = adminOrganizers,
-                                roles = adminRoles,
-                                featuredSlots = featuredSlots,
-                                adminSurface = adminSurface,
-                                onSurfaceChange = { adminSurface = it },
-                                onBack = { currentScreen = MainScreen.Home },
-                                onUpdateApplicationStatus = { id, status -> updateApplicationStatus(id, status, ::addAdminActivity) },
-                                onResolveReport = { id -> resolveReport(id, ::addAdminActivity) },
-                                onWarnReport = { id, template, note -> warnReport(id, template, note, ::addAdminActivity) },
-                                onToggleFlag = { key, enabled -> toggleFlag(key, enabled, ::addAdminActivity) },
-                                onOpenApplications = { adminSurface = AdminSurface.Applications },
-                                onOpenModeration = { adminSurface = AdminSurface.Moderation },
-                                onOpenCatalog = { adminSurface = AdminSurface.Catalog },
-                                onVerifyOrganizer = { id, verified -> verifyOrganizer(id, verified, ::addAdminActivity) },
-                                onFreezeOrganizer = { id, frozen -> freezeOrganizer(id, frozen, ::addAdminActivity) },
-                                onRequestReKyc = { id -> requestReKyc(id, ::addAdminActivity) },
-                                onChangeRole = { id, role -> changeRole(id, role, ::addAdminActivity) },
-                                onToggleFeaturedSlot = { id, enabled -> toggleFeaturedSlot(id, enabled, ::addAdminActivity) },
-                                onMoveFeaturedSlot = { id, delta -> moveFeaturedSlot(id, delta, ::addAdminActivity) },
-                                addActivity = ::addAdminActivity,
-                                activityLog = adminActivity,
-                                reviewers = adminReviewers,
-                                reviewerByApp = reviewerByApp,
-                                commentsByApp = commentsByApp,
-                            )
-                            LaunchedEffect(Unit) {
-                                Analytics.log(
-                                    AnalyticsEvent(
-                                        name = "admin_view",
-                                        params = mapOf(
-                                            "role" to currentUserRole,
-                                            "admin_flag" to adminFeatureFlagEnabled.toString(),
-                                            "surface" to adminSurface.name
-                                        )
-                                    )
-                                )
-                            }
-                        } else {
-                            AdminGateScreen(
-                                role = currentUserRole,
-                                flagEnabled = adminFeatureFlagEnabled,
-                                onBack = { currentScreen = MainScreen.Home },
-                                onRequestAccess = {
+                },
+            ) { inner ->
+
+                val layoutDirection = LocalLayoutDirection.current
+                val contentPadding = PaddingValues(
+                    start = inner.calculateStartPadding(layoutDirection),
+                    end = inner.calculateEndPadding(layoutDirection),
+                    top = inner.calculateTopPadding(),
+                    bottom = 0.dp
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding)
+                        .nestedScroll(scrollConnection)
+                ) {
+                    if (showAdminGateDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showAdminGateDialog = false },
+                            icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
+                            title = { Text("Admin access required") },
+                            text = { Text(adminGateMessage) },
+                            confirmButton = {
+                                PrimaryButton(text = "Request access", modifier = Modifier.pressAnimated()) {
                                     showAdminGateDialog = false
                                     currentScreen = MainScreen.Profile
                                 }
+                            },
+                            dismissButton = {
+                                NeonTextButton(
+                                    text = "Back to Home",
+                                    onClick = {
+                                        showAdminGateDialog = false
+                                        currentScreen = MainScreen.Home
+                                    }
+                                )
+                            }
+                        )
+                    }
+                    if (showCheckout) {
+                        CheckoutScreen(
+                            order = sampleOrder,
+                            selectedTicketType = selectedTicketType,
+                            onBack = {
+                                showCheckout = false
+                            },
+                            onPlaceOrder = { paymentMethod, totalAmount ->
+                                if (GoTickyFeatures.EnableRealPayments) {
+                                    // TODO: integrate real payment processor; for now keep mock success flow for demos.
+                                }
+                                Analytics.log(
+                                    AnalyticsEvent(
+                                        name = "checkout_success",
+                                        params = mapOf(
+                                            "order_id" to sampleOrder.id,
+                                            "payment_method" to paymentMethod,
+                                            "total_amount" to totalAmount.toString()
+                                        )
+                                    )
+                                )
+                                showCheckout = false
+                                detailEvent = null
+                                selectedTicket = null
+                                currentScreen = MainScreen.Tickets
+                            }
+                        )
+                    } else if (selectedTicket != null) {
+                        TicketDetailScreen(
+                            ticket = selectedTicket!!,
+                            onBack = { selectedTicket = null },
+                            onAddToWallet = { /* TODO wallet */ },
+                            onTransfer = { /* TODO transfer */ }
+                        )
+                    } else if (detailEvent != null) {
+                        val organizerMeta = organizerEvents.firstOrNull { it.eventId == detailEvent!!.id }
+                        val detailApp = adminApplications.firstOrNull { it.eventId == detailEvent!!.id }
+                        val earlyBirdWindow = remember(detailApp?.id, detailApp?.approvedAt, detailApp?.status) {
+                            buildEarlyBirdWindow(detailApp, detailApp?.approvedAt)
+                        }
+                        EventDetailScreen(
+                            event = detailEvent!!,
+                            isFavorite = favoriteEvents.contains(detailEvent!!.id),
+                            onToggleFavorite = { detailEvent?.let { toggleFavorite(it.id) } },
+                            onBack = { detailEvent = null },
+                            onProceedToCheckout = { ticketType ->
+                                // Always proceed into checkout when a ticket is selected.
+                                selectedTicketType = ticketType
+                                if (GoTickyFeatures.EnableRealSeatMap) {
+                                    // For now, pick a representative sample ticket; real seat selection can refine this.
+                                    selectedTicket = sampleTickets.firstOrNull { it.eventTitle.contains("Golden", ignoreCase = true) }
+                                }
+                                detailEvent?.let { event ->
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "checkout_styled_cta",
+                                            params = mapOf(
+                                                "event_id" to event.id,
+                                                "title" to event.title,
+                                                "ticket_type" to ticketType
+                                            )
+                                        )
+                                    )
+                                }
+                                showCheckout = true
+                            },
+                            onAlert = {
+                                detailEvent?.let { event ->
+                                    val basePrice = parsePrice(event.priceFrom) ?: 0.0
+                                    val targetPrice = if (basePrice > 0.0) {
+                                        (basePrice * 0.85).roundToInt().coerceAtLeast(1)
+                                    } else 0
+                                    val currentPrice = basePrice.roundToInt().coerceAtLeast(0)
+                                    val dropPercent = if (currentPrice > 0 && targetPrice > 0) {
+                                        ((currentPrice - targetPrice) * 100 / currentPrice).coerceAtLeast(0)
+                                    } else 0
+                                    alerts.add(
+                                        PriceAlert(
+                                            id = "alert-${alerts.size + 1}",
+                                            eventId = event.id,
+                                            title = event.title,
+                                            venue = "${event.city}  ${event.dateLabel}",
+                                            section = "Auto-best available",
+                                            targetPrice = targetPrice,
+                                            currentPrice = currentPrice,
+                                            dropPercent = dropPercent,
+                                            expiresInDays = 7,
+                                            status = "Watching",
+                                        )
+                                    )
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "price_alert_set",
+                                            params = mapOf(
+                                                "event_id" to event.id,
+                                                "title" to event.title
+                                            )
+                                        )
+                                    )
+                                }
+                            },
+                            totalTickets = organizerMeta?.ticketCount,
+                            ticketsSold = organizerMeta?.sales,
+                            adminApplication = detailApp,
+                            earlyBirdWindow = earlyBirdWindow
+                        )
+                    } else {
+                        when (currentScreen) {
+                            MainScreen.Home -> HomeScreen(
+                                userProfile = userProfile,
+                                onOpenAlerts = { currentScreen = MainScreen.Profile },
+                                onEventSelected = { event ->
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "event_tap",
+                                            params = mapOf(
+                                                "event_id" to event.id,
+                                                "title" to event.title
+                                            )
+                                        )
+                                    )
+                                    detailEvent = event
+                                },
+                                recommendations = personalize(recommendations),
+                                adminApplications = adminApplications,
+                                onOpenMap = { currentScreen = MainScreen.Map },
+                                searchQuery = searchQuery,
+                                onSearchQueryChange = { searchQuery = it },
+                                forceOpenSearchDialog = forceOpenSearchDialog,
+                                onConsumeForceOpenSearchDialog = { forceOpenSearchDialog = false },
+                                onSearchExecuted = { query -> recordSearch(query) },
+                                favoriteEvents = favoriteEvents,
+                                onToggleFavorite = { id -> toggleFavorite(id) }
+                            )
+                            MainScreen.Tickets -> TicketsScreen(
+                                tickets = sampleTickets,
+                                onTicketSelected = { ticket ->
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "ticket_view",
+                                            params = mapOf(
+                                                "ticket_id" to ticket.id,
+                                                "event_title" to ticket.eventTitle
+                                            )
+                                        )
+                                    )
+                                    selectedTicket = ticket
+                                },
+                                onCheckout = { showCheckout = true }
+                            )
+                            MainScreen.Alerts -> AlertsScreen(
+                                alerts = alerts,
+                                recommendations = personalize(recommendations),
+                                personalizationPrefs = personalizationPrefs,
+                                onBack = { currentScreen = MainScreen.Home },
+                                onOpenEvent = { eventId ->
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "event_from_alert",
+                                            params = mapOf("event_id" to eventId)
+                                        )
+                                    )
+                                    openEventById(eventId)
+                                },
+                                onCreateAlert = {
+                                    alerts.add(
+                                        PriceAlert(
+                                            id = "alert-${alerts.size + 1}",
+                                            eventId = "1",
+                                            title = "New drop watch",
+                                            venue = "Any city",
+                                            section = "Auto-best available",
+                                            targetPrice = 99,
+                                            currentPrice = 120,
+                                            dropPercent = 0,
+                                            expiresInDays = 7,
+                                            status = "Watching"
+                                        )
+                                    )
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "alert_create",
+                                            params = mapOf(
+                                                "source" to "alerts_screen"
+                                            )
+                                        )
+                                    )
+                                },
+                                onAdjustAlert = { updated ->
+                                    val idx = alerts.indexOfFirst { it.id == updated.id }
+                                    if (idx != -1) {
+                                        alerts[idx] = updated
+                                    }
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "alert_update",
+                                            params = mapOf(
+                                                "alert_id" to updated.id,
+                                                "event_id" to updated.eventId
+                                            )
+                                        )
+                                    )
+                                },
+                                onUpdatePersonalization = { prefs ->
+                                    personalizationPrefs = prefs
+                                }
+                            )
+                            MainScreen.Profile -> ProfileScreen(
+                                userProfile = userProfile,
+                                onUpdateProfile = { updated ->
+                                    userProfile = updated
+                                },
+                                checklistState = checklistState,
+                                onToggleCheck = { id ->
+                                    checklistState[id] = !(checklistState[id] ?: false)
+                                },
+                                favorites = favoriteEvents,
+                                onToggleFavorite = { id -> toggleFavorite(id) },
+                                adminApplications = adminApplications,
+                                onOpenEvent = { event ->
+                                    detailEvent = event
+                                },
+                                onOpenOrganizer = { currentScreen = MainScreen.Organizer },
+                                onGoHome = { currentScreen = MainScreen.Home },
+                                onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
+                                onOpenFaq = { currentScreen = MainScreen.FAQ },
+                                searchHistory = searchHistory,
+                                onClearSearchHistory = { searchHistory.clear() },
+                                onSelectHistoryQuery = { query ->
+                                    searchQuery = query
+                                    forceOpenSearchDialog = true
+                                },
+                                onOpenSettings = { currentScreen = MainScreen.Settings },
+                                onLogout = {
+                                    scope.launch {
+                                        val user = authRepo.currentUser()
+                                        if (user != null) {
+                                            saveUserSettingsToFirestore(user.uid, settingsPrefs.copy(rememberMe = false))
+                                        }
+                                        authRepo.signOut()
+                                        settingsPrefs = settingsPrefs.copy(rememberMe = false)
+                                        isAuthenticated = false
+                                        showSplash = false
+                                        currentScreen = MainScreen.Home
+                                    }
+                                },
+                                isGuest = !isAuthenticated
+                            )
+                            MainScreen.Organizer -> when {
+                                selectedOrganizerEvent != null -> {
+                                    OrganizerEventDetailScreen(
+                                        event = selectedOrganizerEvent!!,
+                                        onBack = { selectedOrganizerEvent = null }
+                                    )
+                                }
+                                showCreateEvent -> {
+                                    CreateEventScreen(
+                                        userProfile = userProfile,
+                                        onBack = { showCreateEvent = false },
+                                        onSaveDraft = { title, city, venue, dateLabel, priceFrom, status, ticketCountStr ->
+                                            val index = organizerEvents.size + 1
+                                            val newEvent = OrganizerEvent(
+                                                id = "org-$index",
+                                                eventId = "new-$index",
+                                                title = if (title.isNotBlank()) title else "Untitled event $index",
+                                                city = city.ifBlank { "City TBD" },
+                                                venue = venue.ifBlank { "Venue TBD" },
+                                                dateLabel = dateLabel,
+                                                priceFrom = priceFrom.ifBlank { "From $0" },
+                                                status = status,
+                                                views = 0,
+                                                saves = 0,
+                                                sales = 0,
+                                                ticketCount = ticketCountStr.toIntOrNull() ?: 0,
+                                                isVerified = false
+                                            )
+                                            organizerEvents.add(0, newEvent)
+                                            Analytics.log(
+                                                AnalyticsEvent(
+                                                    name = "organizer_event_saved",
+                                                    params = mapOf(
+                                                        "event_id" to newEvent.eventId,
+                                                        "status" to newEvent.status
+                                                    )
+                                                )
+                                            )
+                                            showCreateEvent = false
+                                        }
+                                    )
+                                }
+                                else -> {
+                                    OrganizerDashboardScreen(
+                                        events = organizerEvents,
+                                        onBack = { currentScreen = MainScreen.Profile },
+                                        onCreateEvent = {
+                                            Analytics.log(
+                                                AnalyticsEvent(
+                                                    name = "organizer_create_event_start",
+                                                    params = emptyMap()
+                                                )
+                                            )
+                                            showCreateEvent = true
+                                        },
+                                        onOpenEvent = { event ->
+                                            selectedOrganizerEvent = event
+                                        },
+                                        chromeAlpha = fabAlpha
+                                    )
+                                }
+                            }
+                            MainScreen.Admin -> {
+                                if (hasAdminAccess) {
+                                    AdminDashboardScreen(
+                                        kpis = adminKpis,
+                                        attention = adminAttention,
+                                        activity = adminActivity,
+                                        applications = adminApplications,
+                                        reports = adminReports,
+                                        flags = adminFlags,
+                                        organizers = adminOrganizers,
+                                        roles = adminRoles,
+                                        featuredSlots = featuredSlots,
+                                        adminSurface = adminSurface,
+                                        onSurfaceChange = { adminSurface = it },
+                                        onBack = { currentScreen = MainScreen.Home },
+                                        onUpdateApplicationStatus = { id, status -> updateApplicationStatus(id, status, ::addAdminActivity) },
+                                        onUpdateEarlyBird = { id, enabled, discount, hours, startNow, paused ->
+                                            updateEarlyBirdConfig(id, enabled, discount, hours, startNow, paused, ::addAdminActivity)
+                                        },
+                                        onResolveReport = { id -> resolveReport(id, ::addAdminActivity) },
+                                        onWarnReport = { id, template, note -> warnReport(id, template, note, ::addAdminActivity) },
+                                        onToggleFlag = { key, enabled -> toggleFlag(key, enabled, ::addAdminActivity) },
+                                        onOpenApplications = { adminSurface = AdminSurface.Applications },
+                                        onOpenModeration = { adminSurface = AdminSurface.Moderation },
+                                        onOpenCatalog = { adminSurface = AdminSurface.Catalog },
+                                        onVerifyOrganizer = { id, verified -> verifyOrganizer(id, verified, ::addAdminActivity) },
+                                        onFreezeOrganizer = { id, frozen -> freezeOrganizer(id, frozen, ::addAdminActivity) },
+                                        onRequestReKyc = { id -> requestReKyc(id, ::addAdminActivity) },
+                                        onChangeRole = { id, role -> changeRole(id, role, ::addAdminActivity) },
+                                        onToggleFeaturedSlot = { id, enabled -> toggleFeaturedSlot(id, enabled, ::addAdminActivity) },
+                                        onMoveFeaturedSlot = { id, delta -> moveFeaturedSlot(id, delta, ::addAdminActivity) },
+                                        addActivity = ::addAdminActivity,
+                                        activityLog = adminActivity,
+                                        reviewers = adminReviewers,
+                                        reviewerByApp = reviewerByApp,
+                                        commentsByApp = commentsByApp,
+                                    )
+                                    LaunchedEffect(Unit) {
+                                        Analytics.log(
+                                            AnalyticsEvent(
+                                                name = "admin_view",
+                                                params = mapOf(
+                                                    "role" to currentUserRole,
+                                                    "admin_flag" to adminFeatureFlagEnabled.toString(),
+                                                    "surface" to adminSurface.name
+                                                )
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    AdminGateScreen(
+                                        role = currentUserRole,
+                                        flagEnabled = adminFeatureFlagEnabled,
+                                        onBack = { currentScreen = MainScreen.Home },
+                                        onRequestAccess = {
+                                            showAdminGateDialog = false
+                                            currentScreen = MainScreen.Profile
+                                        }
+                                    )
+                                }
+                            }
+                            MainScreen.PrivacyTerms -> LegalScreen(
+                                onBack = { currentScreen = MainScreen.Profile }
+                            )
+                            MainScreen.FAQ -> FaqScreen(
+                                onBack = { currentScreen = MainScreen.Profile }
+                            )
+                            MainScreen.Settings -> SettingsScreen(
+                                prefs = settingsPrefs,
+                                onPrefsChange = { newPrefs ->
+                                    settingsPrefs = newPrefs
+                                    scope.launch {
+                                        val user = authRepo.currentUser()
+                                        if (user != null) {
+                                            saveUserSettingsToFirestore(user.uid, newPrefs)
+                                        }
+                                    }
+                                },
+                                onBack = { currentScreen = MainScreen.Profile },
+                                onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
+                                onOpenFaq = { currentScreen = MainScreen.FAQ }
+                            )
+                            MainScreen.Map -> EventMapScreen(
+                                onBack = { currentScreen = MainScreen.Home },
+                                onOpenEvent = { eventId -> openEventById(eventId) }
                             )
                         }
                     }
-                    MainScreen.PrivacyTerms -> LegalScreen(
-                        onBack = { currentScreen = MainScreen.Profile }
-                    )
-                    MainScreen.FAQ -> FaqScreen(
-                        onBack = { currentScreen = MainScreen.Profile }
-                    )
-                    MainScreen.Settings -> SettingsScreen(
-                        prefs = settingsPrefs,
-                        onPrefsChange = { settingsPrefs = it },
-                        onBack = { currentScreen = MainScreen.Profile },
-                        onOpenPrivacyTerms = { currentScreen = MainScreen.PrivacyTerms },
-                        onOpenFaq = { currentScreen = MainScreen.FAQ }
-                    )
-                    MainScreen.Map -> EventMapScreen(
-                        onBack = { currentScreen = MainScreen.Home },
-                        onOpenEvent = { eventId -> openEventById(eventId) }
-                    )
                 }
             }
         }
@@ -1802,6 +2146,7 @@ private fun AdminDashboardScreen(
     onSurfaceChange: (AdminSurface) -> Unit,
     onBack: () -> Unit,
     onUpdateApplicationStatus: (String, String) -> Unit,
+    onUpdateEarlyBird: (String, Boolean, Int, Int, Boolean, Boolean) -> Unit,
     onResolveReport: (String) -> Unit,
     onWarnReport: (String, String, String) -> Unit,
     onToggleFlag: (String, Boolean) -> Unit,
@@ -1861,6 +2206,7 @@ private fun AdminDashboardScreen(
             ApplicationsSection(
                 applications = applications,
                 onUpdateStatus = onUpdateApplicationStatus,
+                onUpdateEarlyBird = onUpdateEarlyBird,
                 addActivity = addActivity,
                 activityLog = activityLog,
                 reviewers = reviewers,
@@ -1988,6 +2334,7 @@ private fun AdminDashboardScreen(
                 ApplicationsSection(
                     applications = applications,
                     onUpdateStatus = onUpdateApplicationStatus,
+                    onUpdateEarlyBird = onUpdateEarlyBird,
                     addActivity = addActivity,
                     activityLog = activityLog,
                     reviewers = reviewers,
@@ -2047,6 +2394,7 @@ private fun AdminDashboardScreen(
 private fun ApplicationsSection(
     applications: List<AdminApplication>,
     onUpdateStatus: (String, String) -> Unit,
+    onUpdateEarlyBird: (String, Boolean, Int, Int, Boolean, Boolean) -> Unit,
     addActivity: (String, Color) -> Unit,
     activityLog: List<AdminActivity>,
     reviewers: List<String>,
@@ -2359,6 +2707,9 @@ private fun ApplicationsSection(
                         }
                         val suffix = if (rationale.isBlank()) "" else " — ${rationale.trim()}"
                         addActivity("$status: ${app.title}$suffix", accent)
+                    },
+                    onUpdateEarlyBird = { enabled, discount, duration, startNow, paused ->
+                        onUpdateEarlyBird(app.id, enabled, discount, duration, startNow, paused)
                     }
                 )
             }
@@ -2496,6 +2847,7 @@ private fun ApplicationDetailScreen(
     addActivity: (String, Color) -> Unit,
     onClose: () -> Unit,
     onUpdateStatus: (String, String) -> Unit,
+    onUpdateEarlyBird: (Boolean, Int, Int, Boolean, Boolean) -> Unit,
 ) {
     val comments = remember(app.id) { commentsByApp.getOrPut(app.id) { mutableStateListOf<String>() } }
     var commentDraft by remember { mutableStateOf("") }
@@ -2558,6 +2910,17 @@ private fun ApplicationDetailScreen(
                         InfoRow("Organizer", app.organizer)
                         InfoRow("Category", app.category)
                         InfoRow("City", app.city)
+                        val earlyBirdStatusText = remember(app.earlyBirdEnabled, app.earlyBirdPaused, app.earlyBirdDiscountPercent, app.earlyBirdDurationHours) {
+                            val core = if (!app.earlyBirdEnabled) {
+                                "Disabled"
+                            } else if (app.earlyBirdPaused) {
+                                "Paused"
+                            } else {
+                                "Live"
+                            }
+                            "$core — ${app.earlyBirdDiscountPercent}% for ${app.earlyBirdDurationHours}h"
+                        }
+                        InfoRow("Early Bird", earlyBirdStatusText)
                         if (app.eventDateTime.isNotBlank()) {
                             InfoRow("Date / Time", app.eventDateTime)
                         }
@@ -2672,6 +3035,82 @@ private fun ApplicationDetailScreen(
                         InfoRow("Category", app.category)
                         if (app.notes.isNotBlank()) {
                             InfoRow("Notes", app.notes)
+                        }
+                    }
+                }
+
+                // Early Bird configuration
+                GlowCard {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Early Bird settings",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        var enabled by remember(app.id) { mutableStateOf(app.earlyBirdEnabled) }
+                        var paused by remember(app.id) { mutableStateOf(app.earlyBirdPaused) }
+                        var discount by remember(app.id) { mutableStateOf(app.earlyBirdDiscountPercent.coerceIn(10, 50)) }
+                        var duration by remember(app.id) { mutableStateOf(app.earlyBirdDurationHours.coerceIn(24, 168)) }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Enabled", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    if (enabled) "Customers see Early Bird once approved" else "Early Bird hidden for this event",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = enabled,
+                                onCheckedChange = {
+                                    enabled = it
+                                    onUpdateEarlyBird(enabled, discount, duration, false, paused)
+                                }
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Discount", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Text("$discount% off base GA", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Slider(
+                                value = discount.toFloat(),
+                                onValueChange = {
+                                    val stepped = (it / 5f).toInt() * 5
+                                    discount = stepped.coerceIn(10, 50)
+                                    onUpdateEarlyBird(enabled, discount, duration, false, paused)
+                                },
+                                valueRange = 10f..50f
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Duration", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                            val days = duration / 24
+                            Text("${duration}h (${days}d)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Slider(
+                                value = duration.toFloat(),
+                                onValueChange = {
+                                    val stepped = (it / 24f).toInt() * 24
+                                    duration = stepped.coerceIn(24, 168)
+                                    onUpdateEarlyBird(enabled, discount, duration, false, paused)
+                                },
+                                valueRange = 24f..168f
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            GhostButton(text = if (paused) "Resume" else "Pause", modifier = Modifier.weight(1f)) {
+                                paused = !paused
+                                onUpdateEarlyBird(enabled, discount, duration, false, paused)
+                            }
+                            PrimaryButton(text = "Start now", modifier = Modifier.weight(1f)) {
+                                onUpdateEarlyBird(enabled, discount, duration, true, paused)
+                            }
                         }
                     }
                 }
@@ -3691,6 +4130,7 @@ private fun HomeScreen(
     onOpenAlerts: () -> Unit,
     onEventSelected: (org.example.project.data.EventItem) -> Unit,
     recommendations: List<Recommendation>,
+    adminApplications: List<AdminApplication>,
     onOpenMap: () -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
@@ -3717,6 +4157,7 @@ private fun HomeScreen(
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
+    val publicEvents = sampleEvents.filter { isEventPublic(it.id, adminApplications) }
 
     LaunchedEffect(forceOpenSearchDialog) {
         if (forceOpenSearchDialog) {
@@ -3754,6 +4195,9 @@ private fun HomeScreen(
                     )
                     LaunchedEffect(Unit) { greetVisible = true }
                     val profilePhotoPainter = profilePainter(userProfile)
+                    val firstName = remember(userProfile.fullName) {
+                        userProfile.fullName.trim().substringBefore(" ").ifBlank { "Guest" }
+                    }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -3770,7 +4214,7 @@ private fun HomeScreen(
                                 color = currentGreetingColor()
                             )
                             Text(
-                                text = "Walter",
+                                text = firstName,
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
                             )
@@ -3894,7 +4338,7 @@ private fun HomeScreen(
                 when (category) {
                     IconCategory.Discover -> showDiscoverDialog = true
                     IconCategory.Map -> onOpenMap()
-                    IconCategory.Ticket -> sampleEvents.firstOrNull()?.let { onEventSelected(it) }
+                    IconCategory.Ticket -> publicEvents.firstOrNull()?.let { onEventSelected(it) }
                     IconCategory.Calendar -> showDateDialog = true
                     IconCategory.Alerts -> onOpenAlerts()
                     else -> {}
@@ -3912,7 +4356,7 @@ private fun HomeScreen(
         )
         HighlightCard(
             onOpenDetails = {
-                val event = sampleEvents.firstOrNull()
+                val event = publicEvents.firstOrNull()
                 event?.let { onEventSelected(it) }
             },
             onSelectSeats = {
@@ -3953,7 +4397,7 @@ private fun HomeScreen(
                     )
                 )
 
-                val event = sampleEvents.firstOrNull { it.id == rec.eventId }
+                val event = publicEvents.firstOrNull { it.id == rec.eventId }
                 event?.let { onEventSelected(it) }
             }
         )
@@ -3963,7 +4407,7 @@ private fun HomeScreen(
             action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) }
         )
         val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
-        val popularNearby = sampleEvents.mapNotNull { event ->
+        val popularNearby = publicEvents.mapNotNull { event ->
             val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
 
             val matchesQuery = searchQuery.isBlank() ||
@@ -4062,7 +4506,7 @@ private fun HomeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(sampleEvents) { event ->
+                            items(publicEvents) { event ->
                                 val tint = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
                                 Box(
                                     modifier = Modifier
@@ -4138,7 +4582,7 @@ private fun HomeScreen(
                                                 .drawBehind { drawRect(GoTickyTextures.GrainTint) }
                                         )
 
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .border(
@@ -4152,61 +4596,72 @@ private fun HomeScreen(
                                                     shape = goTickyShapes.large
                                                 )
                                                 .padding(14.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(46.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.Black.copy(alpha = 0.35f)),
-                                                contentAlignment = Alignment.Center
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Outlined.Explore,
-                                                    contentDescription = null,
-                                                    tint = tint
-                                                )
-                                            }
-                                            Column(
-                                                modifier = Modifier.weight(1f),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Text(
-                                                    event.title,
-                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                                    color = Color(0xFFFDFDFE),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    event.city,
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(46.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color.Black.copy(alpha = 0.35f)),
+                                                    contentAlignment = Alignment.Center
                                                 ) {
-                                                    Pill(
-                                                        text = event.dateLabel,
-                                                        color = tint.copy(alpha = 0.22f),
-                                                        textColor = tint
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Explore,
+                                                        contentDescription = null,
+                                                        tint = tint
                                                     )
-                                                    Pill(
-                                                        text = event.priceFrom,
-                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-                                                        textColor = MaterialTheme.colorScheme.primary
+                                                }
+                                                Column(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text(
+                                                        event.title,
+                                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                        color = Color(0xFFFDFDFE),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        event.city,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                 }
                                             }
-                                            NeonTextButton(
-                                                text = "Open",
-                                                onClick = {
-                                                    onEventSelected(event)
-                                                    showDiscoverDialog = false
-                                                }
-                                            )
+                                            // Center-right "From $X" price pill to reduce squashing next to the title.
+                                            Box(modifier = Modifier.fillMaxWidth()) {
+                                                Pill(
+                                                    text = event.priceFrom,
+                                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                                                    textColor = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                                )
+                                            }
+                                            // Bottom row: time/date on the left, Open action on the right.
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Pill(
+                                                    text = event.dateLabel,
+                                                    color = tint.copy(alpha = 0.22f),
+                                                    textColor = tint
+                                                )
+                                                NeonTextButton(
+                                                    text = "Open",
+                                                    onClick = {
+                                                        onEventSelected(event)
+                                                        showDiscoverDialog = false
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -4398,7 +4853,7 @@ private fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.heightIn(max = 300.dp)
                     ) {
-                        items(sampleEvents) { event ->
+                        items(publicEvents) { event ->
                             GlowCard {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
@@ -4437,7 +4892,7 @@ private fun HomeScreen(
                 val activeMonth = months[monthIndex]
                 val daysInMonth = 30
 
-                val monthEvents = sampleEvents.filter { it.month.equals(activeMonth, ignoreCase = true) }
+                val monthEvents = publicEvents.filter { it.month.equals(activeMonth, ignoreCase = true) }
 
                 // Map sample events to pinned days in the month (purely for demo since SampleEvents has no concrete dates)
                 val pinnedByDay = remember(activeMonth) {
@@ -4629,7 +5084,7 @@ private fun HomeScreen(
                     }
                 }
 
-                val filtered = sampleEvents.filter {
+                val filtered = publicEvents.filter {
                     searchQuery.isNotBlank() && (it.title.contains(searchQuery, ignoreCase = true) || it.city.contains(searchQuery, true))
                 }
 
@@ -4678,6 +5133,7 @@ private fun HomeScreen(
                                 modifier = Modifier.heightIn(max = 280.dp)
                             ) {
                                 items(filtered) { event ->
+                                    val (earlyLabel, earlyHighlight) = buildEarlyBirdBadgeForEvent(event, adminApplications)
                                     EventCard(
                                         item = event,
                                         modifier = Modifier.pressAnimated(scaleDown = 0.96f),
@@ -4686,7 +5142,9 @@ private fun HomeScreen(
                                         onClick = {
                                             onEventSelected(event)
                                             showQueryDialog = false
-                                        }
+                                        },
+                                        earlyBirdLabel = earlyLabel,
+                                        earlyBirdHighlight = earlyHighlight
                                     )
                                 }
                             }
@@ -4731,19 +5189,19 @@ private fun HomeScreen(
                 LaunchedEffect(Unit) { visible = true }
 
                 val filteredByCategory = when (filterLabel) {
-                    "Concerts" -> sampleEvents.filter {
+                    "Concerts" -> publicEvents.filter {
                         it.category == IconCategory.Discover ||
                             (it.tag?.contains("EDM", ignoreCase = true) == true)
                     }
-                    "Sports" -> sampleEvents.filter {
+                    "Sports" -> publicEvents.filter {
                         it.category == IconCategory.Calendar ||
                             (it.tag?.contains("Basketball", ignoreCase = true) == true)
                     }
-                    "Family" -> sampleEvents.filter {
+                    "Family" -> publicEvents.filter {
                         it.badge?.contains("Family", ignoreCase = true) == true ||
                             it.category == IconCategory.Profile
                     }
-                    else -> sampleEvents
+                    else -> publicEvents
                 }
 
                 Column(
@@ -4868,9 +5326,9 @@ private fun HomeScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                val tonightEvents = sampleEvents.filter {
+                val tonightEvents = publicEvents.filter {
                     it.dateLabel.contains("Tonight", ignoreCase = true) || it.badge?.contains("Hot", ignoreCase = true) == true
-                }.ifEmpty { sampleEvents }
+                }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -6507,6 +6965,7 @@ private fun ProfileScreen(
     onToggleCheck: (String) -> Unit,
     favorites: List<String>,
     onToggleFavorite: (String) -> Unit,
+    adminApplications: List<AdminApplication>,
     onOpenEvent: (EventItem) -> Unit,
     onOpenOrganizer: () -> Unit,
     onGoHome: () -> Unit,
@@ -6516,6 +6975,8 @@ private fun ProfileScreen(
     onClearSearchHistory: () -> Unit,
     onSelectHistoryQuery: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onLogout: () -> Unit,
+    isGuest: Boolean,
 ) {
     val scrollState = rememberScrollState()
     val headerPulse = infinitePulseAmplitude(
@@ -6525,6 +6986,7 @@ private fun ProfileScreen(
     )
     val userName = userProfile.fullName
     val userEmail = userProfile.email
+    val profileBackgroundPainter = profilePainter(userProfile)
     val profilePhotoRes = remember(userProfile.photoResKey) {
         // prefer explicit profile pic; fall back to hero art if missing
         userProfile.photoResKey?.let { Res.allDrawableResources[it] }
@@ -6542,13 +7004,23 @@ private fun ProfileScreen(
             .fillMaxSize()
             .background(GoTickyGradients.CardGlow)
     ) {
-        profilePhotoRes?.let { resId ->
-            Image(
-                painter = painterResource(resId),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+        when {
+            profileBackgroundPainter != null -> {
+                Image(
+                    painter = profileBackgroundPainter,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            profilePhotoRes != null -> {
+                Image(
+                    painter = painterResource(profilePhotoRes),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
         }
 
         Box(
@@ -6641,11 +7113,6 @@ private fun ProfileScreen(
                             )
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Pill(
-                        text = "GoTicky demo profile",
-                        color = Color.Black.copy(alpha = 0.4f),
-                        textColor = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -6766,7 +7233,7 @@ private fun ProfileScreen(
             PrimaryButton(
                 text = "Logout",
                 modifier = Modifier.fillMaxWidth(),
-                onClick = { }
+                onClick = { onLogout() }
             )
         }
     }
@@ -6775,7 +7242,8 @@ private fun ProfileScreen(
         ProfileDetailsDialog(
             profile = userProfile,
             onUpdateProfile = onUpdateProfile,
-            onDismiss = { showProfileDetails = false }
+            onDismiss = { showProfileDetails = false },
+            isGuest = isGuest
         )
     }
 
@@ -6875,7 +7343,7 @@ private fun ProfileScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                val favoriteItems = sampleEvents.filter { favorites.contains(it.id) }
+                val favoriteItems = sampleEvents.filter { favorites.contains(it.id) && isEventPublic(it.id, adminApplications) }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -6898,6 +7366,7 @@ private fun ProfileScreen(
                             modifier = Modifier.heightIn(max = 320.dp)
                         ) {
                             items(favoriteItems) { event ->
+                                val (earlyLabel, earlyHighlight) = buildEarlyBirdBadgeForEvent(event, adminApplications)
                                 EventCard(
                                     item = event,
                                     modifier = Modifier
@@ -6908,7 +7377,9 @@ private fun ProfileScreen(
                                     onClick = {
                                         onOpenEvent(event)
                                         showFavorites = false
-                                    }
+                                    },
+                                    earlyBirdLabel = earlyLabel,
+                                    earlyBirdHighlight = earlyHighlight
                                 )
                             }
                         }
@@ -7009,79 +7480,112 @@ private fun ProfileDetailsDialog(
     profile: UserProfile,
     onUpdateProfile: (UserProfile) -> Unit,
     onDismiss: () -> Unit,
+    isGuest: Boolean,
 ) {
     val clipboard = LocalClipboardManager.current
     val uriHandler = LocalUriHandler.current
     var showCameraDialog by remember { mutableStateOf(false) }
+    var editedProfile by remember { mutableStateOf(profile) }
+    val photo = profilePainter(editedProfile)
     val pulse = infinitePulseAmplitude(minScale = 0.98f, maxScale = 1.02f, durationMillis = 2200)
-    val photo = profilePainter(profile)
-    data class InfoItem(
-        val label: String,
-        val value: String,
-        val icon: ImageVector,
-        val tint: Color,
-        val editable: Boolean = false,
+    val appearVisible = remember { mutableStateOf(false) }
+    val appearScale by animateFloatAsState(
+        targetValue = if (appearVisible.value) 1f else 0.95f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "profileDialogScale"
     )
-    val infoItems = listOf(
-        InfoItem("Email", profile.email, Icons.Outlined.Email, Color(0xFF5CF0FF), editable = true),
-        InfoItem("Phone", "${profile.phoneCode} ${profile.phoneNumber}", Icons.Outlined.PhoneAndroid, Color(0xFF9C7BFF), editable = true),
-        InfoItem("Birthday", profile.birthday, Icons.Outlined.Cake, Color(0xFF4CAF50)),
-        InfoItem("Gender", profile.gender, Icons.Outlined.Person, Color(0xFFFF8A65)),
-        InfoItem("Country", "${profile.countryFlag} ${profile.countryName}", Icons.Outlined.Flag, Color(0xFFFFC94A)),
+    val appearAlpha by animateFloatAsState(
+        targetValue = if (appearVisible.value) 1f else 0f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+        label = "profileDialogAlpha"
     )
+    LaunchedEffect(Unit) { appearVisible.value = true }
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = Color.Black.copy(alpha = 0.32f),
+        unfocusedContainerColor = Color.Black.copy(alpha = 0.22f),
+        disabledContainerColor = Color.Black.copy(alpha = 0.18f),
+        focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+        focusedLabelColor = MaterialTheme.colorScheme.primary,
+        cursorColor = MaterialTheme.colorScheme.primary,
+        focusedLeadingIconColor = MaterialTheme.colorScheme.primary,
+        unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+    )
+
     val imagePicker = rememberImagePicker { uri ->
         uri?.let {
-            onUpdateProfile(profile.copy(photoUri = it, photoResKey = null))
+            editedProfile = editedProfile.copy(photoUri = it, photoResKey = null)
+            onUpdateProfile(editedProfile)
         }
         showCameraDialog = false
     }
+
     Dialog(onDismissRequest = { showCameraDialog = false; onDismiss() }) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(min = 360.dp, max = 640.dp)
-                .padding(24.dp)
-                .clip(goTickyShapes.extraLarge)
-                .background(GoTickyGradients.CardGlow)
-                .background(GoTickyGradients.GlassWash)
-                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
-                .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
+                .heightIn(min = 360.dp, max = 760.dp)
                 .padding(18.dp)
         ) {
-            // Close icon top-right
-            val closeInteraction = remember { MutableInteractionSource() }
-            val closePressed by closeInteraction.collectIsPressedAsState()
-            val closeScale by animateFloatAsState(
-                targetValue = if (closePressed) 0.9f else 1f,
-                animationSpec = tween(GoTickyMotion.Standard),
-                label = "profileCloseScale"
-            )
-            IconButton(
-                onClick = { showCameraDialog = false; onDismiss() },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .graphicsLayer(scaleX = closeScale, scaleY = closeScale)
-                    .size(38.dp),
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = Color(0xFFFF5252)
-                ),
-                interactionSource = closeInteraction
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = "Close profile dialog"
-                )
-            }
-
             Column(
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(
+                        scaleX = appearScale,
+                        scaleY = appearScale,
+                        alpha = appearAlpha
+                    )
+                    .clip(goTickyShapes.extraLarge)
+                    .background(GoTickyGradients.CardGlow)
+                    .background(GoTickyGradients.GlassWash)
+                    .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                    .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
+                // Close
+                val closeInteraction = remember { MutableInteractionSource() }
+                val closePressed by closeInteraction.collectIsPressedAsState()
+                val closeScale by animateFloatAsState(
+                    targetValue = if (closePressed) 0.9f else 1f,
+                    animationSpec = tween(GoTickyMotion.Standard),
+                    label = "profileCloseScale"
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    IconButton(
+                        onClick = { showCameraDialog = false; onDismiss() },
+                        modifier = Modifier
+                            .graphicsLayer(scaleX = closeScale, scaleY = closeScale)
+                            .size(38.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = Color(0xFFFF5252)
+                        ),
+                        interactionSource = closeInteraction
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Close profile dialog"
+                        )
+                    }
+                }
+
+                // Header + avatar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer(scaleX = pulse, scaleY = pulse),
+                        .graphicsLayer(scaleX = pulse, scaleY = pulse)
+                        .pressAnimated(scaleDown = 0.98f)
+                        .clip(goTickyShapes.large)
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .background(GoTickyGradients.GlassWash)
+                        .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                        .padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -7092,7 +7596,7 @@ private fun ProfileDetailsDialog(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(74.dp)
+                                .size(78.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.45f))
                                 .border(2.dp, GoTickyGradients.EdgeHalo, CircleShape)
@@ -7104,7 +7608,7 @@ private fun ProfileDetailsDialog(
                                     painter = photo,
                                     contentDescription = null,
                                     modifier = Modifier
-                                        .size(70.dp)
+                                        .size(74.dp)
                                         .clip(CircleShape),
                                     contentScale = ContentScale.Crop
                                 )
@@ -7113,7 +7617,7 @@ private fun ProfileDetailsDialog(
                                     imageVector = Icons.Outlined.AccountCircle,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                                    modifier = Modifier.size(46.dp)
+                                    modifier = Modifier.size(52.dp)
                                 )
                             }
                         }
@@ -7144,13 +7648,17 @@ private fun ProfileDetailsDialog(
                             )
                         }
                     }
+
+                    val displayName = if (isGuest) "GoTicky Guest" else editedProfile.fullName.ifBlank { "Add your name" }
+                    val displayEmail = if (isGuest) "guest@goticky.app" else editedProfile.email.ifBlank { "you@email.com" }
+
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                         horizontalAlignment = Alignment.Start,
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = profile.fullName,
+                            text = displayName,
                             style = MaterialTheme.typography.headlineSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 shadow = Shadow(
@@ -7162,136 +7670,291 @@ private fun ProfileDetailsDialog(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = profile.email,
+                            text = displayEmail,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Pill(
-                            text = "GoTicky demo profile • personalized",
-                            color = Color.Black.copy(alpha = 0.3f),
-                            textColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    infoItems.forEachIndexed { index, entry ->
-                        val (label, value, icon, tint, editable) = entry
-                        val interaction = remember { MutableInteractionSource() }
-                        val pressed by interaction.collectIsPressedAsState()
-                        val pressScale by animateFloatAsState(
-                            targetValue = if (pressed) 0.97f else 1f,
-                            animationSpec = tween(GoTickyMotion.Standard),
-                            label = "profileField-$index"
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer(scaleX = pressScale, scaleY = pressScale)
-                                .clip(goTickyShapes.large)
-                                .background(Color.Black.copy(alpha = 0.35f))
-                                .background(GoTickyGradients.GlassWash)
-                                .drawBehind { drawRect(GoTickyTextures.GrainTint) }
-                                .border(1.dp, Brush.horizontalGradient(listOf(tint, Color.Transparent)), goTickyShapes.large)
-                                .clickable(
-                                    interactionSource = interaction,
-                                    indication = null
-                                ) {
-                                    if (label == "Email") clipboard.setText(AnnotatedString(value))
-                                    if (label == "Phone") clipboard.setText(AnnotatedString(value))
-                                }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(tint.copy(alpha = 0.22f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = null,
-                                    tint = tint
+                            if (isGuest) {
+                                Pill(
+                                    text = "Guest mode",
+                                    color = Color.Black.copy(alpha = 0.35f),
+                                    textColor = MaterialTheme.colorScheme.onSurface
                                 )
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = tint
+                                Pill(
+                                    text = "Private by default",
+                                    color = Color(0xFF2C4BFF).copy(alpha = 0.28f),
+                                    textColor = Color(0xFF9ED1FF)
                                 )
-                                Text(
-                                    text = value,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            if (editable) {
-                                val editInteraction = remember { MutableInteractionSource() }
-                                val editPressed by editInteraction.collectIsPressedAsState()
-                                val editScale by animateFloatAsState(
-                                    targetValue = if (editPressed) 0.92f else 1f,
-                                    animationSpec = tween(GoTickyMotion.Quick),
-                                    label = "profileEditScale-$label"
-                                )
-                                Icon(
-                                    imageVector = Icons.Outlined.Edit,
-                                    contentDescription = "Edit $label",
-                                    modifier = Modifier
-                                        .size(22.dp)
-                                        .graphicsLayer(scaleX = editScale, scaleY = editScale)
-                                        .clickable(
-                                            interactionSource = editInteraction,
-                                            indication = null
-                                        ) {
-                                            clipboard.setText(AnnotatedString(value))
-                                        },
-                                    tint = tint
+                            } else {
+                                Pill(
+                                    text = "Personalized",
+                                    color = Color(0xFF183BFF).copy(alpha = 0.35f),
+                                    textColor = Color(0xFF9ED1FF)
                                 )
                             }
                         }
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Spacer(modifier = Modifier.height(6.dp))
+
+                @Composable
+                fun ProfileField(
+                    value: String,
+                    onValueChange: (String) -> Unit,
+                    label: String,
+                    leadingIcon: @Composable (() -> Unit)? = null,
+                    trailing: @Composable (() -> Unit)? = null,
+                    modifier: Modifier = Modifier,
+                    singleLine: Boolean = true,
+                    keyboardType: KeyboardType = KeyboardType.Text
                 ) {
-                    PrimaryButton(
-                        text = "Save",
-                        modifier = Modifier.weight(1f),
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Save,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                    ) {
-                        // Stub: plug into profile persistence when backend is ready
-                    }
-                    NeonTextButton(
-                        text = "Share profile",
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            clipboard.setText(
-                                AnnotatedString("${profile.fullName} • ${profile.email} • ${profile.countryFlag}")
-                            )
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Share,
-                                contentDescription = null,
-                                tint = Color(0xFF5CF0FF)
-                            )
-                        }
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        label = { Text(label) },
+                        leadingIcon = leadingIcon,
+                        trailingIcon = trailing,
+                        modifier = modifier
+                            .fillMaxWidth()
+                            .clip(goTickyShapes.medium)
+                            .background(Color.Transparent),
+                        shape = goTickyShapes.medium,
+                        singleLine = singleLine,
+                        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                        colors = fieldColors
                     )
+                }
+
+                if (isGuest) {
+                    GlowCard(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Guest session",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "We hide personal fields for guests. Sign in to store your details, keep alerts synced, and unlock social sharing.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Pill(text = "No signup required", color = Color.Black.copy(alpha = 0.35f), textColor = MaterialTheme.colorScheme.onSurface)
+                                Pill(text = "Limited features", color = Color(0xFF2C4BFF).copy(alpha = 0.28f), textColor = Color(0xFF9ED1FF))
+                                Pill(text = "Upgrade anytime", color = Color(0xFF20E0B4).copy(alpha = 0.28f), textColor = Color(0xFFCFFCF0))
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Profile",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        ProfileField(
+                            value = editedProfile.fullName,
+                            onValueChange = { editedProfile = editedProfile.copy(fullName = it) },
+                            label = "Full name",
+                            leadingIcon = { Icon(Icons.Outlined.Person, null) }
+                        )
+                        ProfileField(
+                            value = editedProfile.email,
+                            onValueChange = { editedProfile = editedProfile.copy(email = it) },
+                            label = "Email",
+                            leadingIcon = { Icon(Icons.Outlined.Email, null) },
+                            trailing = {
+                                IconButton(
+                                    onClick = { clipboard.setText(AnnotatedString(editedProfile.email)) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Upload,
+                                        contentDescription = "Copy email",
+                                        tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            },
+                            keyboardType = KeyboardType.Email
+                        )
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ProfileField(
+                                value = editedProfile.phoneCode,
+                                onValueChange = { editedProfile = editedProfile.copy(phoneCode = it) },
+                                label = "Code",
+                                leadingIcon = { Icon(Icons.Outlined.Flag, null) },
+                                modifier = Modifier.widthIn(min = 110.dp).weight(0.45f, fill = false),
+                                keyboardType = KeyboardType.Phone
+                            )
+                            ProfileField(
+                                value = editedProfile.phoneNumber,
+                                onValueChange = { editedProfile = editedProfile.copy(phoneNumber = it) },
+                                label = "Phone",
+                                leadingIcon = { Icon(Icons.Outlined.PhoneAndroid, null) },
+                                trailing = {
+                                    IconButton(
+                                        onClick = {
+                                            clipboard.setText(AnnotatedString("${editedProfile.phoneCode}${editedProfile.phoneNumber}"))
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CheckCircle,
+                                            contentDescription = "Copy phone",
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                keyboardType = KeyboardType.Phone
+                            )
+                        }
+
+                        ProfileField(
+                            value = editedProfile.birthday,
+                            onValueChange = { editedProfile = editedProfile.copy(birthday = it) },
+                            label = "Birthday",
+                            leadingIcon = { Icon(Icons.Outlined.Cake, null) }
+                        )
+                        ProfileField(
+                            value = editedProfile.gender,
+                            onValueChange = { editedProfile = editedProfile.copy(gender = it) },
+                            label = "Gender",
+                            leadingIcon = { Icon(Icons.Outlined.Person, null) }
+                        )
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ProfileField(
+                                value = editedProfile.countryFlag,
+                                onValueChange = { editedProfile = editedProfile.copy(countryFlag = it) },
+                                label = "Flag emoji",
+                                leadingIcon = { Icon(Icons.Outlined.Flag, null) },
+                                modifier = Modifier.widthIn(min = 120.dp).weight(0.45f, fill = false)
+                            )
+                            ProfileField(
+                                value = editedProfile.countryName,
+                                onValueChange = { editedProfile = editedProfile.copy(countryName = it) },
+                                label = "Country",
+                                leadingIcon = { Icon(Icons.Outlined.Place, null) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val completeness = (
+                        listOf(
+                            editedProfile.fullName,
+                            editedProfile.email,
+                            editedProfile.phoneNumber,
+                            editedProfile.countryName
+                        ).count { it.isNotBlank() } * 20 + 20
+                        ).coerceIn(20, 100)
+                    val completenessFraction by animateFloatAsState(
+                        targetValue = completeness / 100f,
+                        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+                        label = "profileCompleteness"
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(goTickyShapes.large)
+                            .background(Color.Black.copy(alpha = 0.32f))
+                            .background(GoTickyGradients.GlassWash)
+                            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Profile completeness",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$completeness%",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            LinearProgressIndicator(
+                                progress = { completenessFraction },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(goTickyShapes.small),
+                                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Outlined.Notifications,
+                            contentDescription = null,
+                            tint = IconCategoryColors[IconCategory.Alerts]
+                                ?: MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PrimaryButton(
+                            text = "Save profile",
+                            onClick = {
+                                onUpdateProfile(editedProfile)
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .pressAnimated(scaleDown = 0.96f),
+                            icon = { Icon(Icons.Outlined.Save, contentDescription = null) }
+                        )
+                        NeonTextButton(
+                            text = "Share",
+                            onClick = {
+                                val share = "${editedProfile.fullName} • ${editedProfile.email} • ${editedProfile.countryFlag}"
+                                clipboard.setText(AnnotatedString(share))
+                            },
+                            modifier = Modifier.pressAnimated(scaleDown = 0.94f),
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Share,
+                                    contentDescription = null,
+                                    tint = IconCategoryColors[IconCategory.Profile]
+                                        ?: Color(0xFF5CF0FF)
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -8624,6 +9287,51 @@ private fun SettingsScreen(
             }
 
             GlowCard {
+                val tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                val iconPulse by rememberInfiniteTransition(label = "rememberMePulse").animateFloat(
+                    initialValue = 0.96f,
+                    targetValue = 1.06f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 1200, easing = EaseOutBack),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "rememberMeScale"
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .graphicsLayer(scaleX = iconPulse, scaleY = iconPulse)
+                                .clip(CircleShape)
+                                .background(tint.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Shield,
+                                contentDescription = null,
+                                tint = tint
+                            )
+                        }
+                        Text(
+                            "Security & sign-in",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    SettingsToggleRow(
+                        title = "Remember me on this device",
+                        description = "Skip the sign-in screen next time while you stay signed in.",
+                        checked = prefs.rememberMe,
+                        onCheckedChange = { onPrefsChange(prefs.copy(rememberMe = it)) }
+                    )
+                }
+            }
+
+            GlowCard {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         "Data & performance",
@@ -9020,19 +9728,76 @@ private fun generateTimeSlots(): List<String> {
 }
 
 @Composable
+@kotlin.OptIn(kotlin.time.ExperimentalTime::class)
 private fun EventDetailScreen(
     event: org.example.project.data.EventItem,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
     onProceedToCheckout: (String) -> Unit,
-    onAlert: () -> Unit
+    onAlert: () -> Unit,
+    totalTickets: Int? = null,
+    ticketsSold: Int? = null,
+    adminApplication: AdminApplication? = null,
+    earlyBirdWindow: EarlyBirdWindow? = null,
 ) {
     var showReport by remember { mutableStateOf(false) }
     var priceAlertSelected by remember { mutableStateOf(false) }
     var selectedReason by remember { mutableStateOf("Wrong information") }
+    var bannerLogged by remember { mutableStateOf(false) }
     val ticketOptions = listOf("Early Bird", "General / Standard", "VIP", "Golden Circle")
     var selectedTicketType by remember { mutableStateOf<String?>(null) }
+    val nowState = remember { mutableStateOf(currentInstant()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowState.value = currentInstant()
+            delay(30_000)
+        }
+    }
+    val now = nowState.value
+    val earlyBirdActive = earlyBirdWindow?.let { now >= it.start && now <= it.end } ?: false
+    val earlyBirdExpired = earlyBirdWindow?.let { now > it.end } ?: false
+    val earlyBirdPendingApproval = adminApplication != null && adminApplication.status != "Approved"
+    val earlyBirdRemaining = earlyBirdWindow?.let { window ->
+        (window.end - now).coerceAtLeast(ZERO)
+    }
+    val earlyBirdProgressTarget = earlyBirdWindow?.let { window ->
+        val totalMs = (window.end - window.start).inWholeMilliseconds.coerceAtLeast(1)
+        val elapsedMs = (now - window.start).inWholeMilliseconds.coerceAtLeast(0)
+        (elapsedMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
+    } ?: 0f
+    val earlyBirdProgress by animateFloatAsState(
+        targetValue = earlyBirdProgressTarget,
+        animationSpec = tween(500, easing = LinearEasing),
+        label = "earlyBirdProgress"
+    )
+    var checkoutNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(earlyBirdActive) {
+        if (earlyBirdActive) {
+            Analytics.log(
+                AnalyticsEvent(
+                    name = "early_bird_view",
+                    params = mapOf("event_id" to event.id, "title" to event.title)
+                )
+            )
+        }
+    }
+    LaunchedEffect(earlyBirdWindow?.start, earlyBirdWindow?.end) {
+        if (earlyBirdWindow != null && !bannerLogged) {
+            bannerLogged = true
+            Analytics.log(
+                AnalyticsEvent(
+                    name = "early_bird_banner_impression",
+                    params = mapOf("event_id" to event.id, "title" to event.title)
+                )
+            )
+        }
+    }
+    LaunchedEffect(earlyBirdActive, earlyBirdExpired, earlyBirdPendingApproval) {
+        if (!earlyBirdActive && selectedTicketType == "Early Bird") {
+            selectedTicketType = null
+        }
+    }
     val accent = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
     val heroPulse = rememberInfiniteTransition(label = "detailHero").animateFloat(
         initialValue = -120f,
@@ -9244,14 +10009,145 @@ private fun EventDetailScreen(
         }
         GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Ticket options",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Ticket options",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (totalTickets != null && totalTickets > 0 && ticketsSold != null) {
+                        val remaining = (totalTickets - ticketsSold).coerceAtLeast(0)
+                        val soldColor = Color(0xFFFF4B5C)
+                        val totalColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Ticket Count",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$remaining/${totalTickets} left",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = soldColor
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp)
+                                    .clip(goTickyShapes.small)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                            ) {
+                                val progress = (remaining.toFloat() / totalTickets.toFloat()).coerceIn(0f, 1f)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(progress)
+                                        .height(4.dp)
+                                        .clip(goTickyShapes.small)
+                                        .background(Color(0xFFFF4B5C))
+                                )
+                            }
+                        }
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AnimatedVisibility(
+                        visible = earlyBirdWindow != null,
+                        enter = fadeIn() + slideInVertically { it / 6 },
+                        exit = fadeOut() + slideOutVertically { it / 6 }
+                    ) {
+                        GlowCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    1.dp,
+                                    GoTickyGradients.EdgeHalo,
+                                    goTickyShapes.large
+                                )
+                        ) {
+                            val shimmer = rememberInfiniteTransition(label = "earlyBirdShimmer").animateFloat(
+                                initialValue = -140f,
+                                targetValue = 260f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(durationMillis = 2200, easing = LinearEasing),
+                                    repeatMode = RepeatMode.Restart
+                                ),
+                                label = "earlyBirdShimmerX"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .drawBehind {
+                                        if (earlyBirdActive) {
+                                            drawRoundRect(
+                                                brush = Brush.linearGradient(
+                                                    colors = listOf(
+                                                        Color.Transparent,
+                                                        Color.White.copy(alpha = 0.24f),
+                                                        Color.Transparent
+                                                    ),
+                                                    start = Offset(shimmer.value, 0f),
+                                                    end = Offset(shimmer.value + 180f, size.height)
+                                                ),
+                                                cornerRadius = CornerRadius(40f, 40f)
+                                            )
+                                        }
+                                    }
+                                    .padding(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val headline = when {
+                                        earlyBirdActive -> "Early Bird live • ${earlyBirdWindow?.discountPercent ?: 20}% off"
+                                        earlyBirdPendingApproval -> "Early Bird coming soon"
+                                        earlyBirdExpired -> "Early Bird ended"
+                                        else -> "Early Bird inactive"
+                                    }
+                                    val caption = when {
+                                        earlyBirdActive && earlyBirdRemaining != null -> "Ends in ${formatDurationShort(earlyBirdRemaining)} • ${earlyBirdWindow?.basePriceLabel} → ${earlyBirdWindow?.earlyPriceLabel}"
+                                        earlyBirdPendingApproval -> "Early Bird will be available once this event is fully set up."
+                                        earlyBirdExpired -> "Window closed. Switching to General."
+                                        else -> "Early Bird is not available for this event."
+                                    }
+                                    Text(
+                                        text = headline,
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = caption,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (earlyBirdWindow != null) {
+                                        LinearProgressIndicator(
+                                            progress = { earlyBirdProgress },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(goTickyShapes.small),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     ticketOptions.forEach { option ->
                         val selected = selectedTicketType == option
+                        val earlyBirdOption = option == "Early Bird"
+                        val disabled = earlyBirdOption && !earlyBirdActive
+                        val disabledReason = when {
+                            earlyBirdExpired -> "Ended"
+                            earlyBirdPendingApproval && earlyBirdOption -> "Not available yet"
+                            earlyBirdOption && earlyBirdWindow == null -> "Not available"
+                            else -> ""
+                        }
 
                         Box(
                             modifier = Modifier
@@ -9268,11 +10164,38 @@ private fun EventDetailScreen(
                                     }
                                 )
                         ) {
+                            val onSelectOption: () -> Unit = {
+                                if (!disabled) {
+                                    selectedTicketType = option
+                                    if (earlyBirdOption) {
+                                        Analytics.log(
+                                            AnalyticsEvent(
+                                                name = "early_bird_select",
+                                                params = mapOf("event_id" to event.id, "title" to event.title)
+                                            )
+                                        )
+                                    }
+                                } else if (earlyBirdPendingApproval) {
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "early_bird_denied_preapproval",
+                                            params = mapOf("event_id" to event.id, "title" to event.title)
+                                        )
+                                    )
+                                } else if (earlyBirdExpired) {
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "early_bird_expired_click",
+                                            params = mapOf("event_id" to event.id, "title" to event.title)
+                                        )
+                                    )
+                                }
+                            }
                             GlowCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .pressAnimated(scaleDown = 0.97f)
-                                    .clickable { selectedTicketType = option }
+                                    .clickable(enabled = !disabled) { onSelectOption() }
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -9287,15 +10210,27 @@ private fun EventDetailScreen(
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
+                                        val subtitle = when {
+                                            earlyBirdOption && earlyBirdWindow != null -> "${earlyBirdWindow.earlyPriceLabel} (base ${earlyBirdWindow.basePriceLabel})"
+                                            else -> "Perks: instant QR, transfers, price locks"
+                                        }
                                         Text(
-                                            text = "Perks: instant QR, transfers, price locks",
+                                            text = subtitle,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = if (disabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        if (disabledReason.isNotBlank()) {
+                                            Text(
+                                                text = disabledReason,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFFFFC94A)
+                                            )
+                                        }
                                     }
                                     RadioButton(
                                         selected = selected,
-                                        onClick = { selectedTicketType = option }
+                                        onClick = { onSelectOption() },
+                                        enabled = !disabled
                                     )
                                 }
                             }
@@ -9362,7 +10297,25 @@ private fun EventDetailScreen(
                         .weight(1f)
                         .graphicsLayer(alpha = if (canCheckout) 1f else 0.45f)
                 ) {
-                    val type = selectedTicketType
+                    var type = selectedTicketType
+                    if (type == "Early Bird") {
+                        // Guardrail: if Early Bird is no longer active, gracefully fall back.
+                        if (!earlyBirdActive) {
+                            type = "General / Standard"
+                            selectedTicketType = type
+                            checkoutNotice = "Early Bird window ended, continuing with General tickets."
+                            Analytics.log(
+                                AnalyticsEvent(
+                                    name = "early_bird_auto_switch",
+                                    params = mapOf(
+                                        "event_id" to event.id,
+                                        "title" to event.title,
+                                        "to_type" to type
+                                    )
+                                )
+                            )
+                        }
+                    }
                     if (type != null) {
                         onProceedToCheckout(type)
                     }
@@ -9398,6 +10351,17 @@ private fun EventDetailScreen(
                         textAlign = TextAlign.Center
                     )
                 }
+            }
+            checkoutNotice?.let { msg ->
+                Text(
+                    text = msg,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFFFC94A),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
+                )
             }
         }
     }
@@ -9448,7 +10412,7 @@ private fun EventDetailScreen(
 private fun CreateEventScreen(
     userProfile: UserProfile,
     onBack: () -> Unit,
-    onSaveDraft: (String, String, String, String, String, String) -> Unit,
+    onSaveDraft: (String, String, String, String, String, String, String) -> Unit,
 ) {
     var companyName by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
@@ -9456,6 +10420,7 @@ private fun CreateEventScreen(
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var priceFrom by remember { mutableStateOf("") }
+    var ticketCount by remember { mutableStateOf("") }
     var ticketGeneral by remember { mutableStateOf("") }
     var ticketVip by remember { mutableStateOf("") }
     var ticketStudent by remember { mutableStateOf("") }
@@ -9702,6 +10667,30 @@ private fun CreateEventScreen(
                             .clickable { showDateTimePicker = true }
                     )
                 }
+                OutlinedTextField(
+                    value = ticketCount,
+                    onValueChange = { input ->
+                        val cleaned = input.filter { it.isDigit() }.take(6)
+                        ticketCount = cleaned
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Ticket count") },
+                    placeholder = { Text("e.g. 500") },
+                    suffix = {
+                        Text(
+                            text = "tickets",
+                            modifier = Modifier.padding(start = 6.dp, end = 2.dp),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
                 OutlinedTextField(
                     value = priceFrom,
                     onValueChange = { priceFrom = it },
@@ -9956,18 +10945,21 @@ private fun CreateEventScreen(
                             venue.isNotBlank() &&
                             city.isNotBlank() &&
                             country.isNotBlank() &&
-                            parsePrice(priceFrom) != null
+                            parsePrice(priceFrom) != null &&
+                            ticketCount.isNotBlank()
                         if (!valid) {
                             showErrors = true
                         } else {
                             val normalizedPrice = if (priceFrom.isBlank()) resolvedPriceFrom() else priceFrom
+                            val normalizedTickets = ticketCount.ifBlank { "0" }
                             onSaveDraft(
                                 title.trim(),
                                 city.trim(),
                                 venue.trim(),
                                 dateLabel.ifBlank { "${selectedDate ?: ""} ${selectedTime ?: ""}".trim() },
                                 normalizedPrice.ifBlank { "0" },
-                                status
+                                status,
+                                normalizedTickets
                             )
                             showErrors = false
                         }

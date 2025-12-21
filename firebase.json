@@ -1,0 +1,9 @@
+{
+  "projectId": "goticky-47533",
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

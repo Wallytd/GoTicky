@@ -2,6 +2,7 @@ package org.example.project.platform
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType

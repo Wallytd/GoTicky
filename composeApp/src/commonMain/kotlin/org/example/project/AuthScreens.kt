@@ -1,0 +1,1698 @@
+package org.example.project
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.example.project.platform.rememberImagePicker
+import org.example.project.platform.rememberProfileImageStorage
+import org.example.project.platform.rememberUriPainter
+import org.example.project.ui.components.AnimatedProgressBar
+import org.example.project.ui.components.GoTickyMotion
+import org.example.project.ui.components.LoadingSpinner
+import org.example.project.ui.components.NeonTextButton
+import org.example.project.ui.components.PrimaryButton
+import org.example.project.ui.components.pressAnimated
+import org.example.project.ui.theme.GoTickyGradients
+import org.example.project.ui.theme.IconCategory
+import org.example.project.ui.theme.IconCategoryColors
+import org.example.project.ui.theme.goTickyShapes
+
+data class CountryOption(
+    val name: String,
+    val flag: String,
+    val phoneCode: String
+)
+
+@Composable
+fun SplashScreen(
+    modifier: Modifier = Modifier,
+    onContinue: () -> Unit,
+) {
+    val pulse by animateFloatAsState(
+        targetValue = 1.05f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Comfort, easing = EaseOutBack),
+        label = "splashPulse"
+    )
+    LaunchedEffect(Unit) {
+        delay(1200)
+        onContinue()
+    }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(GoTickyGradients.Hero)
+            .padding(26.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        SplashHalo()
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "GoTicky",
+                color = MaterialTheme.colorScheme.onPrimary,
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 36.sp
+                )
+            )
+            Text(
+                text = "Events that pulse with the city.\nSign in to keep the neon flowing.",
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+            LoadingSpinner(modifier = Modifier.size(64.dp))
+            PrimaryButton(
+                text = "Jump in",
+                modifier = Modifier
+                    .pressAnimated()
+                    .graphicsLayer(scaleX = pulse, scaleY = pulse),
+                onClick = onContinue
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AuthScreen(
+    modifier: Modifier = Modifier,
+    onSignIn: suspend (email: String, password: String, rememberMe: Boolean) -> AuthResult,
+    onSignUp: suspend (profile: UserProfile, password: String) -> AuthResult,
+    onSkip: () -> Unit,
+    findProfileByEmail: suspend (email: String) -> UserProfile?,
+    externalUploadInProgress: Boolean = false,
+    externalUploadProgress: Float = 0f,
+    externalUploadMessage: String? = null,
+) {
+    var mode by rememberSaveable { mutableStateOf(AuthMode.SignIn) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
+    var emailFocused by remember { mutableStateOf(false) }
+    var password by rememberSaveable { mutableStateOf("") }
+    var confirmPassword by rememberSaveable { mutableStateOf("") }
+    var phoneCode by rememberSaveable { mutableStateOf("+263") }
+    var phoneNumber by rememberSaveable { mutableStateOf("") }
+    var countryName by rememberSaveable { mutableStateOf("Zimbabwe") }
+    var countryFlag by rememberSaveable { mutableStateOf("🇿🇼") }
+    var phoneCodeFlag by rememberSaveable { mutableStateOf("🇿🇼") }
+    var birthday by rememberSaveable { mutableStateOf("") }
+    var gender by rememberSaveable { mutableStateOf("Prefer not to say") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var confirmPasswordVisible by rememberSaveable { mutableStateOf(false) }
+    var agreedTerms by rememberSaveable { mutableStateOf(false) }
+    var rememberMe by rememberSaveable { mutableStateOf(false) }
+    var profilePhotoUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var profilePhotoOwnerEmail by rememberSaveable { mutableStateOf<String?>(null) }
+    var isUploadingPhoto by rememberSaveable { mutableStateOf(false) }
+    var uploadProgress by rememberSaveable { mutableStateOf(0f) }
+    var isLoading by rememberSaveable { mutableStateOf(false) }
+    var errorText by rememberSaveable { mutableStateOf<String?>(null) }
+    var showBirthdayDialog by rememberSaveable { mutableStateOf(false) }
+    var showGenderDialog by rememberSaveable { mutableStateOf(false) }
+    var showCountryDialog by rememberSaveable { mutableStateOf(false) }
+    var showPhoneCodeDialog by rememberSaveable { mutableStateOf(false) }
+    var phoneCodeOverridden by rememberSaveable { mutableStateOf(false) }
+    var fetchedProfileForEmail by remember { mutableStateOf<UserProfile?>(null) }
+    var fetchingProfile by remember { mutableStateOf(false) }
+
+    val scrollState = rememberScrollState()
+    // Focus requesters to gently guide the user to missing fields when validating Sign Up.
+    val nameFocusRequester = remember { FocusRequester() }
+    val emailFocusRequester = remember { FocusRequester() }
+    val phoneFocusRequester = remember { FocusRequester() }
+    val birthdayFocusRequester = remember { FocusRequester() }
+    val passwordFocusRequester = remember { FocusRequester() }
+    val months = remember {
+        listOf(
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        )
+    }
+    // Use a stable, non-clock-based default to avoid ExperimentalTime / Clock issues on multiplatform builds.
+    var birthdayMonthIndex by rememberSaveable { mutableStateOf(0) } // January
+    var birthdayDay by rememberSaveable { mutableStateOf(1) }
+    var birthdayYear by rememberSaveable { mutableStateOf(2000) }
+    val minYear = remember { 1900 }
+    val maxYear = remember { 2100 }
+    val sadcCountries: List<CountryOption> = remember {
+        listOf(
+            CountryOption("Zimbabwe", "🇿🇼", "+263"),
+            CountryOption("Botswana", "🇧🇼", "+267"),
+            CountryOption("South Africa", "🇿🇦", "+27"),
+            CountryOption("Namibia", "🇳🇦", "+264"),
+            CountryOption("Zambia", "🇿🇲", "+260"),
+            CountryOption("Mozambique", "🇲🇿", "+258"),
+            CountryOption("Angola", "🇦🇴", "+244"),
+            CountryOption("Malawi", "🇲🇼", "+265"),
+            CountryOption("Lesotho", "🇱🇸", "+266"),
+            CountryOption("Eswatini", "🇸🇿", "+268"),
+            CountryOption("Tanzania", "🇹🇿", "+255"),
+            CountryOption("DR Congo", "🇨🇩", "+243"),
+            CountryOption("Madagascar", "🇲🇬", "+261"),
+            CountryOption("Mauritius", "🇲🇺", "+230"),
+            CountryOption("Seychelles", "🇸🇨", "+248"),
+            CountryOption("Comoros", "🇰🇲", "+269"),
+        )
+    }
+    val genderOptions = remember {
+        listOf(
+            "Male",
+            "Female",
+            "Transgender",
+            "Prefer not to say"
+        )
+    }
+    val phoneCodeOptions = remember { sadcCountries }
+    val cardScale by animateFloatAsState(
+        targetValue = if (mode == AuthMode.SignUp) 1.02f else 1f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "authCardScale"
+    )
+    val neonInputColor = Color(0xFF7EF9FF)
+    val linkColor = MaterialTheme.colorScheme.primary
+    val termsText = remember(linkColor) {
+        buildAnnotatedString {
+            append("By creating an account or logging in, you agree with GoTicky's ")
+            pushStringAnnotation(tag = "terms", annotation = "terms")
+            withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline, fontWeight = FontWeight.SemiBold)) {
+                append("Terms and Conditions")
+            }
+            pop()
+            append(" and ")
+            pushStringAnnotation(tag = "privacy", annotation = "privacy")
+            withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline, fontWeight = FontWeight.SemiBold)) {
+                append("Privacy Policy")
+            }
+            pop()
+        }
+    }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val imagePicker = rememberImagePicker { uri ->
+        scope.launch {
+            if (uri == null) return@launch
+            // For sign-up, keep things simple and reliable: store the picked local URI
+            // so validation and the avatar preview work immediately.
+            isUploadingPhoto = true
+            uploadProgress = 0f
+            profilePhotoUri = uri
+            profilePhotoOwnerEmail = email.trim()
+            // Play a short progress animation to keep the UI feeling alive.
+            uploadProgress = 1f
+            delay(300)
+            isUploadingPhoto = false
+        }
+    }
+
+    LaunchedEffect(showBirthdayDialog) {
+        if (showBirthdayDialog && birthday.isNotBlank()) {
+            val monthToken = birthday.substringBefore(" ").trim()
+            val dayToken = birthday.substringAfter(" ").substringBefore(",").trim()
+            val yearToken = birthday.substringAfter(",").trim()
+            months.indexOf(monthToken).takeIf { it >= 0 }?.let { birthdayMonthIndex = it }
+            dayToken.toIntOrNull()?.let { birthdayDay = it.coerceIn(1, daysInMonth(birthdayMonthIndex, birthdayYear)) }
+            yearToken.toIntOrNull()?.let { birthdayYear = it.coerceIn(minYear, maxYear) }
+        }
+    }
+
+    Scaffold(
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState) { data ->
+                val isError = data.visuals.actionLabel == "error"
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isError) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 18.dp, vertical = 24.dp)
+                .padding(padding),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            AuthHeader(mode = mode, onModeChange = { mode = it })
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(scaleX = cardScale, scaleY = cardScale)
+                    .clip(goTickyShapes.large)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                        shape = goTickyShapes.large
+                    )
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (mode == AuthMode.SignUp) {
+                    AuthField(
+                        value = name,
+                        onValueChange = { name = it.capitalizeWordsPreserveSpaces() },
+                        label = "Full name",
+                        leading = { Icon(Icons.Outlined.Person, contentDescription = null, tint = Color(0xFF795548)) },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                        modifier = Modifier.focusRequester(nameFocusRequester)
+                    )
+                }
+                if (mode == AuthMode.SignIn) {
+                    val emailTrimmed = email.trim()
+                    val fetchedPainter = fetchedProfileForEmail?.photoUri?.let { rememberUriPainter(it) }
+                    val emailValid = emailTrimmed.contains("@") && emailTrimmed.contains(".")
+                    LaunchedEffect(emailTrimmed) {
+                        if (!emailValid) {
+                            fetchedProfileForEmail = null
+                            fetchingProfile = false
+                        } else {
+                            fetchingProfile = true
+                            fetchedProfileForEmail = findProfileByEmail(emailTrimmed)
+                            fetchingProfile = false
+                        }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(92.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                                .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when {
+                                fetchingProfile -> {
+                                    LoadingSpinner(modifier = Modifier.size(32.dp))
+                                }
+                                fetchedPainter != null -> {
+                                    Image(
+                                        painter = fetchedPainter,
+                                        contentDescription = "Profile photo",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(42.dp)
+                                    )
+                                }
+                            }
+                        }
+                        AnimatedVisibility(visible = fetchedPainter != null) {
+                            Text(
+                                text = fetchedProfileForEmail?.fullName?.ifBlank { "Found profile" } ?: "",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (mode == AuthMode.SignUp && externalUploadMessage != null && externalUploadInProgress) {
+                            Text(
+                                text = externalUploadMessage,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email") },
+                    leadingIcon = { Icon(Icons.Outlined.AlternateEmail, contentDescription = null, tint = Color(0xFF1E88E5)) },
+                    trailingIcon = {
+                        if (email.isNotBlank() && emailFocused) {
+                            IconButton(onClick = { email = "" }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Clear,
+                                    contentDescription = "Clear email",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressAnimated()
+                        .focusRequester(emailFocusRequester)
+                        .onFocusChanged { emailFocused = it.isFocused },
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        focusedTextColor = neonInputColor,
+                        unfocusedTextColor = neonInputColor,
+                        cursorColor = neonInputColor
+                    ),
+                    singleLine = true
+                )
+                val emailTrimmed = email.trim()
+                val photoMatchesEmail = profilePhotoUri != null &&
+                        profilePhotoOwnerEmail?.equals(emailTrimmed, ignoreCase = true) == true
+                val avatarPainter = if (photoMatchesEmail) profilePhotoUri?.let { rememberUriPainter(it) } else null
+                val handWave by rememberInfiniteTransition(label = "handWave")
+                    .animateFloat(
+                        initialValue = -6f,
+                        targetValue = 6f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(900, easing = EaseOutBack),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "handWaveAngle"
+                    )
+                val cameraPulse by rememberInfiniteTransition(label = "cameraPulse")
+                    .animateFloat(
+                        initialValue = 0.94f,
+                        targetValue = 1.06f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = EaseOutBack),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "cameraPulseScale"
+                    )
+                AnimatedVisibility(visible = mode == AuthMode.SignUp) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(104.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f),
+                                    shape = CircleShape
+                                )
+                                .pressAnimated(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(88.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (avatarPainter != null) {
+                                    Image(
+                                        painter = avatarPainter,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(46.dp)
+                                    )
+                                }
+                            }
+                            // Camera badge
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = 4.dp, y = 4.dp)
+                                    .size(30.dp)
+                                    .graphicsLayer(scaleX = cameraPulse, scaleY = cameraPulse)
+                                    .clip(CircleShape)
+                                    .background(Brush.radialGradient(listOf(Color(0xFF00E5FF), Color(0xFF7C4DFF))))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) { if (!isLoading && !isUploadingPhoto) imagePicker.pickFromGallery() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.PhotoCamera,
+                                    contentDescription = "Upload photo",
+                                    tint = Color(0xFF0A0A0A),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            // Floating hand hint outside to the left (only before a photo is set or while not uploading)
+                            if (profilePhotoUri == null && !isUploadingPhoto) {
+                                Column(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .offset(x = (-66).dp)
+                                        .graphicsLayer(rotationZ = handWave, translationY = handWave * 0.2f),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        "\uD83D\uDC49",
+                                        fontSize = 20.sp,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                    Text(
+                                        "Tap camera to\nadd profile photo",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                        if (mode == AuthMode.SignUp && email.isNotBlank()) {
+                            NeonTextButton(
+                                text = if (profilePhotoUri == null) "Add profile photo" else "Change photo",
+                                onClick = { if (!isLoading) imagePicker.pickFromGallery() }
+                            )
+                        }
+                        if (isUploadingPhoto) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Uploading photo… ${(uploadProgress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                AnimatedProgressBar(
+                                    progress = uploadProgress,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (mode == AuthMode.SignUp) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = countryName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Country") },
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Fingerprint,
+                                    contentDescription = "Pick country",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated(),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                focusedTextColor = neonInputColor,
+                                unfocusedTextColor = neonInputColor,
+                                cursorColor = neonInputColor
+                            )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clip(goTickyShapes.medium)
+                                .clickable { showCountryDialog = true }
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(0.45f)) {
+                            OutlinedTextField(
+                                value = phoneCode,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Code") },
+                                leadingIcon = { Text(phoneCodeFlag) },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Fingerprint,
+                                        contentDescription = "Pick phone code",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pressAnimated(),
+                                colors = TextFieldDefaults.colors(
+                                    focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                ),
+                                singleLine = true
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clip(goTickyShapes.medium)
+                                    .clickable { showPhoneCodeDialog = true }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = phoneNumber,
+                            onValueChange = { phoneNumber = it },
+                            label = { Text("Phone number") },
+                            placeholder = {
+                                Text(
+                                    "7xx xxx xxx",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                )
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(phoneFocusRequester),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                focusedTextColor = neonInputColor,
+                                unfocusedTextColor = neonInputColor,
+                                cursorColor = neonInputColor
+                            ),
+                            singleLine = true
+                        )
+                    }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = birthday.ifBlank { "Tap to pick" },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Birthday") },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Outlined.Fingerprint,
+                                    contentDescription = "Pick birthday",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated()
+                                .focusRequester(birthdayFocusRequester),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                focusedTextColor = neonInputColor,
+                                unfocusedTextColor = neonInputColor,
+                                cursorColor = neonInputColor
+                            ),
+                            singleLine = true
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clip(goTickyShapes.medium)
+                                .clickable { showBirthdayDialog = true }
+                        )
+                    }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = gender,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Gender") },
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Fingerprint,
+                                    contentDescription = "Select gender",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated(),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                focusedTextColor = neonInputColor,
+                                unfocusedTextColor = neonInputColor,
+                                cursorColor = neonInputColor
+                            ),
+                            singleLine = true
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clip(goTickyShapes.medium)
+                                .clickable { showGenderDialog = true }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    leadingIcon = { Icon(Icons.Outlined.Key, contentDescription = null, tint = Color(0xFF2E7D32)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(passwordFocusRequester),
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        focusedTextColor = neonInputColor,
+                        unfocusedTextColor = neonInputColor,
+                        cursorColor = neonInputColor
+                    ),
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = "Toggle password visibility",
+                                tint = if (passwordVisible) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                            )
+                        }
+                    }
+                )
+
+                if (mode == AuthMode.SignUp) {
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it },
+                        label = { Text("Confirm password") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            focusedTextColor = neonInputColor,
+                            unfocusedTextColor = neonInputColor,
+                            cursorColor = neonInputColor
+                        ),
+                        singleLine = true,
+                        visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (confirmPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = "Toggle confirm password visibility",
+                                    tint = if (confirmPasswordVisible) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                )
+                            }
+                        }
+                    )
+                }
+
+                if (mode == AuthMode.SignUp) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Checkbox(
+                            checked = agreedTerms,
+                            onCheckedChange = { agreedTerms = it }
+                        )
+                        ClickableText(
+                            text = termsText,
+                            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                            onClick = { offset ->
+                                termsText.getStringAnnotations(start = offset, end = offset).firstOrNull()?.let { annotation ->
+                                    when (annotation.tag) {
+                                        "terms" -> scope.launch { snackbarHostState.showSnackbar("Terms and Conditions") }
+                                        "privacy" -> scope.launch { snackbarHostState.showSnackbar("Privacy Policy") }
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+
+                if (mode == AuthMode.SignIn) {
+                    RememberMeRow(
+                        checked = rememberMe,
+                        onCheckedChange = { rememberMe = it }
+                    )
+                }
+
+                PrimaryButton(
+                    text = if (mode == AuthMode.SignIn) "Sign in" else "Create account",
+                    onClick = {
+                        if (isLoading || externalUploadInProgress) return@PrimaryButton
+                        if (isUploadingPhoto) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Please wait, uploading your profile photo…")
+                            }
+                            return@PrimaryButton
+                        }
+                        isLoading = true
+                        errorText = null
+                        scope.launch {
+                            if (mode == AuthMode.SignUp) {
+                                val missingMessage: String? = when {
+                                    name.trim().isEmpty() -> "Please add your full name."
+                                    email.trim().isEmpty() -> "Please add your email address."
+                                    !email.contains("@") || !email.contains(".") -> "Please enter a valid email address."
+                                    phoneNumber.trim().isEmpty() -> "Please add your phone number."
+                                    birthday.trim().isEmpty() -> "Please pick your birthday."
+                                    !photoMatchesEmail -> "Please add a profile photo for this email."
+                                    password.isBlank() -> "Please create a password."
+                                    confirmPassword.isBlank() -> "Please confirm your password."
+                                    !agreedTerms -> "Please agree to the Terms & Privacy Policy to continue."
+                                    else -> null
+                                }
+                                if (missingMessage != null) {
+                                    when {
+                                        name.trim().isEmpty() -> nameFocusRequester.requestFocus()
+                                        email.trim().isEmpty() || !email.contains("@") || !email.contains(".") -> emailFocusRequester.requestFocus()
+                                        phoneNumber.trim().isEmpty() -> phoneFocusRequester.requestFocus()
+                                        birthday.trim().isEmpty() -> {
+                                            birthdayFocusRequester.requestFocus()
+                                            showBirthdayDialog = true
+                                        }
+                                        profilePhotoUri == null && !photoMatchesEmail -> {
+                                            // Gently scroll back to the top where the avatar lives.
+                                            scrollState.animateScrollTo(0)
+                                        }
+                                        password.isBlank() || confirmPassword.isBlank() -> passwordFocusRequester.requestFocus()
+                                    }
+
+                                    snackbarHostState.showSnackbar(
+                                        message = missingMessage,
+                                        actionLabel = "error"
+                                    )
+                                    isLoading = false
+                                    return@launch
+                                }
+                            }
+
+                            if (mode == AuthMode.SignUp && password != confirmPassword) {
+                                errorText = "Passwords do not match."
+                                isLoading = false
+                                return@launch
+                            }
+
+                            val result = if (mode == AuthMode.SignIn) {
+                                onSignIn(email, password, rememberMe)
+                            } else {
+                                val safePhotoUri = if (photoMatchesEmail) profilePhotoUri else null
+                                val profile = UserProfile(
+                                    fullName = name.trim(),
+                                    email = email.trim(),
+                                    countryName = countryName,
+                                    countryFlag = countryFlag,
+                                    phoneCode = phoneCode,
+                                    phoneNumber = phoneNumber.trim(),
+                                    birthday = birthday.trim(),
+                                    gender = gender,
+                                    photoResKey = null,
+                                    photoUri = safePhotoUri
+                                )
+                                onSignUp(profile, password)
+                            }
+                            when (result) {
+                                is AuthResult.Success -> {
+                                    if (mode == AuthMode.SignUp) {
+                                        snackbarHostState.showSnackbar("Account created. Please sign in.")
+                                        mode = AuthMode.SignIn
+                                    } else {
+                                        snackbarHostState.showSnackbar("Signed in")
+                                    }
+                                }
+                                is AuthResult.Error -> errorText = result.message
+                            }
+                            isLoading = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (mode == AuthMode.SignUp && (externalUploadInProgress || externalUploadMessage != null)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(goTickyShapes.medium)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = externalUploadMessage ?: "Uploading profile photo…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        LinearProgressIndicator(
+                            progress = externalUploadProgress.coerceIn(0f, 1f),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (externalUploadProgress in 0.01f..0.99f) {
+                            Text(
+                                text = "${(externalUploadProgress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+            if (mode == AuthMode.SignIn) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    NeonTextButton(text = "Forgot password?", onClick = { /* TODO: hook */ })
+                    NeonTextButton(
+                        text = "Create account",
+                        onClick = { mode = AuthMode.SignUp }
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "I already have an account",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    PrimaryButton(
+                        text = "Sign in",
+                        modifier = Modifier
+                            .height(44.dp)
+                            .weight(0.4f),
+                        onClick = { mode = AuthMode.SignIn }
+                    )
+                }
+            }
+            AnimatedProgressBar(progress = if (mode == AuthMode.SignIn) 0.35f else 0.65f)
+            if (isLoading) {
+                LoadingSpinner(modifier = Modifier.size(32.dp))
+            }
+            errorText?.let { msg ->
+                Text(
+                    msg,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+            if (mode == AuthMode.SignIn) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Or continue",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    SocialRow(onSkip = onSkip)
+                }
+            }
+        }
+        if (showBirthdayDialog) {
+            AlertDialog(
+                onDismissRequest = { showBirthdayDialog = false },
+                icon = { Icon(Icons.Outlined.CalendarMonth, contentDescription = null) },
+                title = { Text("Select birthday") },
+                text = {
+                    var visible by remember { mutableStateOf(false) }
+                    val scale by animateFloatAsState(
+                        targetValue = if (visible) 1f else 0.94f,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                        label = "birthdayDialogScale"
+                    )
+                    LaunchedEffect(Unit) { visible = true }
+
+                    val weekDays = listOf("M", "T", "W", "T", "F", "S", "S")
+                    val totalDays = daysInMonth(birthdayMonthIndex, birthdayYear)
+                    val rows = ((totalDays + 6) / 7).coerceAtLeast(1)
+
+                    Column(
+                        modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            NeonTextButton(
+                                text = "<",
+                                onClick = {
+                                    birthdayMonthIndex = if (birthdayMonthIndex == 0) months.lastIndex else birthdayMonthIndex - 1
+                                    birthdayDay = birthdayDay.coerceAtMost(daysInMonth(birthdayMonthIndex, birthdayYear))
+                                }
+                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${months[birthdayMonthIndex]} $birthdayYear",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Tap a date, swipe months, adjust year",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            NeonTextButton(
+                                text = ">",
+                                onClick = {
+                                    birthdayMonthIndex = if (birthdayMonthIndex == months.lastIndex) 0 else birthdayMonthIndex + 1
+                                    birthdayDay = birthdayDay.coerceAtMost(daysInMonth(birthdayMonthIndex, birthdayYear))
+                                }
+                            )
+                        }
+
+                        // Weekday labels
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            weekDays.forEach { label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+
+                        // Calendar grid
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            var day = 1
+                            repeat(rows) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    repeat(7) {
+                                        if (day <= totalDays) {
+                                            val thisDay = day
+                                            val isSelected = birthdayDay == thisDay
+                                            val bgColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .aspectRatio(1f)
+                                                    .clip(goTickyShapes.small)
+                                                    .background(bgColor)
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSelected) GoTickyGradients.EdgeHalo else GoTickyGradients.CardGlow,
+                                                        goTickyShapes.small
+                                                    )
+                                                    .pressAnimated(scaleDown = 0.9f)
+                                                    .clickable { birthdayDay = thisDay },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = thisDay.toString(),
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                            day++
+                                        } else {
+                                            Spacer(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .aspectRatio(1f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Year adjustment
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Year", style = MaterialTheme.typography.labelLarge)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                NeonTextButton(
+                                    text = "<",
+                                    onClick = {
+                                        birthdayYear = (birthdayYear - 1).coerceAtLeast(minYear)
+                                        birthdayDay = birthdayDay.coerceAtMost(daysInMonth(birthdayMonthIndex, birthdayYear))
+                                    }
+                                )
+                                Text(
+                                    birthdayYear.toString(),
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                NeonTextButton(
+                                    text = ">",
+                                    onClick = {
+                                        birthdayYear = (birthdayYear + 1).coerceAtMost(maxYear)
+                                        birthdayDay = birthdayDay.coerceAtMost(daysInMonth(birthdayMonthIndex, birthdayYear))
+                                    }
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    PrimaryButton(text = "Apply") {
+                        val safeDay = birthdayDay.coerceAtMost(daysInMonth(birthdayMonthIndex, birthdayYear))
+                        birthdayDay = safeDay
+                        birthday = "${months[birthdayMonthIndex]} $safeDay, $birthdayYear"
+                        showBirthdayDialog = false
+                    }
+                },
+                dismissButton = {
+                    NeonTextButton(text = "Cancel", onClick = { showBirthdayDialog = false })
+                }
+            )
+        }
+        if (showCountryDialog) {
+            AlertDialog(
+                onDismissRequest = { showCountryDialog = false },
+                icon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+                title = { Text("Choose your country") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "We’ll localize experiences and dialing codes for SADC travelers.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            sadcCountries.forEach { country ->
+                                val interaction = remember { MutableInteractionSource() }
+                                val pressed by interaction.collectIsPressedAsState()
+                                val optionScale by animateFloatAsState(
+                                    targetValue = if (pressed) 0.95f else 1f,
+                                    animationSpec = tween(GoTickyMotion.Quick, easing = EaseOutBack),
+                                    label = "countryOption-${country.name}"
+                                )
+                                val isSelected = country.name == countryName
+                                Row(
+                                    modifier = Modifier
+                                        .graphicsLayer(scaleX = optionScale, scaleY = optionScale)
+                                        .clip(goTickyShapes.medium)
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                            goTickyShapes.medium
+                                        )
+                                        .clickable(
+                                            interactionSource = interaction,
+                                            indication = null
+                                        ) {
+                                            countryName = country.name
+                                            countryFlag = country.flag
+                                            if (!phoneCodeOverridden) {
+                                                phoneCode = country.phoneCode
+                                                phoneCodeFlag = country.flag
+                                            }
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        country.flag,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Column {
+                                        Text(
+                                            country.name,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            country.phoneCode,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    PrimaryButton(text = "Done") { showCountryDialog = false }
+                },
+                dismissButton = {
+                    NeonTextButton(text = "Cancel", onClick = { showCountryDialog = false })
+                }
+            )
+        }
+        if (showPhoneCodeDialog) {
+            AlertDialog(
+                onDismissRequest = { showPhoneCodeDialog = false },
+                icon = { Icon(Icons.Outlined.PhoneAndroid, contentDescription = null) },
+                title = { Text("Choose dialing code") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Pick the code that matches the number you’ll verify — handy if you’re abroad.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            phoneCodeOptions.forEach { country ->
+                                val interaction = remember { MutableInteractionSource() }
+                                val pressed by interaction.collectIsPressedAsState()
+                                val optionScale by animateFloatAsState(
+                                    targetValue = if (pressed) 0.95f else 1f,
+                                    animationSpec = tween(GoTickyMotion.Quick, easing = EaseOutBack),
+                                    label = "codeOption-${country.name}"
+                                )
+                                val isSelected = country.phoneCode == phoneCode
+                                Row(
+                                    modifier = Modifier
+                                        .graphicsLayer(scaleX = optionScale, scaleY = optionScale)
+                                        .clip(goTickyShapes.medium)
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                            goTickyShapes.medium
+                                        )
+                                        .clickable(
+                                            interactionSource = interaction,
+                                            indication = null
+                                        ) {
+                                            phoneCode = country.phoneCode
+                                            phoneCodeFlag = country.flag
+                                            phoneCodeOverridden = true
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(country.flag, style = MaterialTheme.typography.titleMedium)
+                                    Column {
+                                        Text(
+                                            country.name,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            country.phoneCode,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    PrimaryButton(text = "Done") { showPhoneCodeDialog = false }
+                },
+                dismissButton = {
+                    NeonTextButton(text = "Cancel", onClick = { showPhoneCodeDialog = false })
+                }
+            )
+        }
+        if (showGenderDialog) {
+            AlertDialog(
+                onDismissRequest = { showGenderDialog = false },
+                icon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+                title = { Text("Select gender") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Pick how you’d like to be shown. You can change this anytime.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            genderOptions.forEach { option ->
+                                val interaction = remember { MutableInteractionSource() }
+                                val pressed by interaction.collectIsPressedAsState()
+                                val optionScale by animateFloatAsState(
+                                    targetValue = if (pressed) 0.96f else 1f,
+                                    animationSpec = tween(GoTickyMotion.Quick, easing = EaseOutBack),
+                                    label = "genderOption-$option"
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .graphicsLayer(scaleX = optionScale, scaleY = optionScale)
+                                        .clip(goTickyShapes.medium)
+                                        .background(
+                                            if (gender == option) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (gender == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(
+                                                alpha = 0.5f
+                                            ),
+                                            goTickyShapes.medium
+                                        )
+                                        .clickable(
+                                            interactionSource = interaction,
+                                            indication = null
+                                        ) { gender = option }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = option == gender,
+                                        onClick = { gender = option }
+                                    )
+                                    Text(option, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    PrimaryButton(text = "Done") { showGenderDialog = false }
+                },
+                dismissButton = {
+                    NeonTextButton(text = "Cancel", onClick = { showGenderDialog = false })
+                }
+            )
+        }
+    }
+}
+
+private fun daysInMonth(monthIndex: Int, year: Int): Int {
+    return when (monthIndex) {
+        0, 2, 4, 6, 7, 9, 11 -> 31
+        3, 5, 8, 10 -> 30
+        1 -> if (isLeapYear(year)) 29 else 28
+        else -> 30
+    }
+}
+
+private fun isLeapYear(year: Int): Boolean {
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+private fun String.capitalizeWordsPreserveSpaces(): String {
+    if (isEmpty()) return this
+    val sb = StringBuilder(length)
+    var capitalizeNext = true
+    for (c in this) {
+        if (c.isLetter()) {
+            if (capitalizeNext) {
+                sb.append(c.titlecaseChar())
+                capitalizeNext = false
+            } else {
+                sb.append(c.lowercaseChar())
+            }
+        } else {
+            sb.append(c)
+            capitalizeNext = c.isWhitespace()
+        }
+    }
+    return sb.toString()
+}
+
+@Composable
+private fun AuthHeader(
+    mode: AuthMode,
+    onModeChange: (AuthMode) -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "authHeaderScale"
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .clip(RoundedCornerShape(20.dp))
+            .background(GoTickyGradients.Hero)
+            .clickable(interactionSource = interactionSource, indication = null) {
+                onModeChange(if (mode == AuthMode.SignIn) AuthMode.SignUp else AuthMode.SignIn)
+            }
+            .padding(18.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = if (mode == AuthMode.SignIn) "Welcome back" else "Create your GoTicky pass",
+                color = MaterialTheme.colorScheme.onPrimary,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = if (mode == AuthMode.SignIn)
+                    "Sign in to sync tickets, alerts, and favorites."
+                else
+                    "Join to unlock alerts, curated recs, and organizer perks.",
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun AuthField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    leading: @Composable (() -> Unit)? = null,
+    isPassword: Boolean = false,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        leadingIcon = leading,
+        modifier = modifier.fillMaxWidth(),
+        colors = TextFieldDefaults.colors(
+            focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+            unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ),
+        shape = goTickyShapes.medium,
+        singleLine = true,
+        keyboardOptions = keyboardOptions,
+        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+    )
+}
+
+@Composable
+private fun SocialRow(onSkip: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        // Center the pill buttons horizontally while keeping even spacing between them.
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SocialChip(
+            label = "Guest",
+            icon = Icons.Outlined.PlayArrow,
+            tint = IconCategoryColors[IconCategory.Discover] ?: MaterialTheme.colorScheme.primary,
+            onClick = onSkip
+        )
+        SocialChip(
+            label = "Biometric",
+            icon = Icons.Outlined.Fingerprint,
+            tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.secondary,
+            onClick = { /* TODO: hook biometrics */ }
+        )
+        SocialChip(
+            label = "Secure",
+            icon = Icons.Outlined.Shield,
+            tint = IconCategoryColors[IconCategory.Admin] ?: MaterialTheme.colorScheme.tertiary,
+            onClick = { /* TODO: add SSO */ }
+        )
+    }
+}
+
+@Composable
+private fun RememberMeRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "rememberMeScale"
+    )
+    val boxColor by animateColorAsState(
+        targetValue = if (checked) Color(0xFF1B5E20) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "rememberMeBoxColor"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (checked) Color(0xFF00E676) else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "rememberMeBorderColor"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(18.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(boxColor)
+                    .border(1.5.dp, borderColor, RoundedCornerShape(5.dp))
+            )
+            if (checked) {
+                Icon(
+                    imageVector = Icons.Outlined.Check,
+                    contentDescription = "Remember me checked",
+                    tint = Color(0xFF00E676),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 2.dp, y = (-3).dp)
+                        .size(18.dp)
+                )
+            }
+        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = "Remember me",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Keep me signed in on this device",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SocialChip(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.94f else 1f,
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "socialScale-$label"
+    )
+    Row(
+        modifier = Modifier
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .clip(RoundedCornerShape(16.dp))
+            .background(tint.copy(alpha = 0.12f))
+            .border(1.dp, tint.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = label, tint = tint)
+        Text(label, color = tint, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold))
+    }
+}
+
+@Composable
+private fun SplashHalo() {
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .blur(140.dp)
+    ) {
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.08f),
+                    Color.Transparent
+                ),
+                center = center,
+            ),
+            radius = size.minDimension / 2f
+        )
+    }
+}
+
+private enum class AuthMode { SignIn, SignUp }

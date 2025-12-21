@@ -14,10 +14,10 @@ plugins {
 kotlin {
     androidTarget {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
+            jvmTarget.set(JvmTarget.JVM_17)
         }
     }
-    
+
     listOf(
         iosArm64(),
         iosSimulatorArm64()
@@ -27,27 +27,34 @@ kotlin {
             isStatic = true
         }
     }
-    
+
     jvm()
-    
+
     js {
         browser()
         binaries.executable()
     }
-    
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmJs {
-        browser()
-        binaries.executable()
-    }
-    
+
     sourceSets {
+        val commonMain by getting
+        val androidMain by getting
+        val jvmMain by getting
+        val jsMain by getting
+
+        val webMain by creating {
+            dependsOn(commonMain)
+            jsMain.dependsOn(this)
+        }
+
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation("com.google.android.gms:play-services-maps:19.2.0")
             implementation("com.google.maps.android:maps-compose:6.12.2")
             implementation("com.google.zxing:core:3.5.4")
+            implementation("com.google.firebase:firebase-auth-ktx:23.0.0")
+            // Remote image loading for profile previews (Sign-In avatar)
+            implementation("io.coil-kt:coil-compose:2.5.0")
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -60,6 +67,8 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
+            implementation("dev.gitlive:firebase-auth:1.13.0")
+            implementation("dev.gitlive:firebase-firestore:1.13.0")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -74,6 +83,9 @@ kotlin {
         }
     }
 }
+
+// Align toolchains to Java 17 to match dependencies built for 17.
+kotlin.jvmToolchain(17)
 
 android {
     namespace = "org.example.project"
@@ -97,8 +109,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
