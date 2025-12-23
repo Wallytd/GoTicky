@@ -1,239 +1,37 @@
 {
-  "meta": {
-    "env": "local-prototype",
-    "source": "goticky-app",
-    "description": "Realtime DB mirror for public/admin role interface and sample data",
-    "version": 1,
-    "generatedAt": "2025-12-15T09:36:00Z"
-  },
-  "roles": {
-    "admin": {
-      "permissions": [
-        "app.view", "app.assign", "app.approve", "app.reject", "app.needs_info", "app.publish",
-        "organizer.verify", "organizer.freeze", "organizer.rekyc_request",
-        "role.manage", "flag.manage", "catalog.feature_slot", "catalog.publish_toggle",
-        "report.resolve", "report.warn", "audit.view", "audit.write"
-      ],
-      "description": "Full trust; can change roles and publish"
+  "adminProfiles": [
+    {
+      "id": "1",
+      "fullName": "Kate Mula",
+      "email": "kate@goticky.com",
+      "password": "kate2026",
+      "phoneNumber": "+263771234567",
+      "birthday": "1989-04-11",
+      "gender": "Female",
+      "country": "Zimbabwe",
+      "photoUri": "https://firebasestorage.googleapis.com/v0/b/goticky-47533.firebasestorage.app/o/Kate%20Mula.jpeg?alt=media&token=53a92d5d-a158-483e-9a2d-0ee6fb84b23c"
     },
-    "reviewer": {
-      "permissions": [
-        "app.view", "app.assign", "app.approve", "app.reject", "app.needs_info",
-        "report.resolve", "report.warn", "audit.write"
-      ],
-      "description": "Processes event applications and reports; cannot change roles"
+    {
+      "id": "2",
+      "fullName": "Rob Johnson",
+      "email": "rob@goticky.com",
+      "password": "rob2026",
+      "phoneNumber": "+263781234568",
+      "birthday": "1991-09-23",
+      "gender": "Male",
+      "country": "Zimbabwe",
+      "photoUri": "https://firebasestorage.googleapis.com/v0/b/goticky-47533.firebasestorage.app/o/Rob%20Johnson.jpeg?alt=media&token=5d16a2c8-526a-431b-81da-cfb8812caba2"
     },
-    "organizer": {
-      "permissions": [
-        "event.draft", "event.submit", "ticket.manage", "payout.view", "alerts.receive"
-      ],
-      "description": "Creates and manages own events"
-    },
-    "support": {
-      "permissions": [
-        "app.view", "report.view", "note.add", "escalate"
-      ],
-      "description": "Read + escalate"
-    },
-    "customer": {
-      "permissions": [
-        "catalog.view", "ticket.purchase", "alerts.receive"
-      ],
-      "description": "Standard end-user"
-    },
-    "suspended": {
-      "permissions": [],
-      "description": "No actions permitted"
+    {
+      "id": "3",
+      "fullName": "Walter Dru",
+      "email": "walter@goticky.com",
+      "password": "walter2026",
+      "phoneNumber": "+263731234569",
+      "birthday": "1993-02-07",
+      "gender": "Non-binary",
+      "country": "Zimbabwe",
+      "photoUri": "https://firebasestorage.googleapis.com/v0/b/goticky-47533.firebasestorage.app/o/Walter%20Dru.jpeg?alt=media&token=0b9d9abd-166c-4226-bfde-1545530aa16a"
     }
-  },
-  "users": {
-    "user-1": {"displayName": "Tari D.", "email": "tari@goticky.com", "role": "admin"},
-    "user-2": {"displayName": "Rudo M.", "email": "rudo@goticky.com", "role": "reviewer"},
-    "user-3": {"displayName": "Kuda P.", "email": "kuda@goticky.com", "role": "organizer"},
-    "user-4": {"displayName": "Amina S.", "email": "amina@goticky.com", "role": "support"}
-  },
-  "roleMatrix": {
-    "assignableRoles": ["admin", "reviewer", "organizer", "support", "customer", "suspended"],
-    "reasonRequired": true,
-    "auditOnChange": true
-  },
-  "featureFlags": {
-    "ff-alerts-beta": {"label": "Alerts beta", "enabled": true, "audience": "organizer+admin"},
-    "ff-social-share": {"label": "Social share", "enabled": true, "audience": "all"},
-    "ff-map-live": {"label": "Live map", "enabled": false, "audience": "all"},
-    "ff-seat-stub": {"label": "Seat map stub", "enabled": true, "audience": "all"}
-  },
-  "heroSlides": {
-    "hero1": {
-      "title": "Vic Falls Midnight Lights",
-      "subtitle": "NYE mega festival under the spray • DJs + fireworks on the gorge deck.",
-      "cta": "Book premium",
-      "tag": "Event of the Year",
-      "accent": "#5CF0FF",
-      "location": "Victoria Falls, ZW",
-      "imageHint": "Victoria Falls bridge at night with fireworks and crowd silhouettes"
-    },
-    "hero2": {
-      "title": "Harare Jazz Nights",
-      "subtitle": "Golden Circle early birds: 20% off until Friday • Smooth & soul live.",
-      "cta": "Unlock early bird",
-      "tag": "Early Bird",
-      "accent": "#F5C94C",
-      "location": "Harare, ZW",
-      "imageHint": "Harare skyline dusk with intimate jazz stage lighting"
-    },
-    "hero3": {
-      "title": "Bulawayo Food & Arts Market",
-      "subtitle": "Night market • street eats, live mural painting, vinyl DJ courtyard.",
-      "cta": "Explore lineup",
-      "tag": "Culture",
-      "accent": "#9C7BFF",
-      "location": "Bulawayo, ZW",
-      "imageHint": "Bulawayo street market with food stalls and neon art"
-    }
-  },
-  "eventApplications": {
-    "app-1": {
-      "title": "Midnight Neon Fest",
-      "organizer": "Neon Live",
-      "city": "Harare",
-      "category": "EDM",
-      "status": "New",
-      "risk": "Low",
-      "ageHours": 4,
-      "completeness": 82,
-      "attachmentsReady": true,
-      "notes": "All docs present",
-      "eventDateTime": "Dec 22, 2025 • 20:00",
-      "pricingTiers": ["Early bird $25", "GA $40", "VIP $90"],
-      "assignedReviewerId": null,
-      "checklist": {"identityVerified": true, "venueProof": true, "pricingFair": true, "contentQuality": true},
-      "attachments": ["id_front.png", "insurance.pdf"],
-      "comments": []
-    },
-    "app-2": {
-      "title": "Bulawayo Street Fest",
-      "organizer": "City Beats",
-      "city": "Bulawayo",
-      "category": "Festival",
-      "status": "In Review",
-      "risk": "High",
-      "ageHours": 14,
-      "completeness": 54,
-      "attachmentsReady": false,
-      "notes": "Missing permit upload",
-      "eventDateTime": "Jan 10, 2026 • 14:00",
-      "pricingTiers": ["Free entry", "Food court tokens $10"],
-      "assignedReviewerId": "user-2",
-      "checklist": {"identityVerified": true, "venueProof": false, "pricingFair": true, "contentQuality": true},
-      "attachments": ["id_front.png"],
-      "comments": ["Please upload municipal permit"]
-    },
-    "app-3": {
-      "title": "Family Lights Parade",
-      "organizer": "Sunrise Events",
-      "city": "Victoria Falls",
-      "category": "Family",
-      "status": "Needs Info",
-      "risk": "Medium",
-      "ageHours": 28,
-      "completeness": 70,
-      "attachmentsReady": true,
-      "notes": "Clarify road closure",
-      "eventDateTime": "Dec 29, 2025 • 18:30",
-      "pricingTiers": ["Adult $15", "Child $8", "Family pack $40"],
-      "assignedReviewerId": "user-4",
-      "checklist": {"identityVerified": true, "venueProof": true, "pricingFair": true, "contentQuality": false},
-      "attachments": ["permit.pdf"],
-      "comments": ["Need council approval letter"]
-    },
-    "app-4": {
-      "title": "Savanna Sky Sessions",
-      "organizer": "VibeCo",
-      "city": "Maun",
-      "category": "Live band",
-      "status": "New",
-      "risk": "Medium",
-      "ageHours": 6,
-      "completeness": 66,
-      "attachmentsReady": true,
-      "notes": "Check pricing rationale",
-      "eventDateTime": "Jan 4, 2026 • 19:00",
-      "pricingTiers": ["GA $35", "VIP deck $75"],
-      "assignedReviewerId": null,
-      "checklist": {"identityVerified": true, "venueProof": true, "pricingFair": false, "contentQuality": true},
-      "attachments": ["id_front.png", "insurance.pdf"],
-      "comments": []
-    }
-  },
-  "organizers": {
-    "org-1": {"name": "Neon Live", "kycStatus": "Verified", "trustScore": 86, "strikes": 0, "frozen": false, "notes": "Strong past performance; timely payouts."},
-    "org-2": {"name": "City Beats", "kycStatus": "Pending", "trustScore": 62, "strikes": 1, "frozen": false, "notes": "Missing permit for Bulawayo Street Fest."},
-    "org-3": {"name": "VibeCo", "kycStatus": "Pending", "trustScore": 55, "strikes": 2, "frozen": false, "notes": "Needs KYC refresh; pricing mismatch flagged."},
-    "org-4": {"name": "Sunrise Events", "kycStatus": "Verified", "trustScore": 78, "strikes": 0, "frozen": false, "notes": "Family-friendly focus; clean history."}
-  },
-  "reports": {
-    "rep-1": {"target": "Courtside Classics", "reason": "Image inappropriate", "severity": "High", "ageHours": 3, "state": "Open"},
-    "rep-2": {"target": "Laugh Lab Live", "reason": "Misleading price", "severity": "Medium", "ageHours": 9, "state": "Open"},
-    "rep-3": {"target": "Family Lights Parade", "reason": "Copy plagiarism", "severity": "Low", "ageHours": 22, "state": "Open"}
-  },
-  "activityLog": [
-    {"text": "Tari approved \"Midnight Neon Fest\"", "time": "2m ago", "accent": "#5CF0FF"},
-    {"text": "Rudo requested info on \"Family Lights Parade\"", "time": "18m ago", "accent": "#FFC94A"},
-    {"text": "Kuda verified organizer \"Courtside Group\"", "time": "45m ago", "accent": "#8DF5A7"}
-  ],
-  "applicationsFilters": {
-    "states": ["New", "In Review", "Needs Info", "Approved", "Rejected", "Scheduled", "Published"],
-    "categories": ["EDM", "Festival", "Family", "Live band"],
-    "cities": ["Harare", "Bulawayo", "Victoria Falls", "Maun"],
-    "risks": ["Low", "Medium", "High"]
-  },
-  "tickets": {
-    "passes": {
-      "T1": {"eventTitle": "Midnight Neon Fest", "venue": "HICC", "dateLabel": "Tonight • 9:00 PM", "seat": "Section A • Row 2 • Seat 4", "status": "Ready", "type": "EarlyBird", "holderName": "Alex Moyo", "holderInitials": "AM", "qrSeed": "T1-MNF-AM"},
-      "T2": {"eventTitle": "Courtside Classics", "venue": "Barbourfields Stadium", "dateLabel": "Sat • 7:30 PM", "seat": "Courtside • Seat 12", "status": "Ready", "type": "General", "holderName": "Nadia Chirwa", "holderInitials": "NC", "qrSeed": "T2-CC-NC"},
-      "T3": {"eventTitle": "Savanna Sky Sessions", "venue": "Maun Riverside Stage", "dateLabel": "Next Sat • 8:30 PM", "seat": "Sky Deck • Row 1 • Seat 3", "status": "Ready", "type": "VIP", "holderName": "Tendai Dube", "holderInitials": "TD", "qrSeed": "T3-SSS-TD"},
-      "T4": {"eventTitle": "Francistown Street Vibes", "venue": "Francistown Civic Centre", "dateLabel": "Fri • 7:00 PM", "seat": "General Access", "status": "Ready", "type": "GoldenCircle", "holderName": "Chenai Mbewe", "holderInitials": "CM", "qrSeed": "T4-FSV-CM"}
-    },
-    "orderSample": {
-      "id": "ORD-2048",
-      "items": [
-        {"label": "Midnight Neon Fest • GA", "price": "$68", "qty": 2},
-        {"label": "VIP Lounge Add-on", "price": "$30", "qty": 1}
-      ],
-      "fees": [
-        {"label": "Service fee", "price": "$12"},
-        {"label": "Venue fee", "price": "$6"}
-      ],
-      "total": "$184"
-    }
-  },
-  "catalog": {
-    "events": {
-      "1": {"title": "Midnight Neon Fest", "city": "Harare", "dateLabel": "Tonight • 9:00 PM", "priceFrom": "From $68", "category": "Discover", "badge": "Hot", "tag": "EDM", "month": "January", "imagePath": "midnight_neon_fest"},
-      "2": {"title": "Courtside Classics", "city": "Bulawayo", "dateLabel": "Sat • 7:30 PM", "priceFrom": "From $120", "category": "Calendar", "badge": "Limited", "tag": "Basketball", "month": "January", "imagePath": "courtside_classics"},
-      "3": {"title": "Laugh Lab Live", "city": "Gaborone", "dateLabel": "Fri • 8:00 PM", "priceFrom": "From $42", "category": "Alerts", "badge": "Trending", "tag": "Comedy", "month": "February", "imagePath": "laugh_lab_live"},
-      "4": {"title": "Family Lights Parade", "city": "Victoria Falls", "dateLabel": "Sun • 6:00 PM", "priceFrom": "From $30", "category": "Profile", "badge": "Family", "tag": "Outdoors", "month": "March", "imagePath": "family_lights_parade"},
-      "5": {"title": "Savanna Sky Sessions", "city": "Maun", "dateLabel": "Next Sat • 8:30 PM", "priceFrom": "From $55", "category": "Discover", "badge": "New", "tag": "Live band", "month": "April", "imagePath": "savanna_sky_sessions"},
-      "6": {"title": "Francistown Street Vibes", "city": "Francistown", "dateLabel": "Fri • 7:00 PM", "priceFrom": "From $25", "category": "Calendar", "badge": "Local", "tag": "Festival", "month": "April", "imagePath": "francistown_street_vibes"}
-    },
-    "nearby": {
-      "distances": [
-        {"eventId": "1", "fromLabel": "Harare CBD (sample)", "distanceKm": 1.2},
-        {"eventId": "2", "fromLabel": "Harare CBD (sample)", "distanceKm": 3.8},
-        {"eventId": "3", "fromLabel": "Harare CBD (sample)", "distanceKm": 7.5},
-        {"eventId": "4", "fromLabel": "Harare CBD (sample)", "distanceKm": 12.0},
-        {"eventId": "5", "fromLabel": "Maun Centre (sample)", "distanceKm": 2.5},
-        {"eventId": "6", "fromLabel": "Francistown Centre (sample)", "distanceKm": 4.1}
-      ],
-      "featuredSlots": ["hero1", "hero2"]
-    }
-  },
-  "analyticsEvents": ["admin_view", "app_open", "app_approve", "app_reject", "needs_info", "organizer_verify", "role_change", "publish_toggle"],
-  "policies": {
-    "auditRequired": true,
-    "roleGate": true,
-    "idempotentStatusUpdates": true,
-    "fileScanHook": false
-  }
+  ]
 }

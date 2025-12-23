@@ -25,6 +25,8 @@ interface AuthRepository {
     suspend fun fetchProfile(): UserProfile?
     suspend fun updateProfile(profile: UserProfile): AuthResult
     suspend fun findProfileByEmail(email: String): UserProfile?
+    suspend fun updateFavorites(favorites: List<String>): AuthResult
+    suspend fun fetchFavorites(): List<String>
 }
 
 class FirebaseAuthRepository(
@@ -90,7 +92,8 @@ class FirebaseAuthRepository(
                         "birthday" to profile.birthday,
                         "gender" to profile.gender,
                         "photoResKey" to profile.photoResKey,
-                        "photoUri" to profile.photoUri
+                        "photoUri" to profile.photoUri,
+                        "favorites" to profile.favorites
                     )
                 )
 
@@ -158,6 +161,8 @@ class FirebaseAuthRepository(
                 gender = doc.get<String?>("gender") ?: "",
                 photoResKey = doc.get<String?>("photoResKey"),
                 photoUri = doc.get<String?>("photoUri"),
+                favorites = doc.get<List<String>?>("favorites") ?: emptyList(),
+                role = doc.get<String?>("role") ?: "customer",
             )
 
             // Ensure the public, minimal index is created/updated for pre-auth avatar lookup.
@@ -203,6 +208,7 @@ class FirebaseAuthRepository(
                     "gender" to profile.gender,
                     "photoResKey" to profile.photoResKey,
                     "photoUri" to profile.photoUri,
+                    "favorites" to profile.favorites,
                 ),
                 merge = true
             )
@@ -240,6 +246,31 @@ class FirebaseAuthRepository(
             AuthResult.Success
         } catch (t: Throwable) {
             AuthResult.Error(readableMessage(t))
+        }
+    }
+
+    override suspend fun updateFavorites(favorites: List<String>): AuthResult {
+        val uid = auth.currentUser?.uid ?: return AuthResult.Error("Not signed in")
+        return try {
+            Firebase.firestore.collection("users").document(uid).set(
+                mapOf(
+                    "favorites" to favorites.distinct().take(500),
+                ),
+                merge = true
+            )
+            AuthResult.Success
+        } catch (t: Throwable) {
+            AuthResult.Error(readableMessage(t))
+        }
+    }
+
+    override suspend fun fetchFavorites(): List<String> {
+        val uid = auth.currentUser?.uid ?: return emptyList()
+        return try {
+            val doc = Firebase.firestore.collection("users").document(uid).get()
+            doc.get<List<String>?>("favorites") ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
         }
     }
 

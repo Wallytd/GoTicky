@@ -120,6 +120,8 @@ import org.example.project.ui.theme.IconCategoryColors
 import org.example.project.ui.theme.goTickyShapes
 import goticky.composeapp.generated.resources.Res
 import goticky.composeapp.generated.resources.allDrawableResources
+import org.example.project.ui.components.GlowCard
+import org.example.project.ui.components.Pill
 import org.jetbrains.compose.resources.painterResource
 import kotlin.random.Random
 
@@ -363,6 +365,8 @@ fun AuthScreen(
     onSignIn: suspend (email: String, password: String, rememberMe: Boolean) -> AuthResult,
     onSignUp: suspend (profile: UserProfile, password: String) -> AuthResult,
     onSkip: () -> Unit,
+    onBiometricSignIn: suspend () -> AuthResult,
+    onAdminSignIn: () -> Unit,
     findProfileByEmail: suspend (email: String) -> UserProfile?,
     externalUploadInProgress: Boolean = false,
     externalUploadProgress: Float = 0f,
@@ -1226,7 +1230,19 @@ fun AuthScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall
                     )
-                    SocialRow(onSkip = onSkip)
+                    SocialRow(
+                        onSkip = onSkip,
+                        onBiometric = {
+                            scope.launch {
+                                val result = onBiometricSignIn()
+                                when (result) {
+                                    is AuthResult.Success -> snackbarHostState.showSnackbar("Signed in with biometrics")
+                                    is AuthResult.Error -> snackbarHostState.showSnackbar(result.message, actionLabel = "error")
+                                }
+                            }
+                        },
+                        onAdminSignIn = onAdminSignIn
+                    )
                 }
             }
         }
@@ -1729,7 +1745,11 @@ private fun AuthField(
 }
 
 @Composable
-private fun SocialRow(onSkip: () -> Unit) {
+private fun SocialRow(
+    onSkip: () -> Unit,
+    onBiometric: () -> Unit,
+    onAdminSignIn: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         // Center the pill buttons horizontally while keeping even spacing between them.
@@ -1746,14 +1766,297 @@ private fun SocialRow(onSkip: () -> Unit) {
             label = "Biometric",
             icon = Icons.Outlined.Fingerprint,
             tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.secondary,
-            onClick = { /* TODO: hook biometrics */ }
+            onClick = onBiometric
         )
         SocialChip(
             label = "Secure",
             icon = Icons.Outlined.Shield,
             tint = IconCategoryColors[IconCategory.Admin] ?: MaterialTheme.colorScheme.tertiary,
-            onClick = { /* TODO: add SSO */ }
+            onClick = onAdminSignIn
         )
+    }
+}
+
+@Composable
+fun AdminSignInScreen(
+    modifier: Modifier = Modifier,
+    flagEnabled: Boolean,
+    onBack: () -> Unit,
+    onSubmit: suspend (email: String, passcode: String) -> AuthResult,
+) {
+    val adminTint = IconCategoryColors[IconCategory.Admin] ?: MaterialTheme.colorScheme.tertiary
+    val neonTextColor = Color(0xFF7EF9FF)
+
+    var email by rememberSaveable { mutableStateOf("") }
+    var passcode by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    val backInteraction = remember { MutableInteractionSource() }
+    val backPressed by backInteraction.collectIsPressedAsState()
+    val backScale by animateFloatAsState(
+        targetValue = if (backPressed) 0.8f else 1f,
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "adminBackScale"
+    )
+    val backRotation by animateFloatAsState(
+        targetValue = if (backPressed) -45f else 0f,
+        animationSpec = tween(GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "adminBackRotate"
+    )
+    val haloPulse by rememberInfiniteTransition(label = "adminHalo").animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = EaseOutBack),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "adminHaloScale"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.85f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .padding(horizontal = 18.dp, vertical = 24.dp)
+    ) {
+        Canvas(
+            modifier = Modifier
+                .matchParentSize()
+                .blur(140.dp)
+        ) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        adminTint.copy(alpha = 0.18f),
+                        Color.Transparent
+                    )
+                ),
+                radius = size.minDimension * 0.35f,
+                center = center
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(top = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .graphicsLayer(
+                            scaleX = backScale,
+                            scaleY = backScale,
+                            rotationZ = backRotation
+                        )
+                        .pressAnimated(),
+                    interactionSource = backInteraction
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Shield,
+                        contentDescription = "Back",
+                        tint = adminTint
+                    )
+                }
+                Pill(
+                    text = if (flagEnabled) "Admin secure" else "Flag off",
+                    color = adminTint.copy(alpha = 0.2f),
+                    textColor = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            GlowCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(scaleX = haloPulse, scaleY = haloPulse)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    adminTint.copy(
+                                        alpha = 0.16f
+                                    )
+                                )
+                                .border(
+                                    1.dp,
+                                    adminTint.copy(alpha = 0.4f),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Shield,
+                                contentDescription = "Admin shield",
+                                tint = adminTint,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Admin control room",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                if (flagEnabled)
+                                    "Use a secure admin identity to enter dashboards, flags, and moderation."
+                                else
+                                    "Feature flag is off. Sign-in is allowed, but access will be gated.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("Admin email") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.AlternateEmail,
+                                contentDescription = null,
+                                tint = Color(0xFF1E88E5) // blue
+                            )
+                        },
+                        trailingIcon = {
+                            if (email.isNotBlank()) {
+                                IconButton(onClick = { email = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Clear,
+                                        contentDescription = "Clear email",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pressAnimated(),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            focusedTextColor = neonTextColor,
+                            unfocusedTextColor = neonTextColor,
+                            cursorColor = neonTextColor
+                        ),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = passcode,
+                        onValueChange = { passcode = it },
+                        label = { Text("Admin passcode") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Key,
+                                contentDescription = null,
+                                tint = Color(0xFF43A047) // green
+                            )
+                        },
+                        trailingIcon = {
+                            val icon = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = if (passwordVisible) "Hide passcode" else "Show passcode",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pressAnimated(),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            focusedTextColor = neonTextColor,
+                            unfocusedTextColor = neonTextColor,
+                            cursorColor = neonTextColor
+                        ),
+                        singleLine = true
+                    )
+
+                    AnimatedProgressBar(
+                        progress = if (isLoading) 0.35f else 0.1f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    PrimaryButton(
+                        text = "Enter admin",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            if (isLoading) return@PrimaryButton
+                            error = null
+                            isLoading = true
+                            scope.launch {
+                                val trimmedEmail = email.trim()
+                                val trimmedPass = passcode.trim()
+                                if (trimmedEmail.isBlank() || trimmedPass.isBlank()) {
+                                    error = "Email and passcode are required."
+                                    isLoading = false
+                                    return@launch
+                                }
+                                val result = onSubmit(trimmedEmail, trimmedPass)
+                                if (result is AuthResult.Error) {
+                                    error = result.message
+                                }
+                                isLoading = false
+                            }
+                        }
+                    )
+                    NeonTextButton(
+                        text = "Back to public sign-in",
+                        onClick = onBack
+                    )
+                    if (isLoading) {
+                        LoadingSpinner(modifier = Modifier.size(32.dp))
+                    }
+                    error?.let { msg ->
+                        Text(
+                            msg,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

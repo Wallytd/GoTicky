@@ -2,40 +2,65 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Canonical per-user document keyed by Firebase UID.
-    // Each authenticated user can read/write only their own user document.
-    match /users/{userId} {
-      // Read: path segment must match the authenticated UID.
-      allow read: if request.auth != null && request.auth.uid == userId;
+    function isSignedIn() {
+      return request.auth != null;
+    }
 
-      // Write (create/update): enforce that the stored uid field also matches.
-      allow write: if
-        request.auth != null &&
-        request.auth.uid == userId &&
-        request.resource.data.uid == request.auth.uid;
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Only allow favorites to be a reasonable list length (client-side typed in app code).
+    function validFavorites(data) {
+      return !('favorites' in data) ||
+        (data.favorites is list &&
+          data.favorites.size() <= 500);
+    }
+
+    // Allow only known roles.
+    function roleAllowed(data) {
+      return !('role' in data) || data.role in ["customer", "admin"];
+    }
+
+    function immutableUid(userId, data) {
+      return !('uid' in data) || data.uid == userId;
+    }
+
+    // Canonical per-user document keyed by Firebase UID or seeded key.
+    // Write is allowed for the owner OR for signed-in seeders writing role=admin (for initial admin import).
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if (
+          (isOwner(userId)) ||
+          (isSignedIn() && request.resource.data.role == "admin")
+        ) &&
+        immutableUid(userId, request.resource.data) &&
+        validFavorites(request.resource.data) &&
+        roleAllowed(request.resource.data);
 
       // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
       match /app_settings/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, write: if isOwner(userId);
       }
+    }
+
+    // Admin profiles collection used for admin control room.
+    match /adminProfiles/{adminName} {
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     // Human-friendly user directory index for console/admin inspection.
     // Structure: /userDirectory/{role}/{nameKey}/{uid}
-    // Allow each authenticated user to create/update only their own index entry.
-    // Client reads are disabled; this is primarily for the console/backoffice.
     match /userDirectory/{role}/{nameKey}/{uid} {
-      allow write: if request.auth != null && request.auth.uid == uid;
+      allow write: if isSignedIn();
       allow read: if false;
     }
 
-    // Everything else is denied by default.
     // Public, minimal profile index keyed by lowercased email for pre-auth avatar lookup.
     match /publicProfiles/{emailLower} {
-      // Allow read for everyone, but only expose minimal non-sensitive fields in the client code.
       allow read: if true;
-      // Writes allowed for an authenticated user, scoped to their own lowercase email key.
-      allow write: if request.auth != null &&
+      allow write: if isSignedIn() &&
         request.resource.data.emailLower == emailLower;
     }
 

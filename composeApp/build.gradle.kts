@@ -53,6 +53,8 @@ kotlin {
             implementation("com.google.maps.android:maps-compose:6.12.2")
             implementation("com.google.zxing:core:3.5.4")
             implementation("com.google.firebase:firebase-auth-ktx:23.0.0")
+            implementation("com.google.firebase:firebase-appcheck-playintegrity:18.0.0")
+            implementation("androidx.biometric:biometric:1.1.0")
             // CardView for IntroActivity neumorphic logo container
             implementation("androidx.cardview:cardview:1.0.0")
             // Remote image loading for profile previews (Sign-In avatar)
