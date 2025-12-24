@@ -326,6 +326,86 @@ private fun NeonGuestProgressBar(
     }
 }
 
+@Composable
+private fun SignInWarmupOverlay(progress: Float) {
+    val clamped = progress.coerceIn(0f, 1f)
+    val percent = (clamped * 100).roundToInt()
+    var visible by remember { mutableStateOf(false) }
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 420, easing = EaseOutBack),
+        label = "signInWarmupAlpha",
+    )
+
+    LaunchedEffect(Unit) { visible = true }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.55f))
+            .graphicsLayer(alpha = alpha)
+            .zIndex(20f),
+        contentAlignment = Alignment.Center,
+    ) {
+        GlowCard(
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    val badgeTint = IconCategoryColors[IconCategory.Ticket]
+                        ?: MaterialTheme.colorScheme.primary
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(badgeTint.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ReceiptLong,
+                            contentDescription = null,
+                            tint = badgeTint,
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "Loading your tickets",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Syncing your wallet, favorites & alerts…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                NeonGuestProgressBar(
+                    progress = clamped,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    text = "$percent%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
 private fun currentGreeting(): String {
     val hour = currentHourOfDay()
     return when (hour) {
@@ -1283,6 +1363,8 @@ private fun GoTickyRoot() {
     var showAdminSignIn by rememberSaveable { mutableStateOf(false) }
     var isGuestIntroActive by rememberSaveable { mutableStateOf(false) }
     var guestIntroProgress by remember { mutableStateOf(0f) }
+    var isSignInWarmupActive by rememberSaveable { mutableStateOf(false) }
+    var signInWarmupProgress by remember { mutableStateOf(0f) }
     val authRepo = remember { FirebaseAuthRepository() }
     val profileImageStorage = rememberProfileImageStorage()
     val biometricLauncher = rememberBiometricLauncher()
@@ -1806,6 +1888,8 @@ private fun GoTickyRoot() {
         if (!isAuthenticated) {
             isGuestIntroActive = false
             guestIntroProgress = 0f
+            isSignInWarmupActive = false
+            signInWarmupProgress = 0f
             isGuestMode = false
         }
     }
@@ -1824,6 +1908,23 @@ private fun GoTickyRoot() {
             isGuestIntroActive = false
         } else {
             guestIntroProgress = 0f
+        }
+    }
+
+    LaunchedEffect(isSignInWarmupActive) {
+        if (isSignInWarmupActive) {
+            signInWarmupProgress = 0f
+            animate(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 6_000, easing = LinearEasing)
+            ) { value, _ ->
+                signInWarmupProgress = value
+            }
+            signInWarmupProgress = 1f
+            isSignInWarmupActive = false
+        } else {
+            signInWarmupProgress = 0f
         }
     }
 
@@ -1915,6 +2016,7 @@ private fun GoTickyRoot() {
                                     isAuthenticated = true
                                     isGuestMode = false
                                     currentScreen = MainScreen.Home
+                                    isSignInWarmupActive = true
                                 }
                                 result
                             },
@@ -1944,6 +2046,7 @@ private fun GoTickyRoot() {
                                             isAuthenticated = true
                                             isGuestMode = false
                                             currentScreen = MainScreen.Home
+                                            isSignInWarmupActive = true
                                             AuthResult.Success
                                         } else {
                                             AuthResult.Error("No saved session found. Please sign in once to enable biometric unlock.")
@@ -2041,7 +2144,7 @@ private fun GoTickyRoot() {
                     }
                 }
             } else {
-                val introActive = isGuestMode && isGuestIntroActive
+                val introActive = (isGuestMode && isGuestIntroActive) || isSignInWarmupActive
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     Scaffold(
@@ -2601,8 +2704,11 @@ private fun GoTickyRoot() {
                         }
                     }
 
-                    if (introActive) {
+                    if (isGuestMode && isGuestIntroActive) {
                         GuestIntroOverlay(progress = guestIntroProgress)
+                    }
+                    if (!isGuestMode && isSignInWarmupActive) {
+                        SignInWarmupOverlay(progress = signInWarmupProgress)
                     }
                 }
             }
