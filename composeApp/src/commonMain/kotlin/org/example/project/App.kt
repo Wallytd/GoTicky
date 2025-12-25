@@ -244,6 +244,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.SpanStyle
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
@@ -1495,6 +1496,7 @@ private fun GoTickyRoot() {
                 isAuthenticated = true
                 isGuestMode = false
                 currentScreen = MainScreen.Home
+                isSignInWarmupActive = true
             } else {
                 syncFavoritesFromBackend()
             }
@@ -1911,8 +1913,8 @@ private fun GoTickyRoot() {
         }
     }
 
-    LaunchedEffect(isSignInWarmupActive) {
-        if (isSignInWarmupActive) {
+    LaunchedEffect(isSignInWarmupActive, showIntro) {
+        if (isSignInWarmupActive && !showIntro) {
             signInWarmupProgress = 0f
             animate(
                 initialValue = 0f,
@@ -1923,7 +1925,7 @@ private fun GoTickyRoot() {
             }
             signInWarmupProgress = 1f
             isSignInWarmupActive = false
-        } else {
+        } else if (!isSignInWarmupActive) {
             signInWarmupProgress = 0f
         }
     }
@@ -12073,151 +12075,192 @@ private fun BottomBar(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
+            .height(144.dp)
+            .graphicsLayer(clip = false)
     ) {
         val slotWidth = maxWidth / navItems.size
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer(alpha = chromeAlpha),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
-            navItems.forEach { item ->
-                val selected = item.screen == current
-                val highlight = IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.primary
-                val interactionSource = remember { MutableInteractionSource() }
-                val pressed by interactionSource.collectIsPressedAsState()
-                val selectedScale by animateFloatAsState(
-                    targetValue = if (selected) 1.3f else 0.85f,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
-                    label = "navSelectedScale-${item.label}"
-                )
-                val pressScale by animateFloatAsState(
-                    targetValue = if (pressed) 0.94f else 1f,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Quick, easing = EaseOutBack),
-                    label = "navPressScale-${item.label}"
-                )
-                val selectedOffsetY by animateDpAsState(
-                    targetValue = if (selected) (-8).dp else 0.dp,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
-                    label = "navSelectedOffset-${item.label}"
-                )
-                val labelAlpha by animateFloatAsState(
-                    targetValue = if (selected) 1f else 0.88f,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navLabel-${item.label}"
-                )
-                val borderAlpha by animateFloatAsState(
-                    targetValue = if (selected) 0.9f else 0.45f,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navChipBorder-${item.label}"
-                )
-                val borderWidth by animateDpAsState(
-                    targetValue = if (selected) 1.dp else 0.5.dp,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navChipBorderWidth-${item.label}"
-                )
-                val chipTopColor by animateColorAsState(
-                    targetValue = if (selected) highlight else MaterialTheme.colorScheme.surfaceVariant,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navChipTop-${item.label}"
-                )
-                val chipBottomColor by animateColorAsState(
-                    targetValue = if (selected) highlight else MaterialTheme.colorScheme.surface,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navChipBottom-${item.label}"
-                )
-                val iconTint by animateColorAsState(
-                    targetValue = if (selected) MaterialTheme.colorScheme.onPrimary else highlight,
-                    animationSpec = tween(durationMillis = GoTickyMotion.Standard),
-                    label = "navIconTint-${item.label}"
-                )
+            // Dark misty panel behind icons to obstruct content slightly.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(132.dp)
+                    .graphicsLayer(alpha = chromeAlpha, clip = false)
+                    .padding(horizontal = 10.dp)
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .blur(34.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(alpha = chromeAlpha, clip = false)
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                navItems.forEach { item ->
+                    val selected = item.screen == current
+                    val highlight = if (item.category == IconCategory.Ticket) {
+                        Color.White
+                    } else {
+                        IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.primary
+                    }
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val pressed by interactionSource.collectIsPressedAsState()
+                    val selectedScale by animateFloatAsState(
+                        targetValue = if (selected) 1.3f else 0.85f,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                        label = "navSelectedScale-${item.label}"
+                    )
+                    val pressScale by animateFloatAsState(
+                        targetValue = if (pressed) 0.94f else 1f,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Quick, easing = EaseOutBack),
+                        label = "navPressScale-${item.label}"
+                    )
+                    val selectedOffsetY by animateDpAsState(
+                        targetValue = 0.dp,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                        label = "navSelectedOffset-${item.label}"
+                    )
+                    val labelAlpha by animateFloatAsState(
+                        targetValue = if (selected) 1f else 0.88f,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "navLabel-${item.label}"
+                    )
+                    val borderAlpha by animateFloatAsState(
+                        targetValue = if (selected) 0.9f else 0.45f,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "navChipBorder-${item.label}"
+                    )
+                    val borderWidth by animateDpAsState(
+                        targetValue = if (selected) 1.dp else 0.5.dp,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "navChipBorderWidth-${item.label}"
+                    )
+                    val chipTopColor by animateColorAsState(
+                        targetValue = if (selected) highlight else Color.Black.copy(alpha = 1f),
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "navChipTop-${item.label}"
+                    )
+                    val chipBottomColor by animateColorAsState(
+                        targetValue = if (selected) highlight else Color.Black.copy(alpha = 0.9f),
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "navChipBottom-${item.label}"
+                    )
+                    val iconTint by animateColorAsState(
+                        targetValue = if (selected) {
+                            Color.Black
+                        } else {
+                            when {
+                                item.category == IconCategory.Ticket -> Color.White
+                                else -> highlight
+                            }
+                        },
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "navIconTint-${item.label}"
+                    )
 
-                Box(
-                    modifier = Modifier.width(slotWidth),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val mistStrength = if (selected) 0.9f else 0.55f
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .drawBehind {
-                                val radius = size.minDimension
-                                val haloBrush = Brush.radialGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = mistStrength),
-                                        Color.Transparent
-                                    ),
-                                    center = center,
-                                    radius = radius
-                                )
-                                drawCircle(
-                                    brush = haloBrush,
-                                    radius = radius
-                                )
-                            }
-                    )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .offset(y = selectedOffsetY)
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null
-                            ) { onSelected(item.screen) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .width(slotWidth)
+                            .heightIn(min = 86.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        val chipBrush = Brush.linearGradient(
-                            colors = listOf(
-                                chipTopColor,
-                                chipBottomColor
-                            )
-                        )
-                        val labelNeonColor = highlight.copy(alpha = if (selected) 1f else 0.8f)
-                        val labelGlowColor = highlight.copy(alpha = if (selected) 0.95f else 0.7f)
-                        val labelStyle = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            shadow = Shadow(
-                                color = labelGlowColor,
-                                offset = Offset(0f, 2f),
-                                blurRadius = 10f
-                            )
-                        )
-                        Box(
+                        val itemSpacing = if (selected) 14.dp else 8.dp
+                        Column(
                             modifier = Modifier
-                                .size(46.dp)
-                                .graphicsLayer(
-                                    scaleX = selectedScale * pressScale,
-                                    scaleY = selectedScale * pressScale
-                                )
-                                .shadow(
-                                    elevation = if (selected) 18.dp else 8.dp,
-                                    shape = CircleShape,
-                                    ambientColor = highlight.copy(alpha = 0.4f),
-                                    spotColor = highlight.copy(alpha = 0.9f)
-                                )
-                                .clip(CircleShape)
-                                .background(chipBrush)
-                                .border(
-                                    width = borderWidth,
-                                    color = highlight.copy(alpha = borderAlpha),
-                                    shape = CircleShape
-                                )
-                                .padding(10.dp),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .offset(y = selectedOffsetY)
+                                .padding(top = 12.dp, bottom = 14.dp)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null
+                                ) { onSelected(item.screen) },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(itemSpacing)
                         ) {
-                            CompositionLocalProvider(LocalContentColor provides iconTint) {
-                                item.icon()
+                            val labelNeonColor = highlight.copy(alpha = if (selected) 1f else 0.8f)
+                            val labelGlowColor = highlight.copy(alpha = if (selected) 0.95f else 0.7f)
+                            val labelStyle = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                shadow = Shadow(
+                                    color = labelGlowColor,
+                                    offset = Offset(0f, 2f),
+                                    blurRadius = 10f
+                                )
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(if (selected) 56.dp else 48.dp)
+                                    .graphicsLayer(
+                                        scaleX = selectedScale * pressScale,
+                                        scaleY = selectedScale * pressScale
+                                    )
+                                    .drawBehind {
+                                        val mistStrength = if (selected) 1f else 0.75f
+                                        val radius = size.minDimension * 0.95f
+                                        val haloBrush = if (selected) {
+                                            Brush.radialGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = mistStrength * 0.55f),
+                                                    highlight.copy(alpha = mistStrength * 0.28f),
+                                                    Color.Transparent
+                                                ),
+                                                center = center,
+                                                radius = radius
+                                            )
+                                        } else {
+                                            Brush.radialGradient(
+                                                colors = listOf(
+                                                    Color.Black.copy(alpha = mistStrength * 0.85f),
+                                                    Color.Black.copy(alpha = mistStrength * 0.5f),
+                                                    Color.Transparent
+                                                ),
+                                                center = center,
+                                                radius = radius
+                                            )
+                                        }
+                                        drawCircle(brush = haloBrush, radius = radius)
+                                    }
+                                    .shadow(
+                                        elevation = if (selected) 14.dp else 8.dp,
+                                        shape = CircleShape,
+                                        ambientColor = highlight.copy(alpha = 0.35f),
+                                        spotColor = highlight.copy(alpha = 0.6f)
+                                    )
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                chipTopColor,
+                                                chipBottomColor,
+                                                Color.Black.copy(alpha = 0.2f)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        width = borderWidth,
+                                        color = highlight.copy(alpha = borderAlpha),
+                                        shape = CircleShape
+                                    )
+                                    .padding(10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CompositionLocalProvider(LocalContentColor provides iconTint) {
+                                    item.icon()
+                                }
                             }
+                            Text(
+                                text = item.label,
+                                color = labelNeonColor.copy(alpha = labelAlpha),
+                                style = labelStyle
+                            )
                         }
-                        Text(
-                            text = item.label,
-                            color = labelNeonColor.copy(alpha = labelAlpha),
-                            style = labelStyle
-                        )
                     }
                 }
             }
