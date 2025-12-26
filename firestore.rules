@@ -40,7 +40,11 @@ service cloud.firestore {
 
       // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
       match /app_settings/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if
+          isOwner(userId) ||
+          (isSignedIn() &&
+            (('email' in request.auth.token && request.auth.token.email == userId) ||
+             ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)));
       }
     }
 

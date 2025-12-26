@@ -1782,13 +1782,14 @@ fun AdminSignInScreen(
     modifier: Modifier = Modifier,
     flagEnabled: Boolean,
     onBack: () -> Unit,
-    onSubmit: suspend (email: String, passcode: String) -> AuthResult,
+    onSubmit: suspend (email: String, passcode: String, rememberMe: Boolean) -> AuthResult,
 ) {
     val adminTint = IconCategoryColors[IconCategory.Admin] ?: MaterialTheme.colorScheme.tertiary
     val neonTextColor = Color(0xFF7EF9FF)
 
     var email by rememberSaveable { mutableStateOf("") }
     var passcode by rememberSaveable { mutableStateOf("") }
+    var rememberMe by rememberSaveable { mutableStateOf(false) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -1876,8 +1877,8 @@ fun AdminSignInScreen(
                 }
                 Pill(
                     text = if (flagEnabled) "Admin secure" else "Flag off",
-                    color = adminTint.copy(alpha = 0.2f),
-                    textColor = MaterialTheme.colorScheme.onSurface
+                    color = Color(0xFF2196F3).copy(alpha = 0.9f),
+                    textColor = Color.White
                 )
             }
 
@@ -2017,6 +2018,11 @@ fun AdminSignInScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    RememberMeRow(
+                        checked = rememberMe,
+                        onCheckedChange = { rememberMe = it }
+                    )
+
                     PrimaryButton(
                         text = "Enter admin",
                         modifier = Modifier.fillMaxWidth(),
@@ -2032,7 +2038,7 @@ fun AdminSignInScreen(
                                     isLoading = false
                                     return@launch
                                 }
-                                val result = onSubmit(trimmedEmail, trimmedPass)
+                                val result = onSubmit(trimmedEmail, trimmedPass, rememberMe)
                                 if (result is AuthResult.Error) {
                                     error = result.message
                                 }

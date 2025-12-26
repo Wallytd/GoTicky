@@ -86,6 +86,7 @@ import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Cake
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PhoneAndroid
@@ -94,6 +95,7 @@ import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
@@ -591,7 +593,7 @@ private fun AdminGateScreen(
                         )
                         Text(
                             text = if (flagEnabled) {
-                                "Current role: $role. Switch to Admin or Reviewer to enter the control room."
+                                "Current role: $role. Only Admin accounts can enter the control room."
                             } else {
                                 "Admin feature is turned off by feature flag right now."
                             },
@@ -1341,14 +1343,14 @@ private fun GoTickyRoot() {
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var selectedTicketType by remember { mutableStateOf("General / Standard") }
     var userProfile by rememberSaveable(stateSaver = UserProfileSaver) { mutableStateOf(defaultUserProfile()) }
-    var currentUserRole by rememberSaveable { mutableStateOf("customer") } // Admin shell gate: Admin/Reviewer only
-    val adminAccessRoles = remember { setOf("Admin", "Reviewer") }
+    var currentUserRole by rememberSaveable { mutableStateOf("customer") } // Admin shell gate: Admin only
+    val adminAccessRoles = remember { setOf("Admin") }
     val adminFeatureFlagEnabled = GoTickyFeatures.EnableAdmin
     val hasAdminAccess by remember(adminFeatureFlagEnabled, currentUserRole) {
         derivedStateOf { adminFeatureFlagEnabled && adminAccessRoles.contains(currentUserRole) }
     }
     var showAdminGateDialog by remember { mutableStateOf(false) }
-    var adminGateMessage by remember { mutableStateOf("Admin access is restricted to Admin or Reviewer roles.") }
+    var adminGateMessage by remember { mutableStateOf("Admin access is restricted to Admin accounts.") }
     var showGuestGateDialog by remember { mutableStateOf(false) }
     var guestGateTarget by remember { mutableStateOf<GuestGateTarget?>(null) }
     var guestGateMessage by remember { mutableStateOf("Sign up to unlock this action.") }
@@ -1686,7 +1688,7 @@ private fun GoTickyRoot() {
     val adminRoles = remember {
         mutableStateListOf(
             AdminRoleEntry("user-1", "Tari D.", "Admin", "tari@goticky.com"),
-            AdminRoleEntry("user-2", "Rudo M.", "Reviewer", "rudo@goticky.com"),
+            AdminRoleEntry("user-2", "Rudo M.", "Admin", "rudo@goticky.com"),
             AdminRoleEntry("user-3", "Kuda P.", "Organizer", "kuda@goticky.com"),
             AdminRoleEntry("user-4", "Amina S.", "Support", "amina@goticky.com"),
         )
@@ -1954,7 +1956,7 @@ private fun GoTickyRoot() {
                         AdminSignInScreen(
                             flagEnabled = adminFeatureFlagEnabled,
                             onBack = { showAdminSignIn = false },
-                            onSubmit = { email, passcode ->
+                            onSubmit = { email, passcode, rememberMe ->
                                 val seed = adminSeedByCredentials(email, passcode)
                                 if (seed == null) {
                                     // Avoid leaking which field is wrong.
@@ -1965,13 +1967,17 @@ private fun GoTickyRoot() {
                                     if (auth.currentUser == null) {
                                         runCatching { auth.signInAnonymously() }
                                     }
+                                    // Prefer a real Firebase UID when available; fall back to a stable
+                                    // per-admin key derived from the seed email so the session can still
+                                    // proceed even if anonymous auth is disabled or fails.
+                                    val adminUid = auth.currentUser?.uid ?: seed.email.trim().lowercase()
 
                                     // Build a local admin profile shell from the seed.
                                     val adminProfile = UserProfile(
                                         fullName = seed.fullName,
                                         email = seed.email,
                                         countryName = seed.country,
-                                        countryFlag = "1ff1fc", // Zimbabwe flag
+                                        countryFlag = "\uD83C\uDDF8\uD83C\uDDFF", // Zimbabwe flag
                                         phoneCode = "+263",
                                         phoneNumber = seed.phoneNumber,
                                         birthday = seed.birthday,
@@ -1979,7 +1985,7 @@ private fun GoTickyRoot() {
                                         photoResKey = null,
                                         photoUri = seed.photoUri,
                                         favorites = emptyList(),
-                                        role = "Admin",
+                                        role = "admin",
                                     )
 
                                     userProfile = adminProfile
@@ -1988,6 +1994,34 @@ private fun GoTickyRoot() {
                                     isGuestMode = false
                                     currentScreen = MainScreen.Admin
                                     showAdminSignIn = false
+
+                                    // Persist admin profile and prefs best-effort; if there is no
+                                    // Firebase auth session, these writes may be rejected by rules
+                                    // but the local admin session will still work.
+                                    runCatching {
+                                        Firebase.firestore.collection("users").document(adminUid).set(
+                                            mapOf(
+                                                "uid" to adminUid,
+                                                "displayName" to adminProfile.fullName,
+                                                "email" to adminProfile.email,
+                                                "role" to adminProfile.role,
+                                                "countryName" to adminProfile.countryName,
+                                                "countryFlag" to adminProfile.countryFlag,
+                                                "phoneCode" to adminProfile.phoneCode,
+                                                "phoneNumber" to adminProfile.phoneNumber,
+                                                "birthday" to adminProfile.birthday,
+                                                "gender" to adminProfile.gender,
+                                                "photoResKey" to adminProfile.photoResKey,
+                                                "photoUri" to adminProfile.photoUri,
+                                                "favorites" to adminProfile.favorites
+                                            ),
+                                            merge = true
+                                        )
+                                    }
+
+                                    val adminPrefs = settingsPrefs.copy(rememberMe = rememberMe)
+                                    settingsPrefs = adminPrefs
+                                    runCatching { saveUserSettingsToFirestore(adminUid, adminPrefs) }
 
                                     AuthResult.Success
                                 }
@@ -2193,7 +2227,7 @@ private fun GoTickyRoot() {
                                                     adminGateMessage = if (!adminFeatureFlagEnabled) {
                                                         "Admin feature is currently disabled by feature flag."
                                                     } else {
-                                                        "Your role ($currentUserRole) does not have access. Switch to an Admin or Reviewer account."
+                                                        "Your role ($currentUserRole) does not have access. Switch to an Admin account."
                                                     }
                                                     showAdminGateDialog = true
                                                     Analytics.log(
@@ -2758,6 +2792,19 @@ private fun AdminDashboardScreen(
         .background(GoTickyGradients.CardGlow)
         .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp)
 
+    val centeredAdminTitle: @Composable () -> Unit = {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Admin dashboard",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+
     if (adminSurface == AdminSurface.Applications) {
         Column(
             modifier = baseModifier,
@@ -2766,10 +2813,9 @@ private fun AdminDashboardScreen(
             GlowCard(modifier = Modifier.fillMaxWidth()) {
                 TopBar(
                     title = "Admin dashboard",
-                    onBack = onBack,
-                    actions = {
-                        NeonTextButton(text = "Applications", onClick = onOpenApplications)
-                    },
+                    onBack = null,
+                    actions = null,
+                    titleContent = centeredAdminTitle,
                     backgroundColor = Color.Transparent
                 )
             }
@@ -2813,10 +2859,9 @@ private fun AdminDashboardScreen(
         GlowCard(modifier = Modifier.fillMaxWidth()) {
             TopBar(
                 title = "Admin dashboard",
-                onBack = onBack,
-                actions = {
-                    NeonTextButton(text = "Applications", onClick = onOpenApplications)
-                },
+                onBack = null,
+                actions = null,
+                titleContent = centeredAdminTitle,
                 backgroundColor = Color.Transparent
             )
         }
@@ -2878,6 +2923,70 @@ private fun AdminDashboardScreen(
                             }
                             highSeverityReports.forEach { rep ->
                                 Text("Report: ${rep.target} • ${rep.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    val approvedCount = applications.count { it.status == "Approved" }
+                    val liveRatio = if (applications.isNotEmpty()) approvedCount / applications.size.toFloat() else 0f
+                    val earlyBirdLive = applications.count { it.earlyBirdEnabled && !it.earlyBirdPaused }
+                    val publishAccent = IconCategoryColors[IconCategory.Ticket] ?: MaterialTheme.colorScheme.primary
+                    val catalogAccent = IconCategoryColors[IconCategory.Discover] ?: MaterialTheme.colorScheme.secondary
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Customer sync", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            "These toggles directly impact what customers see on Home and Tickets.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Published to customer view", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            AnimatedProgressBar(progress = liveRatio.coerceIn(0f, 1f), modifier = Modifier.fillMaxWidth())
+                            Text("$approvedCount of ${applications.size} events visible", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Early Bird coverage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            AnimatedProgressBar(
+                                progress = if (applications.isNotEmpty()) earlyBirdLive / applications.size.toFloat() else 0f,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text("$earlyBirdLive using Early Bird", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            applications.take(3).forEach { app ->
+                                val isApproved = app.status == "Approved"
+                                val toggleLabel = if (isApproved) "Unpublish" else "Publish"
+                                val toggleAccent = if (isApproved) MaterialTheme.colorScheme.onSurfaceVariant else publishAccent
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(app.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                        Pill(text = app.status, modifier = Modifier)
+                                        Spacer(Modifier.weight(1f))
+                                        NeonTextButton(text = "Preview public", onClick = { addActivity("Preview as customer: ${app.title}", catalogAccent) })
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        PrimaryButton(
+                                            text = toggleLabel,
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                val next = if (isApproved) "In Review" else "Approved"
+                                                onUpdateApplicationStatus(app.id, next)
+                                                val suffix = if (isApproved) "hidden from" else "published to"
+                                                addActivity("${app.title} $suffix customers", toggleAccent)
+                                            }
+                                        )
+                                        GhostButton(
+                                            text = "Catalog",
+                                            modifier = Modifier.weight(1f),
+                                            onClick = onOpenCatalog
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -2998,6 +3107,8 @@ private fun ApplicationsSection(
     var organizerFilter by remember { mutableStateOf("All") }
     var sortMode by remember { mutableStateOf("Oldest") }
     val selectedBulk = remember { mutableStateListOf<String>() }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
     val cities = remember(applications) { listOf("All") + applications.map { it.city }.distinct() }
     val categories = remember(applications) { listOf("All") + applications.map { it.category }.distinct() }
     val organizerFilters = remember(applications) { listOf("All") + applications.map { it.organizer }.distinct() }
@@ -3034,50 +3145,142 @@ private fun ApplicationsSection(
                 title = "Applications",
                 action = null
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("All", "New", "In Review", "Needs Info", "Approved", "Rejected").forEach { option ->
-                    val selected = statusFilter == option
-                    NeonSelectablePill(
-                        text = option,
-                        selected = selected,
-                        onClick = { statusFilter = option }
-                    )
+
+            val hasFilterActive = statusFilter != "All" ||
+                riskFilter != "All" ||
+                cityFilter != "All" ||
+                categoryFilter != "All" ||
+                organizerFilter != "All"
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlowCard(
+                    modifier = Modifier
+                        .weight(1f)
+                        .pressAnimated()
+                        .clickable { showFilterSheet = !showFilterSheet }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Outlined.FilterList, contentDescription = "Filters", tint = MaterialTheme.colorScheme.primary)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                            Text("Filters", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                            val summary = buildString {
+                                if (hasFilterActive) append("Active • ")
+                                append(statusFilter.ifBlank { "All" })
+                                if (riskFilter != "All") append(" • Risk $riskFilter")
+                                if (cityFilter != "All") append(" • $cityFilter")
+                            }
+                            Text(summary, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Pill(text = if (hasFilterActive) "On" else "All", modifier = Modifier)
+                    }
                 }
-                listOf("All", "Low", "Medium", "High").forEach { risk ->
-                    val selected = riskFilter == risk
-                    NeonSelectablePill(
-                        text = if (risk == "All") "All risk" else "Risk: $risk",
-                        selected = selected,
-                        onClick = { riskFilter = risk }
-                    )
+                GlowCard(
+                    modifier = Modifier
+                        .weight(1f)
+                        .pressAnimated()
+                        .clickable { showSortSheet = !showSortSheet }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Outlined.Sort, contentDescription = "Sort", tint = MaterialTheme.colorScheme.secondary)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                            Text("Sort", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Mode: $sortMode", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Pill(text = "Change", modifier = Modifier)
+                    }
                 }
-                cities.forEach { city ->
-                    NeonSelectablePill(
-                        text = if (city == "All") "All cities" else city,
-                        selected = cityFilter == city,
-                        onClick = { cityFilter = city }
-                    )
+            }
+
+            AnimatedVisibility(visible = showFilterSheet) {
+                GlowCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(goTickyShapes.large)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Status", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(listOf("All", "New", "In Review", "Needs Info", "Approved", "Rejected")) { option ->
+                                NeonSelectablePill(text = option, selected = statusFilter == option, onClick = { statusFilter = option })
+                            }
+                        }
+
+                        Text("Risk", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(listOf("All", "Low", "Medium", "High")) { risk ->
+                                NeonSelectablePill(text = if (risk == "All") "All risk" else "Risk: $risk", selected = riskFilter == risk, onClick = { riskFilter = risk })
+                            }
+                        }
+
+                        Text("City", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(cities) { city ->
+                                NeonSelectablePill(text = if (city == "All") "All cities" else city, selected = cityFilter == city, onClick = { cityFilter = city })
+                            }
+                        }
+
+                        Text("Category", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(categories) { cat ->
+                                NeonSelectablePill(text = if (cat == "All") "All categories" else cat, selected = categoryFilter == cat, onClick = { categoryFilter = cat })
+                            }
+                        }
+
+                        Text("Organizer", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(organizerFilters) { org ->
+                                NeonSelectablePill(text = if (org == "All") "All organizers" else org, selected = organizerFilter == org, onClick = { organizerFilter = org })
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            GhostButton(text = "Reset", modifier = Modifier.weight(1f)) {
+                                statusFilter = "All"
+                                riskFilter = "All"
+                                cityFilter = "All"
+                                categoryFilter = "All"
+                                organizerFilter = "All"
+                            }
+                            PrimaryButton(text = "Close", modifier = Modifier.weight(1f)) {
+                                showFilterSheet = false
+                            }
+                        }
+                    }
                 }
-                categories.forEach { cat ->
-                    NeonSelectablePill(
-                        text = if (cat == "All") "All categories" else cat,
-                        selected = categoryFilter == cat,
-                        onClick = { categoryFilter = cat }
-                    )
-                }
-                organizerFilters.forEach { org ->
-                    NeonSelectablePill(
-                        text = if (org == "All") "All organizers" else org,
-                        selected = organizerFilter == org,
-                        onClick = { organizerFilter = org }
-                    )
-                }
-                listOf("Oldest", "Newest", "Risk").forEach { mode ->
-                    NeonSelectablePill(
-                        text = "Sort: $mode",
-                        selected = sortMode == mode,
-                        onClick = { sortMode = mode }
-                    )
+            }
+
+            AnimatedVisibility(visible = showSortSheet) {
+                GlowCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(goTickyShapes.large)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Sort by", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(listOf("Oldest", "Newest", "Risk")) { mode ->
+                                NeonSelectablePill(text = mode, selected = sortMode == mode, onClick = {
+                                    sortMode = mode
+                                    showSortSheet = false
+                                })
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            GhostButton(text = "Close", modifier = Modifier.weight(1f)) { showSortSheet = false }
+                        }
+                    }
                 }
             }
             if (filtered.isEmpty()) {
@@ -3206,7 +3409,7 @@ private fun ApplicationsSection(
                                 }
                                 "Assign" -> {
                                     if (bulkReviewer.isBlank()) {
-                                        bulkError = "Select a reviewer."
+                                        bulkError = "Select an owner."
                                     } else {
                                         ids.forEach { id -> reviewerByApp[id] = bulkReviewer }
                                         addActivity("Bulk assigned ${ids.size} apps to $bulkReviewer", activitySecondaryAccent)
@@ -3230,7 +3433,7 @@ private fun ApplicationsSection(
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("${selectedBulk.size} applications selected.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                             if (action == "Assign") {
-                                Text("Assign reviewer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Assign owner", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     reviewers.forEach { reviewer ->
                                         NeonSelectablePill(
@@ -3855,7 +4058,7 @@ private fun ApplicationDetailPanel(
         listOf(
             "Submitted ${app.ageHours}h ago by ${app.organizer}",
             "Auto validation flagged ${if (app.attachmentsReady) "0" else "2"} items",
-            "Assigned reviewer: ${selectedReviewer ?: reviewers.firstOrNull().orEmpty()}",
+            "Assigned admin: ${selectedReviewer ?: reviewers.firstOrNull().orEmpty()}",
             "Awaiting permit upload" + if (app.attachmentsReady) " (received)" else "",
         )
     }
@@ -3875,7 +4078,7 @@ private fun ApplicationDetailPanel(
                 NeonSelectablePill(text = "${app.ageHours}h old", selected = false, onClick = {})
                 NeonSelectablePill(text = "SLA ${slaHoursRemaining}h left", selected = slaHoursRemaining > 0, onClick = {})
             }
-            Text("Reviewer", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+            Text("Assigned admin", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 reviewers.forEach { reviewer ->
                     val selected = reviewer == selectedReviewer
@@ -4538,7 +4741,7 @@ private fun SettingsSection(
     auditLog: List<AdminActivity> = emptyList(),
 ) {
     var expandedRoleId by remember { mutableStateOf<String?>(null) }
-    val roleOptions = listOf("Admin", "Reviewer", "Organizer", "Support", "Suspended")
+    val roleOptions = listOf("Admin", "Organizer", "Support", "Suspended")
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(title = "Role matrix", action = null)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
