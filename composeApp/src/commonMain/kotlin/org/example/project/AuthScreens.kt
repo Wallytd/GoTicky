@@ -1782,14 +1782,17 @@ fun AdminSignInScreen(
     modifier: Modifier = Modifier,
     flagEnabled: Boolean,
     onBack: () -> Unit,
+    prefillEmail: String = "",
+    prefillPasscode: String = "",
+    prefillRememberMe: Boolean = false,
     onSubmit: suspend (email: String, passcode: String, rememberMe: Boolean) -> AuthResult,
 ) {
     val adminTint = IconCategoryColors[IconCategory.Admin] ?: MaterialTheme.colorScheme.tertiary
     val neonTextColor = Color(0xFF7EF9FF)
 
-    var email by rememberSaveable { mutableStateOf("") }
-    var passcode by rememberSaveable { mutableStateOf("") }
-    var rememberMe by rememberSaveable { mutableStateOf(false) }
+    var email by rememberSaveable { mutableStateOf(prefillEmail) }
+    var passcode by rememberSaveable { mutableStateOf(prefillPasscode) }
+    var rememberMe by rememberSaveable { mutableStateOf(prefillRememberMe) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }

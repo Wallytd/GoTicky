@@ -190,6 +190,7 @@ import org.example.project.data.sampleOrganizerEvents
 import org.example.project.data.sampleNearbyEvents
 import org.example.project.data.EntertainmentNewsItem
 import org.example.project.data.sampleEntertainmentNews
+import org.example.project.data.AdminSeed
 import org.example.project.data.adminSeedByCredentials
 import org.example.project.data.seedAdminProfilesIfMissing
 import org.example.project.analytics.Analytics
@@ -220,6 +221,7 @@ import org.example.project.ui.theme.IconCategory
 import org.example.project.ui.theme.IconCategoryColors
 import org.example.project.ui.theme.goTickyShapes
 import org.example.project.platform.ImagePickerLauncher
+import org.example.project.platform.rememberBannerImageStorage
 import org.example.project.platform.rememberImagePicker
 import org.example.project.platform.BiometricPromptConfig
 import org.example.project.platform.BiometricResult
@@ -230,6 +232,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import org.example.project.GoTickyFeatures
 import androidx.compose.runtime.mutableStateMapOf
 import kotlin.math.abs
@@ -248,11 +251,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.SpanStyle
-import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Duration.Companion.hours
@@ -262,6 +263,7 @@ import kotlin.time.toDuration
 import dev.gitlive.firebase.Firebase
 import dev.gitlive.firebase.auth.auth
 import dev.gitlive.firebase.firestore.firestore
+import org.example.project.data.adminSeeds
 
 private enum class MainScreen {
     Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
@@ -766,7 +768,7 @@ private data class LaunchCheck(val id: String, val title: String, val desc: Stri
 private data class AdminKpi(val title: String, val value: String, val delta: String, val accent: Color)
 private data class AdminAttention(val title: String, val subtitle: String, val severity: String)
 private data class AdminActivity(val text: String, val time: String, val accent: Color)
-private enum class AdminSurface { Dashboard, Applications, Moderation, Organizer, Catalog, Settings }
+private enum class AdminSurface { Dashboard, Applications, Moderation, Organizer, Catalog, Banners, Settings }
 private enum class BottomNavVisibility { Visible, Hidden }
 private enum class GuestGateTarget { Checkout, Organizer }
 data class AdminApplication(
@@ -913,6 +915,25 @@ private data class HeroSlide(
     val imageHint: String, // descriptive hint for the “image background”
     val location: String,
     val heroImageKey: String? = null,
+    val imageUrl: String? = null,
+    val accentHex: String? = null,
+    val order: Int = 0,
+    val active: Boolean = true,
+)
+private data class BannerDraft(
+    val id: String = "",
+    val title: String = "",
+    val subtitle: String = "",
+    val cta: String = "",
+    val tag: String = "",
+    val location: String = "",
+    val imageHint: String = "",
+    val accent: Color = Color(0xFF9C7BFF),
+    val accentHex: String = "#9C7BFF",
+    val order: Int = 0,
+    val active: Boolean = true,
+    val imageUrl: String? = null,
+    val localImageUri: String? = null,
 )
 private data class MenuItemSpec(
     val label: String,
@@ -980,7 +1001,7 @@ private val launchChecklist = listOf(
     LaunchCheck("backend", "Firestore draft", "Schemas/rules drafted for events/tickets/orders/alerts/recs."),
 )
 
-private val heroSlides = listOf(
+private val defaultHeroSlides = listOf(
     HeroSlide(
         id = "hero1",
         title = "Vic Falls Midnight Lights",
@@ -1015,6 +1036,103 @@ private val heroSlides = listOf(
         heroImageKey = "hero_byo_food_arts",
     ),
 )
+
+private fun currentTimestampIsoString(): String = currentInstant().toString()
+
+private fun colorFromHex(hex: String?): Color {
+    val cleaned = hex?.trim()?.removePrefix("#") ?: return Color(0xFF9C7BFF)
+    return runCatching { cleaned.toLong(16) }
+        .map { value ->
+            val long = if (cleaned.length <= 6) (0xFF000000L or value) else value
+            Color(long.toInt())
+        }
+        .getOrElse { Color(0xFF9C7BFF) }
+}
+
+private fun colorToHex(color: Color): String {
+    val r = (color.red * 255).roundToInt().coerceIn(0, 255)
+    val g = (color.green * 255).roundToInt().coerceIn(0, 255)
+    val b = (color.blue * 255).roundToInt().coerceIn(0, 255)
+    fun Int.toHex2(): String = this.toString(16).padStart(2, '0').uppercase()
+    return "#" + r.toHex2() + g.toHex2() + b.toHex2()
+}
+
+private suspend fun fetchHeroBannersFromFirestore(): List<HeroSlide> {
+    return try {
+        ensureSettingsSession()
+        val snap = Firebase.firestore
+            .collection("banners")
+            .orderBy("order")
+            .get()
+        snap.documents.mapNotNull { doc ->
+            val id = doc.id
+            val title = doc.get<String?>("title") ?: return@mapNotNull null
+            val subtitle = doc.get<String?>("subtitle") ?: ""
+            val cta = doc.get<String?>("cta") ?: "Explore"
+            val tag = doc.get<String?>("tag") ?: ""
+            val accentHex = doc.get<String?>("accentHex") ?: "#9C7BFF"
+            val accent = colorFromHex(accentHex)
+            val imageHint = doc.get<String?>("imageHint") ?: ""
+            val location = doc.get<String?>("location") ?: ""
+            val heroImageKey = doc.get<String?>("heroImageKey")
+            val imageUrl = doc.get<String?>("imageUrl")
+            val order = doc.get<Long?>("order")?.toInt() ?: 0
+            val active = doc.get<Boolean?>("active") ?: true
+            HeroSlide(
+                id = id,
+                title = title,
+                subtitle = subtitle,
+                cta = cta,
+                tag = tag,
+                accent = accent,
+                imageHint = imageHint,
+                location = location,
+                heroImageKey = heroImageKey,
+                imageUrl = imageUrl,
+                accentHex = accentHex,
+                order = order,
+                active = active,
+            )
+        }
+    } catch (_: Throwable) {
+        emptyList()
+    }
+}
+
+private suspend fun saveHeroBannerToFirestore(slide: HeroSlide) {
+    runCatching {
+        ensureSettingsSession()
+        Firebase.firestore
+            .collection("banners")
+            .document(slide.id)
+            .set(
+                mapOf(
+                    "title" to slide.title,
+                    "subtitle" to slide.subtitle,
+                    "cta" to slide.cta,
+                    "tag" to slide.tag,
+                    "accentHex" to (slide.accentHex ?: colorToHex(slide.accent)),
+                    "imageHint" to slide.imageHint,
+                    "location" to slide.location,
+                    "heroImageKey" to slide.heroImageKey,
+                    "imageUrl" to slide.imageUrl,
+                    "order" to slide.order,
+                    "active" to slide.active,
+                ),
+                merge = true
+            )
+    }
+}
+
+private suspend fun deleteHeroBannerFromFirestore(id: String) {
+    runCatching {
+        ensureSettingsSession()
+        Firebase.firestore
+            .collection("banners")
+            .document(id)
+            .delete()
+    }
+}
 
 private fun resolveProfilePhotoRes() =
     Res.allDrawableResources["gotickypic"]
@@ -1063,6 +1181,15 @@ private data class SettingsPrefs(
     val rememberMe: Boolean = false,
 )
 
+private data class AdminSecureConfig(
+    val email: String,
+    val password: String,
+    val rememberMe: Boolean = true,
+    // Human-friendly admin profile key, e.g. "Kate Mula".
+    // This lets us store admin app_settings under /adminProfiles/{adminName}/app_settings/admin_secure.
+    val adminName: String? = null,
+)
+
 private val SettingsPrefsSaver = listSaver<SettingsPrefs, Any>(
     save = { listOf(it.pushEnabled, it.emailUpdates, it.dataSaver, it.hapticsEnabled, it.theme, it.rememberMe) },
     restore = {
@@ -1081,6 +1208,13 @@ private val SearchHistorySaver = listSaver<SnapshotStateList<String>, String>(
     save = { stateList -> stateList.toList() },
     restore = { saved -> mutableStateListOf(*saved.toTypedArray()) }
 )
+
+private suspend fun ensureSettingsSession() {
+    val auth = Firebase.auth
+    if (auth.currentUser == null) {
+        runCatching { auth.signInAnonymously() }
+    }
+}
 
 private suspend fun loadUserSettingsFromFirestore(uid: String): SettingsPrefs? {
     return try {
@@ -1128,6 +1262,141 @@ private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPref
             )
     } catch (_: Throwable) {
         // Best-effort only: settings persistence issues should not break the app.
+    }
+}
+
+private suspend fun fetchAdminSecureConfig(): Result<AdminSecureConfig> {
+    return runCatching {
+        ensureSettingsSession()
+        val firestore = Firebase.firestore
+
+        // 1) Prefer per-admin app_settings under /adminProfiles/{adminName}/app_settings/admin_secure.
+        // We iterate over the known seeds and return the first valid config we find.
+        val fromPerAdmin: AdminSecureConfig? = adminSeeds.firstNotNullOfOrNull { seed ->
+            val doc = firestore
+                .collection("adminProfiles")
+                .document(seed.fullName)
+                .collection("app_settings")
+                .document("admin_secure")
+                .get()
+
+            if (!doc.exists) return@firstNotNullOfOrNull null
+
+            val email = doc.get<String?>("email")?.trim().orEmpty()
+            val password = doc.get<String?>("password").orEmpty()
+            val rememberMe = doc.get<Boolean?>("rememberMe") ?: true
+            if (email.isBlank() || password.isBlank()) null
+            else AdminSecureConfig(email, password, rememberMe, adminName = seed.fullName)
+        }
+
+        // 2) Legacy fallback: global /app_settings/admin_secure (for backwards compatibility).
+        val fromLegacy: AdminSecureConfig? = runCatching {
+            val legacyDoc = firestore
+                .collection("app_settings")
+                .document("admin_secure")
+                .get()
+
+            if (!legacyDoc.exists) return@runCatching null
+
+            val email = legacyDoc.get<String?>("email")?.trim().orEmpty()
+            val password = legacyDoc.get<String?>("password").orEmpty()
+            val rememberMe = legacyDoc.get<Boolean?>("rememberMe") ?: true
+
+            if (email.isBlank() || password.isBlank()) null else {
+                // Try to infer the adminName from seeds based on email.
+                val seedMatch = adminSeeds.firstOrNull { it.email.equals(email, ignoreCase = true) }
+                AdminSecureConfig(
+                    email = email,
+                    password = password,
+                    rememberMe = rememberMe,
+                    adminName = seedMatch?.fullName
+                ).also {
+                    // Best-effort one-way migration into the new per-admin location.
+                    runCatching { saveAdminSecureConfig(it) }
+                }
+            }
+        }.getOrNull()
+
+        // 3) Seed-based default if nothing is configured yet.
+        val fromSeed = adminSeeds.firstOrNull()?.let { seed ->
+            AdminSecureConfig(
+                email = seed.email,
+                password = seed.password,
+                rememberMe = true,
+                adminName = seed.fullName,
+            ).also {
+                // Best-effort seed into Firestore so subsequent secure clicks have a stored config.
+                runCatching { saveAdminSecureConfig(it) }
+            }
+        }
+
+        fromPerAdmin
+            ?: fromLegacy
+            ?: fromSeed
+            ?: throw IllegalStateException("admin_secure settings unavailable.")
+    }
+}
+
+private suspend fun seedAdminSecureConfig(): AdminSecureConfig? {
+    val seed = adminSeeds.firstOrNull() ?: return null
+    val config = AdminSecureConfig(
+        email = seed.email,
+        password = seed.password,
+        rememberMe = true,
+        adminName = seed.fullName,
+    )
+    runCatching { saveAdminSecureConfig(config) }
+    return config
+}
+
+private suspend fun saveAdminSecureConfig(config: AdminSecureConfig) {
+    runCatching {
+        ensureSettingsSession()
+        val firestore = Firebase.firestore
+
+        // Persist under the admin's profile document: /adminProfiles/{adminName}/app_settings/admin_secure
+        val adminName = config.adminName
+            ?: adminSeeds.firstOrNull { it.email.equals(config.email, ignoreCase = true) }?.fullName
+
+        if (adminName != null) {
+            firestore
+                .collection("adminProfiles")
+                .document(adminName)
+                .collection("app_settings")
+                .document("admin_secure")
+                .set(
+                    mapOf(
+                        "email" to config.email,
+                        "password" to config.password,
+                        "rememberMe" to config.rememberMe,
+                    ),
+                    merge = true
+                )
+        }
+    }
+}
+
+private suspend fun loadAdminSecureConfigForPrefill(): AdminSecureConfig? {
+    ensureSettingsSession()
+    val firestore = Firebase.firestore
+
+    return adminSeeds.firstNotNullOfOrNull { seed ->
+        val doc = firestore
+            .collection("adminProfiles")
+            .document(seed.fullName)
+            .collection("app_settings")
+            .document("admin_secure")
+            .get()
+
+        if (!doc.exists) return@firstNotNullOfOrNull null
+
+        val rememberMe = doc.get<Boolean?>("rememberMe") ?: true
+        if (!rememberMe) return@firstNotNullOfOrNull null
+
+        val email = doc.get<String?>("email")?.trim().orEmpty()
+        val password = doc.get<String?>("password").orEmpty()
+        if (email.isBlank() || password.isBlank()) null
+        else AdminSecureConfig(email, password, rememberMe, adminName = seed.fullName)
     }
 }
 
@@ -1368,8 +1637,10 @@ private fun GoTickyRoot() {
     var guestIntroProgress by remember { mutableStateOf(0f) }
     var isSignInWarmupActive by rememberSaveable { mutableStateOf(false) }
     var signInWarmupProgress by remember { mutableStateOf(0f) }
+    var secureSignInInProgress by remember { mutableStateOf(false) }
     val authRepo = remember { FirebaseAuthRepository() }
     val profileImageStorage = rememberProfileImageStorage()
+    val bannerImageStorage = rememberBannerImageStorage()
     val biometricLauncher = rememberBiometricLauncher()
     val scope = rememberCoroutineScope()
     var logoutInProgress by remember { mutableStateOf(false) }
@@ -1380,6 +1651,27 @@ private fun GoTickyRoot() {
     var postSignUpUploadError by remember { mutableStateOf<String?>(null) }
     var pendingUploadProfile by remember { mutableStateOf<UserProfile?>(null) }
     var autoRetryAttempted by remember { mutableStateOf(false) }
+    val heroSlides = remember {
+        mutableStateListOf<HeroSlide>().apply { addAll(defaultHeroSlides) }
+    }
+    var loadingHeroBanners by remember { mutableStateOf(false) }
+    var simulatedHeroBannerId by remember { mutableStateOf<String?>(null) }
+    var bannerDraft by remember {
+        mutableStateOf(
+            BannerDraft(
+                id = "banner-${currentTimestampIsoString()}",
+                accent = Color(0xFF9C7BFF),
+                accentHex = "#9C7BFF",
+                order = 0,
+                active = true
+            )
+        )
+    }
+    var bannerSaving by remember { mutableStateOf(false) }
+    var bannerSavingProgress by remember { mutableStateOf(0f) }
+    val bannerPicker = rememberImagePicker { uri ->
+        uri?.let { bannerDraft = bannerDraft.copy(localImageUri = it) }
+    }
     var relaxJob by remember { mutableStateOf<Job?>(null) }
 
     fun requireAuth(
@@ -1472,13 +1764,19 @@ private fun GoTickyRoot() {
         runCatching { seedAdminProfilesIfMissing() }
     }
     var personalizationPrefs by rememberSaveable(stateSaver = PersonalizationPrefsSaver) {
-        mutableStateOf(PersonalizationPrefs(genres = listOf("Concerts", "Sports", "Comedy", "Family"), city = "Harare"))
+        mutableStateOf(
+            PersonalizationPrefs(
+                genres = listOf("Concerts", "Sports", "Comedy", "Family"),
+                city = "Harare"
+            )
+        )
     }
     val searchHistory = rememberSaveable(saver = SearchHistorySaver) { mutableStateListOf<String>() }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var forceOpenSearchDialog by remember { mutableStateOf(false) }
     var settingsPrefs by rememberSaveable(stateSaver = SettingsPrefsSaver) { mutableStateOf(SettingsPrefs()) }
     var authInitDone by rememberSaveable { mutableStateOf(false) }
+    var adminSecurePrefill by remember { mutableStateOf<AdminSecureConfig?>(null) }
     LaunchedEffect(Unit) {
         val existing = authRepo.currentUser()
         val uid = existing?.uid
@@ -1491,14 +1789,23 @@ private fun GoTickyRoot() {
             if (settingsPrefs.rememberMe && !isAuthenticated) {
                 val fetched = authRepo.fetchProfile()
                 if (fetched != null) {
+                    val role = fetched.role.ifBlank { "customer" }
                     userProfile = fetched
-                    currentUserRole = fetched.role.ifBlank { "customer" }
+                    currentUserRole = role
                     syncFavoritesFromBackend(fetched)
+
+                    if (!role.equals("admin", ignoreCase = true)) {
+                        // For customers, honor remember-me by auto-restoring the session.
+                        isAuthenticated = true
+                        isGuestMode = false
+                        currentScreen = MainScreen.Home
+                        isSignInWarmupActive = true
+                    }
+                    // For admins with remember-me enabled, keep isAuthenticated=false so the
+                    // app still flows through Intro -> Sign-in -> Secure admin click.
+                } else {
+                    syncFavoritesFromBackend()
                 }
-                isAuthenticated = true
-                isGuestMode = false
-                currentScreen = MainScreen.Home
-                isSignInWarmupActive = true
             } else {
                 syncFavoritesFromBackend()
             }
@@ -1583,6 +1890,97 @@ private fun GoTickyRoot() {
         )
     }
 
+    suspend fun startAdminSessionFromSeed(seed: AdminSeed, rememberMe: Boolean): AuthResult {
+        // Ensure we have some Firebase auth session for Firestore rules when possible.
+        val auth = Firebase.auth
+        if (auth.currentUser == null) {
+            runCatching { auth.signInAnonymously() }
+        }
+        val adminUid = auth.currentUser?.uid ?: seed.email.trim().lowercase()
+
+        // Build a local admin profile shell from the seed.
+        val adminProfile = UserProfile(
+            fullName = seed.fullName,
+            email = seed.email,
+            countryName = seed.country,
+            countryFlag = "\uD83C\uDDF8\uD83C\uDDFF", // Zimbabwe flag
+            phoneCode = "+263",
+            phoneNumber = seed.phoneNumber,
+            birthday = seed.birthday,
+            gender = seed.gender,
+            photoResKey = null,
+            photoUri = seed.photoUri,
+            favorites = emptyList(),
+            role = "admin",
+        )
+
+        userProfile = adminProfile
+        currentUserRole = "Admin"
+        isAuthenticated = true
+        isGuestMode = false
+        currentScreen = MainScreen.Admin
+        showAdminSignIn = false
+
+        // Best-effort persistence of an admin user shell; may be rejected by rules if auth
+        // is not configured, but this should never break the local session.
+        runCatching {
+            Firebase.firestore.collection("users").document(adminUid).set(
+                mapOf(
+                    "uid" to adminUid,
+                    "displayName" to adminProfile.fullName,
+                    "email" to adminProfile.email,
+                    "role" to adminProfile.role,
+                    "countryName" to adminProfile.countryName,
+                    "countryFlag" to adminProfile.countryFlag,
+                    "phoneCode" to adminProfile.phoneCode,
+                    "phoneNumber" to adminProfile.phoneNumber,
+                    "birthday" to adminProfile.birthday,
+                    "gender" to adminProfile.gender,
+                    "photoResKey" to adminProfile.photoResKey,
+                    "photoUri" to adminProfile.photoUri,
+                    "favorites" to adminProfile.favorites
+                ),
+                merge = true
+            )
+        }
+
+        // Persist secure admin config under the admin profile document so future secure clicks
+        // can auto-fill and sign in.
+        runCatching {
+            saveAdminSecureConfig(
+                AdminSecureConfig(
+                    email = seed.email,
+                    password = seed.password,
+                    rememberMe = rememberMe,
+                    adminName = seed.fullName,
+                )
+            )
+        }
+
+        // Admin-specific remember-me is handled via AdminSecureConfig only; we intentionally do
+        // not toggle the global SettingsPrefs.rememberMe here so startup behavior for customers
+        // remains predictable.
+        syncFavoritesFromBackend()
+        isSignInWarmupActive = true
+        return AuthResult.Success
+    }
+
+    suspend fun autoAdminSecureSignIn(): AuthResult {
+        val config = fetchAdminSecureConfig().getOrElse {
+            // Hide low-level Firestore errors and guide the user back to the manual admin flow.
+            return AuthResult.Error(
+                "Secure admin sign-in isn't fully configured yet. Use your admin email and passcode on the next screen."
+            )
+        }
+
+        val seed = adminSeedByCredentials(config.email, config.password)
+            ?: return AuthResult.Error(
+                "Secure admin sign-in failed. Use your admin email and passcode on the next screen."
+            )
+
+        return startAdminSessionFromSeed(seed, config.rememberMe)
+    }
+
     fun recordSearch(query: String) {
         val normalized = query.trim()
         if (normalized.isEmpty()) return
@@ -1658,6 +2056,10 @@ private fun GoTickyRoot() {
             AdminActivity("Kuda verified organizer “Courtside Group”", "45m ago", adminSecondaryAccent),
         )
     }
+    fun addAdminActivity(text: String, accent: Color) {
+        adminActivity.add(0, AdminActivity(text, "Just now", accent))
+        if (adminActivity.size > 30) adminActivity.removeLast()
+    }
     var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
     val adminReports = remember {
         mutableStateListOf(
@@ -1693,10 +2095,104 @@ private fun GoTickyRoot() {
             AdminRoleEntry("user-4", "Amina S.", "Support", "amina@goticky.com"),
         )
     }
-    val featuredSlots = remember { mutableStateListOf(heroSlides[0].id, heroSlides[1].id) }
-    fun addAdminActivity(text: String, accent: Color) {
-        adminActivity.add(0, AdminActivity(text, "Just now", accent))
-        if (adminActivity.size > 30) adminActivity.removeLast()
+    val featuredSlots = remember { mutableStateListOf<String>().apply { addAll(defaultHeroSlides.take(2).map { it.id }) } }
+    LaunchedEffect(Unit) {
+        loadingHeroBanners = true
+        val remote = fetchHeroBannersFromFirestore().filter { it.active }
+        if (remote.isNotEmpty()) {
+            heroSlides.clear()
+            heroSlides.addAll(remote.sortedBy { it.order })
+            featuredSlots.clear()
+            featuredSlots.addAll(remote.sortedBy { it.order }.take(3).map { it.id })
+        }
+        loadingHeroBanners = false
+    }
+    fun resetBannerDraft(seedOrder: Int = heroSlides.size) {
+        bannerDraft = BannerDraft(
+            id = "banner-${currentTimestampIsoString()}",
+            title = "",
+            subtitle = "",
+            cta = "Explore lineup",
+            tag = "Spotlight",
+            location = "Zimbabwe",
+            imageHint = "Describe the visual vibe (e.g., neon food market)",
+            accent = Color(0xFF9C7BFF),
+            accentHex = "#9C7BFF",
+            order = seedOrder,
+            active = true,
+            imageUrl = null,
+            localImageUri = null,
+        )
+    }
+    fun saveBannerFromDraft(draft: BannerDraft) {
+        scope.launch {
+            if (draft.title.isBlank()) {
+                snackbarHostState.showSnackbar("Add a banner title before saving.")
+                return@launch
+            }
+            bannerSaving = true
+            bannerSavingProgress = 0.15f
+            val id = draft.id.ifBlank { "banner-${currentTimestampIsoString()}" }
+            val accentHex = draft.accentHex.ifBlank { colorToHex(draft.accent) }
+            var imageUrl = draft.imageUrl
+            if (!draft.localImageUri.isNullOrBlank()) {
+                bannerSavingProgress = 0.35f
+                val uploaded = bannerImageStorage.uploadBannerImage(id, draft.localImageUri) { p ->
+                    bannerSavingProgress = 0.3f + 0.6f * p
+                }
+                if (uploaded == null) {
+                    bannerSaving = false
+                    bannerSavingProgress = 0f
+                    snackbarHostState.showSnackbar("Banner upload failed. Please retry.")
+                    return@launch
+                } else {
+                    imageUrl = uploaded
+                }
+            }
+            bannerSavingProgress = 0.85f
+            val slide = HeroSlide(
+                id = id,
+                title = draft.title,
+                subtitle = draft.subtitle,
+                cta = draft.cta.ifBlank { "Explore" },
+                tag = draft.tag.ifBlank { "Spotlight" },
+                accent = draft.accent,
+                imageHint = draft.imageHint,
+                location = draft.location,
+                heroImageKey = null,
+                imageUrl = imageUrl,
+                accentHex = accentHex,
+                order = draft.order,
+                active = draft.active,
+            )
+            saveHeroBannerToFirestore(slide)
+            val existingIdx = heroSlides.indexOfFirst { it.id == id }
+            if (existingIdx >= 0) {
+                heroSlides[existingIdx] = slide
+            } else {
+                heroSlides.add(slide)
+            }
+            heroSlides.sortBy { it.order }
+            if (slide.active && !featuredSlots.contains(id)) {
+                featuredSlots.add(id)
+            }
+            addAdminActivity("Banner saved: ${slide.title}", adminPrimaryAccent)
+            bannerSavingProgress = 1f
+            bannerSaving = false
+            resetBannerDraft(seedOrder = heroSlides.size)
+        }
+    }
+    fun deleteBanner(id: String) {
+        scope.launch {
+            bannerSaving = true
+            bannerSavingProgress = 0.15f
+            deleteHeroBannerFromFirestore(id)
+            heroSlides.removeAll { it.id == id }
+            featuredSlots.remove(id)
+            bannerSaving = false
+            bannerSavingProgress = 0f
+            addAdminActivity("Banner removed: $id", adminWarningAccent)
+        }
     }
     fun updateApplicationStatus(id: String, status: String, log: (String, Color) -> Unit) {
         val idx = adminApplications.indexOfFirst { it.id == id }
@@ -1831,10 +2327,10 @@ private fun GoTickyRoot() {
             add(NavItem(MainScreen.Home, "Home", { Icon(Icons.Outlined.Home, null) }, IconCategory.Discover))
             // Removed "Browse" from bottom navigation – no functionality wired yet.
             add(NavItem(MainScreen.Tickets, "My Tickets", { Icon(Icons.Outlined.ReceiptLong, null) }, IconCategory.Ticket))
-            add(NavItem(MainScreen.Alerts, "Alerts", { Icon(Icons.Outlined.Notifications, null) }, IconCategory.Alerts))
             if (hasAdminAccess) {
                 add(NavItem(MainScreen.Admin, "Admin", { Icon(Icons.Outlined.Shield, null) }, IconCategory.Admin))
             }
+            add(NavItem(MainScreen.Alerts, "Alerts", { Icon(Icons.Outlined.Notifications, null) }, IconCategory.Alerts))
             add(NavItem(MainScreen.Profile, "Profile", { Icon(Icons.Outlined.AccountCircle, null) }, IconCategory.Profile))
         }
     }
@@ -1956,74 +2452,16 @@ private fun GoTickyRoot() {
                         AdminSignInScreen(
                             flagEnabled = adminFeatureFlagEnabled,
                             onBack = { showAdminSignIn = false },
+                            prefillEmail = adminSecurePrefill?.email.orEmpty(),
+                            prefillPasscode = adminSecurePrefill?.password.orEmpty(),
+                            prefillRememberMe = adminSecurePrefill?.rememberMe ?: false,
                             onSubmit = { email, passcode, rememberMe ->
                                 val seed = adminSeedByCredentials(email, passcode)
                                 if (seed == null) {
                                     // Avoid leaking which field is wrong.
                                     AuthResult.Error("Incorrect admin email or passcode.")
                                 } else {
-                                    // Ensure we have some Firebase auth session for rules (anonymous is enough).
-                                    val auth = Firebase.auth
-                                    if (auth.currentUser == null) {
-                                        runCatching { auth.signInAnonymously() }
-                                    }
-                                    // Prefer a real Firebase UID when available; fall back to a stable
-                                    // per-admin key derived from the seed email so the session can still
-                                    // proceed even if anonymous auth is disabled or fails.
-                                    val adminUid = auth.currentUser?.uid ?: seed.email.trim().lowercase()
-
-                                    // Build a local admin profile shell from the seed.
-                                    val adminProfile = UserProfile(
-                                        fullName = seed.fullName,
-                                        email = seed.email,
-                                        countryName = seed.country,
-                                        countryFlag = "\uD83C\uDDF8\uD83C\uDDFF", // Zimbabwe flag
-                                        phoneCode = "+263",
-                                        phoneNumber = seed.phoneNumber,
-                                        birthday = seed.birthday,
-                                        gender = seed.gender,
-                                        photoResKey = null,
-                                        photoUri = seed.photoUri,
-                                        favorites = emptyList(),
-                                        role = "admin",
-                                    )
-
-                                    userProfile = adminProfile
-                                    currentUserRole = "Admin"
-                                    isAuthenticated = true
-                                    isGuestMode = false
-                                    currentScreen = MainScreen.Admin
-                                    showAdminSignIn = false
-
-                                    // Persist admin profile and prefs best-effort; if there is no
-                                    // Firebase auth session, these writes may be rejected by rules
-                                    // but the local admin session will still work.
-                                    runCatching {
-                                        Firebase.firestore.collection("users").document(adminUid).set(
-                                            mapOf(
-                                                "uid" to adminUid,
-                                                "displayName" to adminProfile.fullName,
-                                                "email" to adminProfile.email,
-                                                "role" to adminProfile.role,
-                                                "countryName" to adminProfile.countryName,
-                                                "countryFlag" to adminProfile.countryFlag,
-                                                "phoneCode" to adminProfile.phoneCode,
-                                                "phoneNumber" to adminProfile.phoneNumber,
-                                                "birthday" to adminProfile.birthday,
-                                                "gender" to adminProfile.gender,
-                                                "photoResKey" to adminProfile.photoResKey,
-                                                "photoUri" to adminProfile.photoUri,
-                                                "favorites" to adminProfile.favorites
-                                            ),
-                                            merge = true
-                                        )
-                                    }
-
-                                    val adminPrefs = settingsPrefs.copy(rememberMe = rememberMe)
-                                    settingsPrefs = adminPrefs
-                                    runCatching { saveUserSettingsToFirestore(adminUid, adminPrefs) }
-
-                                    AuthResult.Success
+                                    startAdminSessionFromSeed(seed, rememberMe)
                                 }
                             }
                         )
@@ -2055,6 +2493,19 @@ private fun GoTickyRoot() {
                                     isSignInWarmupActive = true
                                 }
                                 result
+                            },
+                            onSkip = {
+                                isGuestMode = true
+                                isAuthenticated = true
+                                userProfile = defaultUserProfile()
+                                currentUserRole = "customer"
+                                favoriteEvents.clear()
+                                selectedTicket = null
+                                detailEvent = null
+                                showCheckout = false
+                                checkoutSuccess = false
+                                currentScreen = MainScreen.Home
+                                isGuestIntroActive = true
                             },
                             onBiometricSignIn = {
                                 when (val bio = biometricLauncher.authenticate(
@@ -2158,20 +2609,18 @@ private fun GoTickyRoot() {
                                 }
                                 baseResult
                             },
-                            onSkip = {
-                                isGuestMode = true
-                                isAuthenticated = true
-                                userProfile = defaultUserProfile()
-                                currentUserRole = "customer"
-                                favoriteEvents.clear()
-                                selectedTicket = null
-                                detailEvent = null
-                                showCheckout = false
-                                checkoutSuccess = false
-                                currentScreen = MainScreen.Home
-                                isGuestIntroActive = true
+                            onAdminSignIn = {
+                                if (secureSignInInProgress) return@AuthScreen
+                                secureSignInInProgress = true
+                                scope.launch {
+                                    try {
+                                        adminSecurePrefill = loadAdminSecureConfigForPrefill()
+                                        showAdminSignIn = true
+                                    } finally {
+                                        secureSignInInProgress = false
+                                    }
+                                }
                             },
-                            onAdminSignIn = { showAdminSignIn = true },
                             findProfileByEmail = { email -> authRepo.findProfileByEmail(email) },
                             externalUploadInProgress = postSignUpUploadInProgress,
                             externalUploadProgress = postSignUpUploadProgress,
@@ -2326,6 +2775,9 @@ private fun GoTickyRoot() {
                                                     showCheckout = false
                                                     checkoutSuccess = false
                                                     currentScreen = MainScreen.Home
+                                                    showAdminSignIn = false
+                                                    showIntro = false
+                                                    isGuestMode = false
                                                     logoutInProgress = false
                                                     showLogoutConfirm = false
                                                 }
@@ -2497,6 +2949,8 @@ private fun GoTickyRoot() {
                                                             onEventSelected = { event ->
                                                                 detailEvent = event
                                                             },
+                                                            heroSlides = heroSlides,
+                                                            simulatedHeroBannerId = simulatedHeroBannerId,
                                                             recommendations = personalize(recommendations),
                                                             adminApplications = adminApplications,
                                                             onOpenMap = { currentScreen = MainScreen.Map },
@@ -2652,7 +3106,19 @@ private fun GoTickyRoot() {
                                                                 flags = adminFlags,
                                                                 organizers = adminOrganizers,
                                                                 roles = adminRoles,
+                                                                heroSlides = heroSlides,
+                                                                bannerDraft = bannerDraft,
+                                                                onBannerDraftChange = { bannerDraft = it },
+                                                                onPickBannerImage = { bannerPicker.pickFromGallery() },
+                                                                onSaveBanner = { saveBannerFromDraft(bannerDraft) },
+                                                                onDeleteBanner = { id -> deleteBanner(id) },
+                                                                onResetBanner = { resetBannerDraft(seedOrder = heroSlides.size) },
+                                                                bannerSaving = bannerSaving,
+                                                                bannerSavingProgress = bannerSavingProgress,
+                                                                loadingHeroBanners = loadingHeroBanners,
                                                                 featuredSlots = featuredSlots,
+                                                                simulatedHeroBannerId = simulatedHeroBannerId,
+                                                                onSimulatedHeroBannerChange = { simulatedHeroBannerId = it },
                                                                 adminSurface = adminSurface,
                                                                 onSurfaceChange = { adminSurface = it },
                                                                 onBack = { currentScreen = MainScreen.Home },
@@ -2762,7 +3228,19 @@ private fun AdminDashboardScreen(
     flags: List<AdminFeatureFlag>,
     organizers: List<AdminOrganizer>,
     roles: List<AdminRoleEntry>,
+    heroSlides: List<HeroSlide>,
+    bannerDraft: BannerDraft,
+    onBannerDraftChange: (BannerDraft) -> Unit,
+    onPickBannerImage: () -> Unit,
+    onSaveBanner: () -> Unit,
+    onDeleteBanner: (String) -> Unit,
+    onResetBanner: () -> Unit,
+    bannerSaving: Boolean,
+    bannerSavingProgress: Float,
+    loadingHeroBanners: Boolean,
     featuredSlots: List<String>,
+    simulatedHeroBannerId: String?,
+    onSimulatedHeroBannerChange: (String?) -> Unit,
     adminSurface: AdminSurface,
     onSurfaceChange: (AdminSurface) -> Unit,
     onBack: () -> Unit,
@@ -2771,8 +3249,8 @@ private fun AdminDashboardScreen(
     onResolveReport: (String) -> Unit,
     onWarnReport: (String, String, String) -> Unit,
     onToggleFlag: (String, Boolean) -> Unit,
-    onOpenApplications: () -> Unit,
     onOpenModeration: () -> Unit,
+    onOpenApplications: () -> Unit,
     onOpenCatalog: () -> Unit,
     onVerifyOrganizer: (String, Boolean) -> Unit,
     onFreezeOrganizer: (String, Boolean) -> Unit,
@@ -2798,7 +3276,7 @@ private fun AdminDashboardScreen(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "Admin dashboard",
+                text = "Admin Home",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -2821,11 +3299,12 @@ private fun AdminDashboardScreen(
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
-                    AdminSurface.Dashboard to "Dashboard",
+                    AdminSurface.Dashboard to "Admin Home",
                     AdminSurface.Applications to "Applications",
                     AdminSurface.Moderation to "Moderation",
                     AdminSurface.Organizer to "Organizer",
                     AdminSurface.Catalog to "Catalog",
+                    AdminSurface.Banners to "Banners",
                     AdminSurface.Settings to "Settings"
                 ).forEach { (surface, label) ->
                     val selected = adminSurface == surface
@@ -2867,11 +3346,12 @@ private fun AdminDashboardScreen(
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(
-                AdminSurface.Dashboard to "Dashboard",
+                AdminSurface.Dashboard to "Admin Home",
                 AdminSurface.Applications to "Applications",
                 AdminSurface.Moderation to "Moderation",
                 AdminSurface.Organizer to "Organizer",
                 AdminSurface.Catalog to "Catalog",
+                AdminSurface.Banners to "Banners",
                 AdminSurface.Settings to "Settings"
             ).forEach { (surface, label) ->
                 val selected = adminSurface == surface
@@ -3066,10 +3546,27 @@ private fun AdminDashboardScreen(
                     onOpenModeration = onOpenModeration,
                     onOpenApplications = onOpenApplications,
                     addActivity = addActivity,
+                )
+            }
+
+            AdminSurface.Banners -> {
+                BannersSection(
+                    addActivity = addActivity,
                     heroSlides = heroSlides,
                     featuredSlots = featuredSlots,
                     onToggleFeaturedSlot = onToggleFeaturedSlot,
-                    onMoveFeaturedSlot = onMoveFeaturedSlot
+                    onMoveFeaturedSlot = onMoveFeaturedSlot,
+                    bannerDraft = bannerDraft,
+                    onBannerDraftChange = onBannerDraftChange,
+                    onPickBannerImage = onPickBannerImage,
+                    onSaveBanner = onSaveBanner,
+                    onDeleteBanner = onDeleteBanner,
+                    onResetBanner = onResetBanner,
+                    bannerSaving = bannerSaving,
+                    bannerSavingProgress = bannerSavingProgress,
+                    loadingHeroBanners = loadingHeroBanners,
+                    simulatedHeroBannerId = simulatedHeroBannerId,
+                    onSimulatedHeroBannerChange = onSimulatedHeroBannerChange,
                 )
             }
 
@@ -4167,35 +4664,35 @@ private fun ApplicationDetailPanel(
                 } else {
                     comments.forEach { msg ->
                         GlowCard {
-                            Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(10.dp))
+                            Text(
+                                msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(10.dp)
+                            )
                         }
                     }
                 }
-                OutlinedTextField(
-                    value = commentDraft,
-                    onValueChange = { commentDraft = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Add internal comment") },
-                    singleLine = true,
-                    shape = goTickyShapes.medium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = commentDraft,
+                        onValueChange = { updated -> commentDraft = updated },
+                        modifier = Modifier
+                            .weight(1f),
+                        placeholder = { Text("Add internal comment") },
+                        singleLine = true
                     )
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     PrimaryButton(
-                        text = "Post",
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            if (commentDraft.isNotBlank()) {
-                                comments.add(0, commentDraft.trim())
-                                addActivity("Comment on ${app.title}", activityPrimaryAccent)
-                                commentDraft = ""
-                            }
+                        text = "Add",
+                        modifier = Modifier,
+                    ) {
+                        if (commentDraft.isNotBlank()) {
+                            comments.add(0, commentDraft.trim())
+                            addActivity("Comment on ${app.title}", activityPrimaryAccent)
+                            commentDraft = ""
                         }
-                    )
-                    GhostButton(text = "Clear", modifier = Modifier.weight(1f)) { commentDraft = "" }
+                    }
+                    GhostButton(text = "Clear") { commentDraft = "" }
                 }
             }
             Text("Timeline", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
@@ -4540,18 +5037,11 @@ private fun CatalogSection(
     onOpenModeration: () -> Unit,
     onOpenApplications: () -> Unit,
     addActivity: (String, Color) -> Unit,
-    heroSlides: List<HeroSlide>,
-    featuredSlots: List<String>,
-    onToggleFeaturedSlot: (String, Boolean) -> Unit,
-    onMoveFeaturedSlot: (String, Int) -> Unit,
 ) {
     val flagAccent = MaterialTheme.colorScheme.secondary
-    val featuredSlides = featuredSlots.mapNotNull { id -> heroSlides.firstOrNull { it.id == id } }
     var scheduleNote by remember { mutableStateOf("Weekend drop - 9am PST") }
     var scheduleTime by remember { mutableStateOf("Tomorrow 09:00") }
     var isLive by remember { mutableStateOf(false) }
-    val badgeOptions = listOf("Hot", "Limited", "Early Bird")
-    val badgesBySlide = remember { mutableStateMapOf<String, String>() }
     var promoProgress by remember { mutableStateOf(0.35f) }
     val promoAnim = animateFloatAsState(targetValue = if (isLive) 1f else promoProgress, animationSpec = tween(400), label = "promoProgress")
     val publishAccent = MaterialTheme.colorScheme.primary
@@ -4605,15 +5095,306 @@ private fun CatalogSection(
                 )
             }
         }
-        GlowCard(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(title = "Feature flags", action = null)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            flags.forEach { flag ->
+                FlagRow(flag = flag, onToggle = { enabled ->
+                    onToggleFlag(flag.key, enabled)
+                    addActivity("Flag ${flag.label} ${if (enabled) "enabled" else "disabled"}", flagAccent)
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun BannersSection(
+    addActivity: (String, Color) -> Unit,
+    heroSlides: List<HeroSlide>,
+    featuredSlots: List<String>,
+    onToggleFeaturedSlot: (String, Boolean) -> Unit,
+    onMoveFeaturedSlot: (String, Int) -> Unit,
+    bannerDraft: BannerDraft,
+    onBannerDraftChange: (BannerDraft) -> Unit,
+    onPickBannerImage: () -> Unit,
+    onSaveBanner: () -> Unit,
+    onDeleteBanner: (String) -> Unit,
+    onResetBanner: () -> Unit,
+    bannerSaving: Boolean,
+    bannerSavingProgress: Float,
+    loadingHeroBanners: Boolean,
+    simulatedHeroBannerId: String?,
+    onSimulatedHeroBannerChange: (String?) -> Unit,
+) {
+    val flagAccent = MaterialTheme.colorScheme.secondary
+    val badgeOptions = listOf("Hot", "Limited", "Early Bird")
+    val badgesBySlide = remember { mutableStateMapOf<String, String>() }
+    val featuredSlides = featuredSlots.mapNotNull { id -> heroSlides.firstOrNull { it.id == id } }
+    val imagePulse by rememberInfiniteTransition(label = "bannerImagePulse").animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(
+            title = "Banners",
+            action = {
+                NeonTextButton(
+                    text = "Log banner session",
+                    onClick = { addActivity("Reviewing home hero banners", flagAccent) }
+                )
+            }
+        )
+        GlowCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pressAnimated(scaleDown = 0.98f)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(14.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Banner builder", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            if (loadingHeroBanners) "Syncing banners from Firestore..." else "Craft and launch hero banners for the public home screen.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (loadingHeroBanners || bannerSaving) {
+                        LoadingSpinner(size = 26)
+                    }
+                }
+                if (bannerSaving) {
+                    AnimatedProgressBar(
+                        progress = bannerSavingProgress,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Pill(text = "ID: ${bannerDraft.id}", modifier = Modifier)
+                    Pill(text = "Order ${bannerDraft.order}", modifier = Modifier)
+                    if (!bannerDraft.imageUrl.isNullOrBlank()) {
+                        Pill(text = "Has image", modifier = Modifier, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), textColor = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                OutlinedTextField(
+                    value = bannerDraft.title,
+                    onValueChange = { onBannerDraftChange(bannerDraft.copy(title = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Title") },
+                    singleLine = true,
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                OutlinedTextField(
+                    value = bannerDraft.subtitle,
+                    onValueChange = { onBannerDraftChange(bannerDraft.copy(subtitle = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Subtitle") },
+                    singleLine = false,
+                    minLines = 2,
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = bannerDraft.cta,
+                        onValueChange = { onBannerDraftChange(bannerDraft.copy(cta = it)) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("CTA label") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    OutlinedTextField(
+                        value = bannerDraft.tag,
+                        onValueChange = { onBannerDraftChange(bannerDraft.copy(tag = it)) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Tag / chip") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = bannerDraft.location,
+                        onValueChange = { onBannerDraftChange(bannerDraft.copy(location = it)) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Location") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    OutlinedTextField(
+                        value = bannerDraft.accentHex,
+                        onValueChange = {
+                            val color = colorFromHex(it)
+                            onBannerDraftChange(bannerDraft.copy(accentHex = it, accent = color))
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Accent hex") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                }
+                OutlinedTextField(
+                    value = bannerDraft.imageHint,
+                    onValueChange = { onBannerDraftChange(bannerDraft.copy(imageHint = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Image hint (for prompt/reference)") },
+                    singleLine = false,
+                    minLines = 2,
+                    shape = goTickyShapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                // Lightweight hero-style preview of the current draft
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Preview",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val previewSlide = remember(bannerDraft) {
+                    HeroSlide(
+                        id = bannerDraft.id.ifBlank { "preview" },
+                        title = bannerDraft.title.ifBlank { "Untitled banner" },
+                        subtitle = bannerDraft.subtitle.ifBlank { "Subtitle and supporting copy will appear here." },
+                        cta = bannerDraft.cta.ifBlank { "View details" },
+                        tag = bannerDraft.tag.ifBlank { "Hero" },
+                        accent = bannerDraft.accent,
+                        imageHint = bannerDraft.imageHint.ifBlank { "Hero background art hint" },
+                        location = bannerDraft.location.ifBlank { "Location" },
+                        heroImageKey = null,
+                        imageUrl = bannerDraft.imageUrl,
+                        accentHex = bannerDraft.accentHex,
+                        order = bannerDraft.order,
+                        active = bannerDraft.active,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                ) {
+                    HeroCard(slide = previewSlide, onCta = {})
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Display order", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(
+                            value = bannerDraft.order.toFloat(),
+                            onValueChange = { onBannerDraftChange(bannerDraft.copy(order = it.roundToInt())) },
+                            valueRange = 0f..20f,
+                            steps = 19,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Active", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Switch(checked = bannerDraft.active, onCheckedChange = { onBannerDraftChange(bannerDraft.copy(active = it)) })
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    NeonTextButton(
+                        text = if (bannerDraft.localImageUri == null) "Pick image" else "Change image",
+                        modifier = Modifier
+                            .weight(1f)
+                            .pressAnimated(scaleDown = 0.97f),
+                        onClick = onPickBannerImage
+                    )
+                    if (bannerDraft.localImageUri != null || bannerDraft.imageUrl != null) {
+                        Pill(
+                            text = "Image ready",
+                            modifier = Modifier.graphicsLayer(scaleX = imagePulse, scaleY = imagePulse),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                            textColor = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    PrimaryButton(
+                        text = if (bannerSaving) "Saving..." else "Save & simulate",
+                        modifier = Modifier
+                            .weight(1f)
+                            .pressAnimated(scaleDown = 0.97f),
+                    ) {
+                        if (!bannerSaving) {
+                            onSaveBanner()
+                            val simulateId = bannerDraft.id.ifBlank { null }
+                            if (simulateId != null) {
+                                onSimulatedHeroBannerChange(simulateId)
+                                val label = bannerDraft.title.ifBlank { "new banner" }
+                                addActivity("started hero simulation for $label", bannerDraft.accent)
+                            }
+                        }
+                    }
+                    GhostButton(
+                        text = if (bannerSaving) "Saving..." else "Save only",
+                        modifier = Modifier
+                            .weight(1f)
+                            .pressAnimated(scaleDown = 0.97f),
+                        onClick = { if (!bannerSaving) onSaveBanner() }
+                    )
+                    NeonTextButton(
+                        text = "Reset",
+                        modifier = Modifier
+                            .weight(1f)
+                            .pressAnimated(scaleDown = 0.97f),
+                        onClick = { onResetBanner() }
+                    )
+                }
+            }
+        }
+        GlowCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pressAnimated(scaleDown = 0.98f)
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(14.dp)) {
                 Text("Featured slots", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
                 if (featuredSlides.isEmpty()) {
                     Text("No featured slots selected.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        featuredSlides.forEachIndexed { idx, slide ->
-                            GlowCard {
+                        featuredSlots.mapNotNull { id -> heroSlides.firstOrNull { it.id == id } }.forEachIndexed { idx, slide ->
+                            GlowCard(
+                                modifier = Modifier.pressAnimated(scaleDown = 0.97f)
+                            ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -4630,7 +5411,7 @@ private fun CatalogSection(
                                         IconButton(onClick = { onMoveFeaturedSlot(slide.id, -1) }, enabled = idx > 0) {
                                             Icon(Icons.Outlined.ArrowUpward, contentDescription = "Move up", tint = MaterialTheme.colorScheme.onSurface)
                                         }
-                                        IconButton(onClick = { onMoveFeaturedSlot(slide.id, +1) }, enabled = idx < featuredSlides.lastIndex) {
+                                        IconButton(onClick = { onMoveFeaturedSlot(slide.id, +1) }, enabled = idx < featuredSlots.lastIndex) {
                                             Icon(Icons.Outlined.ArrowDownward, contentDescription = "Move down", tint = MaterialTheme.colorScheme.onSurface)
                                         }
                                     }
@@ -4644,8 +5425,12 @@ private fun CatalogSection(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     heroSlides.forEach { slide ->
                         val isFeatured = featuredSlots.contains(slide.id)
+                        val isSimulated = simulatedHeroBannerId == slide.id
                         val currentBadge = badgesBySlide[slide.id]
-                        GlowCard {
+                        val simulationAccent = MaterialTheme.colorScheme.primary
+                        GlowCard(
+                            modifier = Modifier.pressAnimated(scaleDown = 0.97f)
+                        ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -4654,33 +5439,69 @@ private fun CatalogSection(
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Pill(text = if (isFeatured) "Featured" else "Available", modifier = Modifier)
+                                    if (isSimulated) {
+                                        Pill(
+                                            text = "Simulated in hero",
+                                            modifier = Modifier,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                                            textColor = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                     Text(slide.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
                                 }
                                 Text(slide.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                                     PrimaryButton(
                                         text = if (isFeatured) "Remove from featured" else "Add to featured",
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .pressAnimated(scaleDown = 0.96f),
                                         onClick = { onToggleFeaturedSlot(slide.id, !isFeatured) }
                                     )
+                                    GhostButton(
+                                        text = if (isSimulated) "Stop simulate" else "Simulate in hero",
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .pressAnimated(scaleDown = 0.96f),
+                                    ) {
+                                        onSimulatedHeroBannerChange(if (isSimulated) null else slide.id)
+                                        val verb = if (isSimulated) "ended" else "started"
+                                        addActivity("$verb hero simulation for ${slide.title}", simulationAccent)
+                                    }
                                     if (isFeatured) {
-                                        GhostButton(text = "Move up", modifier = Modifier.weight(1f)) { onMoveFeaturedSlot(slide.id, -1) }
-                                        GhostButton(text = "Move down", modifier = Modifier.weight(1f)) { onMoveFeaturedSlot(slide.id, +1) }
+                                        GhostButton(
+                                            text = "Move up",
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .pressAnimated(scaleDown = 0.96f)
+                                        ) { onMoveFeaturedSlot(slide.id, -1) }
+                                        GhostButton(
+                                            text = "Move down",
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .pressAnimated(scaleDown = 0.96f)
+                                        ) { onMoveFeaturedSlot(slide.id, +1) }
                                     }
                                 }
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     badgeOptions.forEach { badge ->
                                         val selected = currentBadge == badge
+                                        val badgeColor = when (badge) {
+                                            "Hot" -> Color(0xFFFF6B6B)
+                                            "Limited" -> Color(0xFFFFC85C)
+                                            "Early Bird" -> Color(0xFF4BE8FF)
+                                            else -> flagAccent
+                                        }
                                         NeonSelectablePill(
                                             text = badge,
                                             selected = selected,
                                             onClick = {
                                                 if (selected) {
                                                     badgesBySlide.remove(slide.id)
-                                                    addActivity("Removed badge $badge from ${slide.title}", flagAccent)
+                                                    addActivity("Removed badge $badge from ${slide.title}", badgeColor)
                                                 } else {
                                                     badgesBySlide[slide.id] = badge
-                                                    addActivity("Badge $badge set for ${slide.title}", flagAccent)
+                                                    addActivity("Badge $badge set for ${slide.title}", badgeColor)
                                                 }
                                             }
                                         )
@@ -4696,15 +5517,6 @@ private fun CatalogSection(
                         }
                     }
                 }
-            }
-        }
-        SectionHeader(title = "Feature flags", action = null)
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            flags.forEach { flag ->
-                FlagRow(flag = flag, onToggle = { enabled ->
-                    onToggleFlag(flag.key, enabled)
-                    addActivity("Flag ${flag.label} ${if (enabled) "enabled" else "disabled"}", flagAccent)
-                })
             }
         }
     }
@@ -4920,6 +5732,8 @@ private fun HomeScreen(
     isGuest: Boolean,
     onOpenAlerts: () -> Unit,
     onEventSelected: (org.example.project.data.EventItem) -> Unit,
+    heroSlides: List<HeroSlide>,
+    simulatedHeroBannerId: String?,
     recommendations: List<Recommendation>,
     adminApplications: List<AdminApplication>,
     onOpenMap: () -> Unit,
@@ -5109,6 +5923,7 @@ private fun HomeScreen(
                     )
                 )
             },
+            simulatedHeroBannerId = simulatedHeroBannerId,
         )
         QuickSearchBar(
             query = searchQuery,
@@ -6250,12 +7065,14 @@ private fun GoTickySnackbar(
 private fun HeroCarousel(
     slides: List<HeroSlide>,
     onCta: (HeroSlide) -> Unit,
+    simulatedHeroBannerId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     if (slides.isEmpty()) return
 
     val listState = rememberLazyListState()
     val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(slides.size) {
         if (slides.size <= 1) return@LaunchedEffect
@@ -6270,6 +7087,14 @@ private fun HeroCarousel(
             if (next == 0 || next == lastIndex) {
                 direction *= -1
             }
+        }
+    }
+
+    LaunchedEffect(simulatedHeroBannerId, slides.size) {
+        val targetId = simulatedHeroBannerId ?: return@LaunchedEffect
+        val index = slides.indexOfFirst { it.id == targetId }
+        if (index >= 0) {
+            listState.animateScrollToItem(index)
         }
     }
 
@@ -6320,6 +7145,7 @@ private fun HeroCarousel(
                     val translationXPx by animateFloatAsState(translationXTarget, animationSpec = tween(320), label = "heroTx-$index")
                     val alpha by animateFloatAsState(alphaTarget, animationSpec = tween(240), label = "heroAlpha-$index")
 
+                    val isSimulated = simulatedHeroBannerId == slide.id
                     Box(
                         modifier = Modifier
                             .width(cardWidth)
@@ -6333,7 +7159,7 @@ private fun HeroCarousel(
                             }
                             .zIndex(z)
                     ) {
-                        HeroCard(slide = slide, onCta = { onCta(slide) })
+                        HeroCard(slide = slide, onCta = { onCta(slide) }, simulated = isSimulated)
                     }
                 }
             }
@@ -6344,11 +7170,30 @@ private fun HeroCarousel(
             modifier = Modifier
                 .padding(top = 8.dp)
         )
+        if (simulatedHeroBannerId != null && slides.any { it.id == simulatedHeroBannerId }) {
+            NeonTextButton(
+                text = "Jump to simulated slide",
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .pressAnimated(scaleDown = 0.97f),
+                onClick = {
+                    val targetId = simulatedHeroBannerId
+                    if (targetId != null) {
+                        val index = slides.indexOfFirst { it.id == targetId }
+                        if (index >= 0) {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(index)
+                            }
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 
 @Composable
-private fun HeroCard(slide: HeroSlide, onCta: () -> Unit) {
+private fun HeroCard(slide: HeroSlide, onCta: () -> Unit, simulated: Boolean = false) {
     val accent = slide.accent
     Box(
         modifier = Modifier
@@ -6361,27 +7206,39 @@ private fun HeroCard(slide: HeroSlide, onCta: () -> Unit) {
     ) {
         // Hero photo layer
         val photoRes = slide.heroImageKey?.let { key -> Res.allDrawableResources[key] }
-        if (photoRes != null) {
-            Image(
-                painter = painterResource(photoRes),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                accent.copy(alpha = 0.22f),
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+        val remotePainter = slide.imageUrl?.let { rememberUriPainter(it) }
+        when {
+            remotePainter != null -> {
+                Image(
+                    painter = remotePainter,
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            photoRes != null -> {
+                Image(
+                    painter = painterResource(photoRes),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            else -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    accent.copy(alpha = 0.22f),
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                )
                             )
                         )
-                    )
-            )
+                )
+            }
         }
 
         // Dark overlay + grain to keep text readable
@@ -6398,6 +7255,28 @@ private fun HeroCard(slide: HeroSlide, onCta: () -> Unit) {
                 )
                 .graphicsLayer(alpha = 0.9f)
         )
+        if (simulated) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color(0xFF4BE8FF).copy(alpha = 0.18f))
+                    .border(1.dp, Color(0xFF4BE8FF).copy(alpha = 0.9f), goTickyShapes.extraLarge)
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .clip(goTickyShapes.small)
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Simulated",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF4BE8FF)
+                )
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -9458,7 +10337,7 @@ private fun CheckoutSuccessScreen(
     onBackHome: () -> Unit,
 ) {
     var confettiVisible by remember { mutableStateOf(false) }
-    val paidAtInstant = remember { currentInstant() }
+    val paidAtInstant: Instant = remember { currentInstant() }
     val paidAt = remember(paidAtInstant) { paidAtInstant.toLocalDateTime(TimeZone.currentSystemDefault()) }
     val paidAtLabel = remember(paidAt) {
         val date = paidAt.date
@@ -10876,7 +11755,7 @@ private fun EventDetailScreen(
     var bannerLogged by remember { mutableStateOf(false) }
     val ticketOptions = listOf("Early Bird", "General / Standard", "VIP", "Golden Circle")
     var selectedTicketType by remember { mutableStateOf<String?>(null) }
-    val nowState = remember { mutableStateOf(currentInstant()) }
+    val nowState = remember { mutableStateOf<Instant>(currentInstant()) }
     LaunchedEffect(Unit) {
         while (true) {
             nowState.value = currentInstant()
@@ -10887,12 +11766,12 @@ private fun EventDetailScreen(
     val earlyBirdActive = earlyBirdWindow?.let { now >= it.start && now <= it.end } ?: false
     val earlyBirdExpired = earlyBirdWindow?.let { now > it.end } ?: false
     val earlyBirdPendingApproval = adminApplication != null && adminApplication.status != "Approved"
-    val earlyBirdRemaining = earlyBirdWindow?.let { window ->
+    val earlyBirdRemaining: Duration? = earlyBirdWindow?.let { window ->
         (window.end - now).coerceAtLeast(ZERO)
     }
     val earlyBirdProgressTarget = earlyBirdWindow?.let { window ->
-        val totalMs = (window.end - window.start).inWholeMilliseconds.coerceAtLeast(1)
-        val elapsedMs = (now - window.start).inWholeMilliseconds.coerceAtLeast(0)
+        val totalMs = (window.end - window.start).toLong(DurationUnit.MILLISECONDS).coerceAtLeast(1L)
+        val elapsedMs = (now - window.start).toLong(DurationUnit.MILLISECONDS).coerceAtLeast(0L)
         (elapsedMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
     } ?: 0f
     val earlyBirdProgress by animateFloatAsState(

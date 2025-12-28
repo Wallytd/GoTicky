@@ -22,6 +22,12 @@ service cloud.firestore {
       return !('role' in data) || data.role in ["customer", "admin"];
     }
 
+    function validAdminSecure(data) {
+      return ('email' in data && data.email is string && data.email.size() > 0) &&
+             ('password' in data && data.password is string && data.password.size() > 0) &&
+             (!('rememberMe' in data) || data.rememberMe is bool);
+    }
+
     function immutableUid(userId, data) {
       return !('uid' in data) || data.uid == userId;
     }
@@ -48,10 +54,33 @@ service cloud.firestore {
       }
     }
 
-    // Admin profiles collection used for admin control room.
+    // Global app settings. Keep admin_secure readable for backwards compatibility only.
+    match /app_settings/{docId} {
+      // Allow reads for bootstrapping legacy secure admin sign-in configs even before auth/app-check succeeds.
+      allow read: if docId == "admin_secure";
+      // Writes to the legacy admin_secure document are no longer allowed; new configs live under adminProfiles.
+      allow write: if false;
+    }
+
+    // Admin profiles collection used for admin control room and per-admin settings.
     match /adminProfiles/{adminName} {
       allow read: if true;
+      // Admin profile documents are seeded server-side or via the app's seeding utilities while signed in.
       allow write: if isSignedIn();
+
+      // Per-admin app settings, e.g. /adminProfiles/{adminName}/app_settings/admin_secure
+      match /app_settings/{docId} {
+        // Allow reads for secure admin bootstrap regardless of auth state so the app can fetch
+        // pre-configured secure credentials and then perform its own gating.
+        allow read: if docId == "admin_secure";
+
+        // Writes must pass the same validation as the legacy admin_secure document.
+        // We intentionally do not require auth here so the client can bootstrap secure
+        // admin config even if Firebase Auth is not fully wired yet.
+        allow write: if
+          docId == "admin_secure" &&
+          validAdminSecure(request.resource.data);
+      }
     }
 
     // Human-friendly user directory index for console/admin inspection.
