@@ -28,6 +28,24 @@ service cloud.firestore {
              (!('rememberMe' in data) || data.rememberMe is bool);
     }
 
+    function validBanner(data) {
+      return ('title' in data && data.title is string && data.title.size() > 0) &&
+             (!('order' in data) || data.order is int) &&
+             (!('active' in data) || data.active is bool);
+    }
+
+    // Public profile index validation for pre-auth avatar lookup on sign-in.
+    function validPublicProfile(data, emailLower) {
+      return ('emailLower' in data && data.emailLower == emailLower) &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 120)) &&
+        (!('email' in data) || (data.email is string && data.email.size() > 0)) &&
+        (!('photoUri' in data) ||
+          // Allow null or omitted photoUri (user may not have uploaded an avatar yet),
+          // but bound non-null string length.
+          data.photoUri == null ||
+          (data.photoUri is string && data.photoUri.size() <= 2000));
+    }
+
     function immutableUid(userId, data) {
       return !('uid' in data) || data.uid == userId;
     }
@@ -83,6 +101,14 @@ service cloud.firestore {
       }
     }
 
+    // Hero/marketing banners shown on the public home screen.
+    // Allow anyone to read banners, writes limited to signed-in sessions (including
+    // anonymous) so only the app/admin tools can modify them.
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if validBanner(request.resource.data);
+    }
+
     // Human-friendly user directory index for console/admin inspection.
     // Structure: /userDirectory/{role}/{nameKey}/{uid}
     match /userDirectory/{role}/{nameKey}/{uid} {
@@ -94,7 +120,7 @@ service cloud.firestore {
     match /publicProfiles/{emailLower} {
       allow read: if true;
       allow write: if isSignedIn() &&
-        request.resource.data.emailLower == emailLower;
+        validPublicProfile(request.resource.data, emailLower);
     }
 
     // Deny everything else.

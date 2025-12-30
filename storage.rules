@@ -23,6 +23,17 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
+    // Hero/banner images used on the public home screen.
+    // Public read so the home screen can load images without auth, writes allowed
+    // with strict size and content-type limits (no auth requirement, to work with
+    // anonymous or placeholder sessions).
+    match /banners/{allPaths=**} {
+      allow read: if true;
+      allow write: if
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
     // Deny everything else by default.
     match /{allPaths=**} {
       allow read, write: if false;

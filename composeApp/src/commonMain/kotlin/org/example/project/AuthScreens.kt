@@ -110,6 +110,7 @@ import org.example.project.platform.rememberProfileImageStorage
 import org.example.project.platform.rememberUriPainter
 import org.example.project.ui.components.AnimatedProgressBar
 import org.example.project.ui.components.GoTickyMotion
+import org.example.project.ui.components.LoadingRow
 import org.example.project.ui.components.LoadingSpinner
 import org.example.project.ui.components.NeonTextButton
 import org.example.project.ui.components.PrimaryButton
@@ -560,7 +561,27 @@ fun AuthScreen(
                             fetchingProfile = false
                         } else {
                             fetchingProfile = true
-                            fetchedProfileForEmail = findProfileByEmail(emailTrimmed)
+                            // Ensure the loading avatar spinner is visible for at least 400 ms
+                            val minDelayJob = launch { delay(400L) }
+                            val profile = findProfileByEmail(emailTrimmed)
+                            val fallbackPhoto = fallbackAvatarUrl(emailTrimmed)
+                            fetchedProfileForEmail = when {
+                                profile != null && !profile.photoUri.isNullOrBlank() -> profile
+                                profile != null -> profile.copy(photoUri = fallbackPhoto)
+                                else -> UserProfile(
+                                    fullName = emailTrimmed.substringBefore("@").ifBlank { "Found profile" },
+                                    email = emailTrimmed,
+                                    countryName = "Zimbabwe",
+                                    countryFlag = "",
+                                    phoneCode = "+263",
+                                    phoneNumber = "",
+                                    birthday = "",
+                                    gender = "",
+                                    photoResKey = null,
+                                    photoUri = fallbackPhoto
+                                )
+                            }
+                            minDelayJob.join()
                             fetchingProfile = false
                         }
                     }
@@ -601,7 +622,7 @@ fun AuthScreen(
                                 }
                             }
                         }
-                        AnimatedVisibility(visible = fetchedPainter != null) {
+                        AnimatedVisibility(visible = fetchedProfileForEmail != null) {
                             Text(
                                 text = fetchedProfileForEmail?.fullName?.ifBlank { "Found profile" } ?: "",
                                 style = MaterialTheme.typography.labelMedium,
@@ -654,6 +675,13 @@ fun AuthScreen(
                 val emailTrimmed = email.trim()
                 val photoMatchesEmail = profilePhotoUri != null &&
                         profilePhotoOwnerEmail?.equals(emailTrimmed, ignoreCase = true) == true
+                LaunchedEffect(emailTrimmed, profilePhotoUri) {
+                    if (profilePhotoUri != null && emailTrimmed.isNotBlank() &&
+                        !profilePhotoOwnerEmail.equals(emailTrimmed, ignoreCase = true)
+                    ) {
+                        profilePhotoOwnerEmail = emailTrimmed
+                    }
+                }
                 val avatarPainter = if (photoMatchesEmail) profilePhotoUri?.let { rememberUriPainter(it) } else null
                 val handWave by rememberInfiniteTransition(label = "handWave")
                     .animateFloat(
@@ -1108,8 +1136,12 @@ fun AuthScreen(
                                 return@launch
                             }
 
-                            val result = if (mode == AuthMode.SignIn) {
-                                onSignIn(email, password, rememberMe)
+                            val result: AuthResult
+                            if (mode == AuthMode.SignIn) {
+                                // Keep the sign-in loading state visible for at least 700 ms
+                                val minDelayJob = launch { delay(700L) }
+                                result = onSignIn(email, password, rememberMe)
+                                minDelayJob.join()
                             } else {
                                 val safePhotoUri = if (photoMatchesEmail) profilePhotoUri else null
                                 val profile = UserProfile(
@@ -1124,7 +1156,7 @@ fun AuthScreen(
                                     photoResKey = null,
                                     photoUri = safePhotoUri
                                 )
-                                onSignUp(profile, password)
+                                result = onSignUp(profile, password)
                             }
                             when (result) {
                                 is AuthResult.Success -> {
@@ -1204,8 +1236,23 @@ fun AuthScreen(
                 }
             }
             AnimatedProgressBar(progress = if (mode == AuthMode.SignIn) 0.35f else 0.65f)
-            if (isLoading) {
-                LoadingSpinner(modifier = Modifier.size(32.dp))
+            AnimatedVisibility(visible = isLoading) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(goTickyShapes.medium)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    LoadingRow(modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "Signing you in…",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             errorText?.let { msg ->
                 Text(
@@ -1749,9 +1796,10 @@ private fun SocialRow(
     onSkip: () -> Unit,
     onBiometric: () -> Unit,
     onAdminSignIn: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         // Center the pill buttons horizontally while keeping even spacing between them.
         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
@@ -2193,6 +2241,16 @@ private fun SplashHalo() {
             radius = size.minDimension / 2f
         )
     }
+}
+
+private fun fallbackAvatarUrl(email: String): String {
+    val seed = email.trim().lowercase().ifBlank { "goticky-user" }
+    val sanitizedSeed = buildString {
+        seed.forEach { ch ->
+            append(if (ch.isLetterOrDigit()) ch else '-')
+        }
+    }
+    return "https://api.dicebear.com/7.x/shapes/svg?seed=$sanitizedSeed&backgroundType=gradientLinear&scale=95"
 }
 
 private enum class AuthMode { SignIn, SignUp }

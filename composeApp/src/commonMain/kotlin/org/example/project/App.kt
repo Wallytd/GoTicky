@@ -103,6 +103,8 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Upload
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -144,8 +146,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -154,6 +156,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
@@ -175,12 +178,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import org.example.project.data.TicketPass
 import org.example.project.data.OrderSummary
 import org.example.project.data.Recommendation
-import org.example.project.data.PriceAlert
-import org.example.project.data.OrganizerEvent
+import org.example.project.data.prettyDate
 import org.example.project.data.EventItem
+import org.example.project.data.OrganizerEvent
+import org.example.project.data.NewsFlash
 import org.example.project.data.sampleAlerts
 import org.example.project.data.sampleEvents
 import org.example.project.data.sampleOrder
@@ -190,9 +195,12 @@ import org.example.project.data.sampleOrganizerEvents
 import org.example.project.data.sampleNearbyEvents
 import org.example.project.data.EntertainmentNewsItem
 import org.example.project.data.sampleEntertainmentNews
+import org.example.project.data.toEntertainmentNewsItem
 import org.example.project.data.AdminSeed
+import org.example.project.data.adminSeeds
 import org.example.project.data.adminSeedByCredentials
 import org.example.project.data.seedAdminProfilesIfMissing
+import org.example.project.data.PriceAlert
 import org.example.project.analytics.Analytics
 import org.example.project.analytics.AnalyticsEvent
 import org.example.project.ui.components.AnimatedProgressBar
@@ -253,6 +261,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.SpanStyle
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
@@ -267,6 +276,439 @@ import org.example.project.data.adminSeeds
 
 private enum class MainScreen {
     Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
+}
+
+@Composable
+private fun NewsFlashSection(
+    newsFlashItems: List<NewsFlash>,
+    newsFeedItems: List<EntertainmentNewsItem>,
+    loadingNewsFlash: Boolean,
+    newsFlashError: String?,
+    editingNewsFlash: NewsFlash?,
+    onEditNewsFlashChange: (NewsFlash?) -> Unit,
+    publishedAtInput: String,
+    onPublishedAtChange: (String) -> Unit,
+    expiresAtInput: String,
+    onExpiresAtChange: (String) -> Unit,
+    onRefreshNewsFlash: () -> Unit,
+    onSaveNewsFlash: (NewsFlash) -> Unit,
+    addActivity: (String, Color) -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.secondary
+    val scope = rememberCoroutineScope()
+    val listScroll = rememberLazyListState()
+    var categoryExpanded by remember { mutableStateOf(false) }
+    val categories = remember { IconCategory.values().toList() }
+    val statusCounts = remember(newsFlashItems) {
+        newsFlashItems.groupingBy { it.status }.eachCount()
+    }
+    val seedDraft = editingNewsFlash ?: NewsFlash(
+        id = "nf-${currentTimestampIsoString()}",
+        title = "",
+        summary = "",
+        source = "GoTicky desk",
+        tag = "Update",
+        category = IconCategory.Discover,
+        imageUrl = "",
+        imageKey = "",
+        ctaLabel = "",
+        ctaLink = "",
+        publishedAt = currentInstant(),
+        expiresAt = null,
+        priority = 0,
+        pinned = false,
+        status = "draft"
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(
+            title = "News Flash",
+            action = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (loadingNewsFlash) LoadingSpinner(size = 22)
+                    NeonTextButton(text = "Refresh", onClick = onRefreshNewsFlash, modifier = Modifier.pressAnimated())
+                    NeonTextButton(text = if (editingNewsFlash != null) "New draft" else "Create", onClick = {
+                        onEditNewsFlashChange(
+                            NewsFlash(
+                                id = "nf-${currentTimestampIsoString()}",
+                                title = "",
+                                summary = "",
+                                source = "GoTicky desk",
+                                tag = "Update",
+                                category = IconCategory.Discover,
+                                publishedAt = currentInstant(),
+                                expiresAt = null,
+                                priority = 0,
+                                pinned = false,
+                                status = "draft"
+                            )
+                        )
+                    }, modifier = Modifier.pressAnimated(scaleDown = 0.96f))
+                }
+            }
+        )
+
+        if (newsFlashError != null) {
+            GlowCard {
+                Text(
+                    text = "Error: $newsFlashError",
+                    modifier = Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        GlowCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pressAnimated(scaleDown = 0.98f)
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        Text("Active to public", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                        val activeCount = newsFeedItems.size
+                        Text("$activeCount live on home", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        statusCounts.forEach { (status, count) ->
+                            Pill(text = "$status • $count", modifier = Modifier, color = MaterialTheme.colorScheme.surfaceVariant, textColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                AnimatedProgressBar(
+                    progress = if (newsFlashItems.isEmpty()) 0f else newsFeedItems.size / newsFlashItems.size.toFloat(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (newsFeedItems.isEmpty()) {
+            val shimmer = rememberInfiniteTransition(label = "newsFeedEmpty")
+            val drift by shimmer.animateFloat(
+                initialValue = 0f,
+                targetValue = 320f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1200, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "newsFeedDrift"
+            )
+            GlowCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pressAnimated(scaleDown = 0.98f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .height(120.dp)
+                        .fillMaxWidth()
+                        .clip(goTickyShapes.large)
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                                ),
+                                start = Offset.Zero,
+                                end = Offset(drift, drift)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No live news yet — create one to light up the home feed.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        GlowCard(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                    NeonTextButton(text = "Scroll to top", onClick = { scope.launch { listScroll.animateScrollToItem(0) } })
+                }
+                if (newsFlashItems.isEmpty()) {
+                    val shimmer = rememberInfiniteTransition(label = "newsQueueEmpty")
+                    val drift by shimmer.animateFloat(
+                        initialValue = -140f,
+                        targetValue = 220f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 1100, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "newsQueueDrift"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .height(140.dp)
+                            .fillMaxWidth()
+                            .clip(goTickyShapes.large)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    ),
+                                    start = Offset.Zero,
+                                    end = Offset(drift, drift)
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("No drafts yet", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Create a flash to populate the queue.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listScroll,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.heightIn(max = 320.dp)
+                    ) {
+                        items(newsFlashItems) { flash ->
+                            val statusColor = when (flash.status) {
+                                "published" -> Color(0xFF4CAF50)
+                                "scheduled" -> Color(0xFFFFC94A)
+                                "archived" -> MaterialTheme.colorScheme.outline
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+                            GlowCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pressAnimated(scaleDown = 0.97f),
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(flash.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                                        Pill(text = flash.status, modifier = Modifier, color = statusColor.copy(alpha = 0.14f), textColor = statusColor)
+                                        if (flash.pinned) Pill(text = "Pinned", modifier = Modifier, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), textColor = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.weight(1f))
+                                        Text("#${flash.priority}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Text(flash.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("${flash.tag} • ${flash.source} • ${flash.publishedAt.prettyDate()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        NeonTextButton(text = "Edit", onClick = {
+                                            onEditNewsFlashChange(flash)
+                                            onPublishedAtChange(flash.publishedAt.toString())
+                                            onExpiresAtChange(flash.expiresAt?.toString() ?: "")
+                                        })
+                                        NeonTextButton(text = if (flash.status == "published") "Archive" else "Publish", onClick = {
+                                            val next = if (flash.status == "published") "archived" else "published"
+                                            onSaveNewsFlash(flash.copy(status = next, updatedAt = currentInstant()))
+                                            addActivity("News Flash ${flash.title} -> $next", statusColor)
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        GlowCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pressAnimated(scaleDown = 0.97f)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(if (editingNewsFlash != null) "Edit News Flash" else "Create News Flash", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                OutlinedTextField(
+                    value = seedDraft.title,
+                    onValueChange = { onEditNewsFlashChange(seedDraft.copy(title = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Title") },
+                    singleLine = true,
+                    shape = goTickyShapes.medium
+                )
+                OutlinedTextField(
+                    value = seedDraft.summary,
+                    onValueChange = { onEditNewsFlashChange(seedDraft.copy(summary = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Summary") },
+                    singleLine = false,
+                    minLines = 2,
+                    shape = goTickyShapes.medium
+                )
+                OutlinedTextField(
+                    value = seedDraft.source,
+                    onValueChange = { onEditNewsFlashChange(seedDraft.copy(source = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Source") },
+                    singleLine = true,
+                    shape = goTickyShapes.medium
+                )
+                OutlinedTextField(
+                    value = seedDraft.tag,
+                    onValueChange = { onEditNewsFlashChange(seedDraft.copy(tag = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Tag") },
+                    singleLine = true,
+                    shape = goTickyShapes.medium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = seedDraft.ctaLabel.orEmpty(),
+                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(ctaLabel = it)) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("CTA label (optional)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                    OutlinedTextField(
+                        value = seedDraft.ctaLink.orEmpty(),
+                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(ctaLink = it)) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("CTA link (optional)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = seedDraft.imageUrl.orEmpty(),
+                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageUrl = it)) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Image URL (optional)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                    OutlinedTextField(
+                        value = seedDraft.imageKey.orEmpty(),
+                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageKey = it)) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Image key (cache)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = publishedAtInput,
+                        onValueChange = onPublishedAtChange,
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Published at (ISO)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                    OutlinedTextField(
+                        value = expiresAtInput,
+                        onValueChange = onExpiresAtChange,
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Expires at (ISO)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = seedDraft.priority.toString(),
+                        onValueChange = { value ->
+                            val p = value.toIntOrNull() ?: 0
+                            onEditNewsFlashChange(seedDraft.copy(priority = p))
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Priority") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                    Box(modifier = Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            value = seedDraft.category.name,
+                            onValueChange = { },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated(scaleDown = 0.98f)
+                                .pointerInput(Unit) {
+                                    detectTapGestures { categoryExpanded = true }
+                                },
+                            label = { Text("Category") },
+                            singleLine = true,
+                            shape = goTickyShapes.medium,
+                            readOnly = true,
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = if (categoryExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenu(
+                            expanded = categoryExpanded,
+                            onDismissRequest = { categoryExpanded = false }
+                        ) {
+                            categories.forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.name) },
+                                    onClick = {
+                                        categoryExpanded = false
+                                        onEditNewsFlashChange(seedDraft.copy(category = category))
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PrimaryButton(
+                        text = "Save",
+                        modifier = Modifier.weight(1f).pressAnimated(scaleDown = 0.96f),
+                    ) {
+                        val published = parseInstantOrNull(publishedAtInput) ?: currentInstant()
+                        val expires = parseInstantOrNull(expiresAtInput)
+                        val draft = seedDraft.copy(
+                            publishedAt = published,
+                            expiresAt = expires,
+                            updatedAt = currentInstant()
+                        )
+                        onSaveNewsFlash(draft)
+                        addActivity("Saved news flash '${draft.title.ifBlank { draft.id }}'", accent)
+                        onEditNewsFlashChange(null)
+                        onPublishedAtChange("")
+                        onExpiresAtChange("")
+                    }
+                    GhostButton(
+                        text = "Cancel",
+                        modifier = Modifier.weight(1f).pressAnimated(scaleDown = 0.96f),
+                        onClick = { onEditNewsFlashChange(null) }
+                    )
+                }
+                if (editingNewsFlash != null) {
+                    Text("Preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    EntertainmentNewsCard(
+                        item = editingNewsFlash.toEntertainmentNewsItem(currentInstant()),
+                        isPrimary = true,
+                        onReadMore = { }
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -631,6 +1073,7 @@ private fun AdminGateScreen(
 private fun EventMapScreen(
     onBack: () -> Unit,
     onOpenEvent: (String) -> Unit,
+    loading: Boolean = false,
 ) {
     val events = remember {
         sampleNearbyEvents.map { nearby ->
@@ -709,6 +1152,16 @@ private fun EventMapScreen(
                     }
                 }
             }
+            if (loading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LoadingSpinner(size = 32)
+                }
+            }
         }
     }
 }
@@ -768,7 +1221,7 @@ private data class LaunchCheck(val id: String, val title: String, val desc: Stri
 private data class AdminKpi(val title: String, val value: String, val delta: String, val accent: Color)
 private data class AdminAttention(val title: String, val subtitle: String, val severity: String)
 private data class AdminActivity(val text: String, val time: String, val accent: Color)
-private enum class AdminSurface { Dashboard, Applications, Moderation, Organizer, Catalog, Banners, Settings }
+private enum class AdminSurface { Dashboard, Applications, Moderation, Organizer, Catalog, Banners, NewsFlash, Settings }
 private enum class BottomNavVisibility { Visible, Hidden }
 private enum class GuestGateTarget { Checkout, Organizer }
 data class AdminApplication(
@@ -1099,6 +1552,114 @@ private suspend fun fetchHeroBannersFromFirestore(): List<HeroSlide> {
     }
 }
 
+private fun parseInstantOrNull(raw: String?): Instant? = runCatching { raw?.let(Instant::parse) }.getOrNull()
+
+private suspend fun fetchNewsFlashDocuments(): List<NewsFlash> {
+    return try {
+        ensureSettingsSession()
+        val snap = Firebase.firestore
+            .collection("newsFeeds")
+            .get()
+        snap.documents.mapNotNull { doc ->
+            val id = doc.id
+            val title = doc.get<String?>("title") ?: return@mapNotNull null
+            val summary = doc.get<String?>("summary") ?: return@mapNotNull null
+            val source = doc.get<String?>("source") ?: "GoTicky"
+            val tag = doc.get<String?>("tag") ?: "Spotlight"
+            val category = runCatching {
+                IconCategory.valueOf(doc.get<String?>("category") ?: IconCategory.Discover.name)
+            }.getOrDefault(IconCategory.Discover)
+            val imageKey = doc.get<String?>("imageKey")
+            val imageUrl = doc.get<String?>("imageUrl")
+            val ctaLabel = doc.get<String?>("ctaLabel")
+            val ctaLink = doc.get<String?>("ctaLink")
+            val publishedAt = parseInstantOrNull(doc.get<String?>("publishedAt")) ?: currentInstant()
+            val expiresAt = parseInstantOrNull(doc.get<String?>("expiresAt"))
+            val pinned = doc.get<Boolean?>("pinned") ?: false
+            val priority = doc.get<Long?>("priority")?.toInt() ?: 0
+            val status = doc.get<String?>("status") ?: "draft"
+
+            NewsFlash(
+                id = id,
+                title = title,
+                summary = summary,
+                source = source,
+                tag = tag,
+                category = category,
+                imageUrl = imageUrl,
+                imageKey = imageKey,
+                ctaLabel = ctaLabel,
+                ctaLink = ctaLink,
+                publishedAt = publishedAt,
+                expiresAt = expiresAt,
+                priority = priority,
+                pinned = pinned,
+                status = status,
+                region = doc.get<String?>("region"),
+                locale = doc.get<String?>("locale"),
+                author = doc.get<String?>("author"),
+                createdBy = doc.get<String?>("createdBy"),
+                updatedAt = parseInstantOrNull(doc.get<String?>("updatedAt")),
+                impressions = doc.get<Long?>("impressions") ?: 0L,
+                clicks = doc.get<Long?>("clicks") ?: 0L,
+            )
+        }
+    } catch (_: Throwable) {
+        emptyList()
+    }
+}
+
+private suspend fun fetchNewsFlashForPublic(): List<EntertainmentNewsItem> {
+    val docs = fetchNewsFlashDocuments()
+    val now = currentInstant()
+    val active = docs.filter { doc ->
+        doc.status == "published" &&
+            doc.publishedAt <= now &&
+            (doc.expiresAt == null || doc.expiresAt > now)
+    }
+    val sorted = active.sortedWith(
+        compareByDescending<NewsFlash> { it.pinned }
+            .thenByDescending { it.priority }
+            .thenByDescending { it.publishedAt }
+    )
+    return sorted.map { it.toEntertainmentNewsItem(now) }
+}
+
+private suspend fun saveNewsFlashToFirestore(item: NewsFlash) {
+    runCatching {
+        ensureSettingsSession()
+        Firebase.firestore
+            .collection("newsFeeds")
+            .document(item.id)
+            .set(
+                mapOf(
+                    "title" to item.title,
+                    "summary" to item.summary,
+                    "source" to item.source,
+                    "tag" to item.tag,
+                    "category" to item.category.name,
+                    "imageUrl" to item.imageUrl,
+                    "imageKey" to item.imageKey,
+                    "ctaLabel" to item.ctaLabel,
+                    "ctaLink" to item.ctaLink,
+                    "publishedAt" to item.publishedAt.toString(),
+                    "expiresAt" to item.expiresAt?.toString(),
+                    "priority" to item.priority,
+                    "pinned" to item.pinned,
+                    "status" to item.status,
+                    "region" to item.region,
+                    "locale" to item.locale,
+                    "author" to item.author,
+                    "createdBy" to item.createdBy,
+                    "updatedAt" to currentInstant().toString(),
+                    "impressions" to item.impressions,
+                    "clicks" to item.clicks,
+                ),
+                merge = true
+            )
+    }
+}
+
 private suspend fun saveHeroBannerToFirestore(slide: HeroSlide) {
     runCatching {
         ensureSettingsSession()
@@ -1121,6 +1682,8 @@ private suspend fun saveHeroBannerToFirestore(slide: HeroSlide) {
                 ),
                 merge = true
             )
+    }.onFailure { t ->
+        println("saveHeroBannerToFirestore failed: ${t.message}")
     }
 }
 
@@ -1673,6 +2236,44 @@ private fun GoTickyRoot() {
         uri?.let { bannerDraft = bannerDraft.copy(localImageUri = it) }
     }
     var relaxJob by remember { mutableStateOf<Job?>(null) }
+    val newsFlashDocuments = remember { mutableStateListOf<NewsFlash>() }
+    val newsFeedItems = remember { mutableStateListOf<EntertainmentNewsItem>() }
+    var loadingNews by remember { mutableStateOf(false) }
+    var newsError by remember { mutableStateOf<String?>(null) }
+    var editingNewsDraft by remember { mutableStateOf<NewsFlash?>(null) }
+    var publishedAtInput by remember { mutableStateOf("") }
+    var expiresAtInput by remember { mutableStateOf("") }
+
+    fun refreshNewsFlash() {
+        scope.launch {
+            loadingNews = true
+            newsError = null
+            runCatching {
+                val docs = fetchNewsFlashDocuments()
+                val publicItems = fetchNewsFlashForPublic()
+                newsFlashDocuments.clear()
+                newsFlashDocuments.addAll(docs)
+                newsFeedItems.clear()
+                val resolvedItems = if (publicItems.isNotEmpty()) publicItems else sampleEntertainmentNews
+                newsFeedItems.addAll(resolvedItems)
+            }.onFailure { t ->
+                newsError = t.message ?: "Unable to load news flash"
+                newsFeedItems.clear()
+                newsFeedItems.addAll(sampleEntertainmentNews)
+            }
+            loadingNews = false
+        }
+    }
+
+    fun saveNewsFlash(draft: NewsFlash) {
+        scope.launch {
+            loadingNews = true
+            newsError = null
+            saveNewsFlashToFirestore(draft.copy(updatedAt = currentInstant()))
+            refreshNewsFlash()
+            snackbarHostState.showSnackbar("News flash saved")
+        }
+    }
 
     fun requireAuth(
         target: GuestGateTarget,
@@ -1896,7 +2497,14 @@ private fun GoTickyRoot() {
         if (auth.currentUser == null) {
             runCatching { auth.signInAnonymously() }
         }
-        val adminUid = auth.currentUser?.uid ?: seed.email.trim().lowercase()
+
+        val currentUser = auth.currentUser
+        val seedEmailLower = seed.email.trim().lowercase()
+        val adminUid = when {
+            currentUser?.email?.trim()?.equals(seed.email.trim(), ignoreCase = true) == true ->
+                currentUser.uid
+            else -> seedEmailLower
+        }
 
         // Build a local admin profile shell from the seed.
         val adminProfile = UserProfile(
@@ -2936,7 +3544,7 @@ private fun GoTickyRoot() {
                                                     onBackHome = {
                                                         checkoutSuccess = false
                                                         currentScreen = MainScreen.Home
-                                                    },
+                                                    }
                                                 )
                                             }
                                             else -> {
@@ -2961,6 +3569,9 @@ private fun GoTickyRoot() {
                                                             onSearchExecuted = { query -> recordSearch(query) },
                                                             favoriteEvents = favoriteEvents,
                                                             onToggleFavorite = { id -> toggleFavorite(id) },
+                                                            entertainmentNews = newsFeedItems,
+                                                            loadingNews = loadingNews,
+                                                            onRefreshNews = { refreshNewsFlash() },
                                                         )
                                                     }
                                                     MainScreen.Tickets -> {
@@ -3143,6 +3754,27 @@ private fun GoTickyRoot() {
                                                                 reviewers = adminReviewers,
                                                                 reviewerByApp = reviewerByApp,
                                                                 commentsByApp = commentsByApp,
+                                                                newsFlashItems = newsFlashDocuments,
+                                                                newsFeedItems = newsFeedItems,
+                                                                loadingNewsFlash = loadingNews,
+                                                                newsFlashError = newsError,
+                                                                editingNewsFlash = editingNewsDraft,
+                                                                onEditNewsFlashChange = { draft ->
+                                                                    editingNewsDraft = draft
+                                                                    if (draft != null) {
+                                                                        publishedAtInput = draft.publishedAt.toString()
+                                                                        expiresAtInput = draft.expiresAt?.toString() ?: ""
+                                                                    } else {
+                                                                        publishedAtInput = ""
+                                                                        expiresAtInput = ""
+                                                                    }
+                                                                },
+                                                                publishedAtInput = publishedAtInput,
+                                                                onPublishedAtChange = { publishedAtInput = it },
+                                                                expiresAtInput = expiresAtInput,
+                                                                onExpiresAtChange = { expiresAtInput = it },
+                                                                onRefreshNewsFlash = { refreshNewsFlash() },
+                                                                onSaveNewsFlash = { draft -> saveNewsFlash(draft) }
                                                             )
                                                             LaunchedEffect(Unit) {
                                                                 Analytics.log(
@@ -3263,6 +3895,18 @@ private fun AdminDashboardScreen(
     reviewers: List<String>,
     reviewerByApp: MutableMap<String, String>,
     commentsByApp: MutableMap<String, SnapshotStateList<String>>,
+    newsFlashItems: List<NewsFlash>,
+    newsFeedItems: List<EntertainmentNewsItem>,
+    loadingNewsFlash: Boolean,
+    newsFlashError: String?,
+    editingNewsFlash: NewsFlash?,
+    onEditNewsFlashChange: (NewsFlash?) -> Unit,
+    publishedAtInput: String,
+    onPublishedAtChange: (String) -> Unit,
+    expiresAtInput: String,
+    onExpiresAtChange: (String) -> Unit,
+    onRefreshNewsFlash: () -> Unit,
+    onSaveNewsFlash: (NewsFlash) -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val baseModifier = Modifier
@@ -3305,6 +3949,7 @@ private fun AdminDashboardScreen(
                     AdminSurface.Organizer to "Organizer",
                     AdminSurface.Catalog to "Catalog",
                     AdminSurface.Banners to "Banners",
+                    AdminSurface.NewsFlash to "News Flash",
                     AdminSurface.Settings to "Settings"
                 ).forEach { (surface, label) ->
                     val selected = adminSurface == surface
@@ -3352,6 +3997,7 @@ private fun AdminDashboardScreen(
                 AdminSurface.Organizer to "Organizer",
                 AdminSurface.Catalog to "Catalog",
                 AdminSurface.Banners to "Banners",
+                AdminSurface.NewsFlash to "News Flash",
                 AdminSurface.Settings to "Settings"
             ).forEach { (surface, label) ->
                 val selected = adminSurface == surface
@@ -3567,6 +4213,24 @@ private fun AdminDashboardScreen(
                     loadingHeroBanners = loadingHeroBanners,
                     simulatedHeroBannerId = simulatedHeroBannerId,
                     onSimulatedHeroBannerChange = onSimulatedHeroBannerChange,
+                )
+            }
+
+            AdminSurface.NewsFlash -> {
+                NewsFlashSection(
+                    newsFlashItems = newsFlashItems,
+                    newsFeedItems = newsFeedItems,
+                    loadingNewsFlash = loadingNewsFlash,
+                    newsFlashError = newsFlashError,
+                    editingNewsFlash = editingNewsFlash,
+                    onEditNewsFlashChange = onEditNewsFlashChange,
+                    publishedAtInput = publishedAtInput,
+                    onPublishedAtChange = onPublishedAtChange,
+                    expiresAtInput = expiresAtInput,
+                    onExpiresAtChange = onExpiresAtChange,
+                    onRefreshNewsFlash = onRefreshNewsFlash,
+                    onSaveNewsFlash = onSaveNewsFlash,
+                    addActivity = addActivity
                 )
             }
 
@@ -5286,6 +5950,7 @@ private fun BannersSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val previewSlide = remember(bannerDraft) {
+                    val previewImageUrl = bannerDraft.localImageUri ?: bannerDraft.imageUrl
                     HeroSlide(
                         id = bannerDraft.id.ifBlank { "preview" },
                         title = bannerDraft.title.ifBlank { "Untitled banner" },
@@ -5296,7 +5961,7 @@ private fun BannersSection(
                         imageHint = bannerDraft.imageHint.ifBlank { "Hero background art hint" },
                         location = bannerDraft.location.ifBlank { "Location" },
                         heroImageKey = null,
-                        imageUrl = bannerDraft.imageUrl,
+                        imageUrl = previewImageUrl,
                         accentHex = bannerDraft.accentHex,
                         order = bannerDraft.order,
                         active = bannerDraft.active,
@@ -5744,6 +6409,9 @@ private fun HomeScreen(
     onSearchExecuted: (String) -> Unit,
     favoriteEvents: List<String>,
     onToggleFavorite: (String) -> Unit,
+    entertainmentNews: List<EntertainmentNewsItem>,
+    loadingNews: Boolean,
+    onRefreshNews: () -> Unit,
 ) {
     val filters = remember { mutableStateListOf<String>() }
     var heroDetail by remember { mutableStateOf<HeroSlide?>(null) }
@@ -5952,7 +6620,9 @@ private fun HomeScreen(
             }
         )
         EntertainmentNewsSection(
-            items = sampleEntertainmentNews,
+            items = entertainmentNews,
+            loading = loadingNews,
+            onRefresh = onRefreshNews,
             onViewAll = { showNewsList = true },
             onReadMore = { newsDetail = it }
         )
@@ -6285,11 +6955,12 @@ private fun HomeScreen(
             title = { Text("Entertainment News") },
             text = {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(sampleEntertainmentNews) { item ->
+                    items(entertainmentNews) { item ->
                         GlowCard {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(item.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                Text(item.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(item.summary, style = MaterialTheme.typography.bodySmall)
+                                Text("${item.tag} • ${item.minutesAgo} min ago", style = MaterialTheme.typography.labelSmall)
                                 Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                                     Text("${item.minutesAgo} min ago • ${item.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     NeonTextButton(text = "Read more", onClick = { newsDetail = item })
@@ -7736,10 +8407,12 @@ private fun HighlightCard(
 @Composable
 private fun EntertainmentNewsSection(
     items: List<EntertainmentNewsItem>,
+    loading: Boolean,
+    onRefresh: () -> Unit,
     onViewAll: () -> Unit,
     onReadMore: (EntertainmentNewsItem) -> Unit
 ) {
-    if (items.isEmpty()) return
+    if (items.isEmpty() && !loading) return
 
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -7757,7 +8430,15 @@ private fun EntertainmentNewsSection(
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionHeader(
             title = "Entertainment News",
-            action = { NeonTextButton(text = "View all", onClick = { onViewAll() }) }
+            action = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (loading) {
+                        LoadingSpinner(size = 18)
+                    }
+                    NeonTextButton(text = "Refresh", onClick = { onRefresh() })
+                    NeonTextButton(text = "View all", onClick = { onViewAll() })
+                }
+            }
         )
         BoxWithConstraints(
             modifier = Modifier
@@ -9193,12 +9874,16 @@ private fun ProfileDetailsDialog(
         showCameraDialog = false
     }
 
-    Dialog(onDismissRequest = { showCameraDialog = false; onDismiss() }) {
+    Dialog(
+        onDismissRequest = { showCameraDialog = false; onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 840.dp)
                 .heightIn(min = 360.dp, max = 760.dp)
-                .padding(18.dp)
+                .padding(horizontal = 0.dp, vertical = 12.dp)
         ) {
             Column(
                 modifier = Modifier

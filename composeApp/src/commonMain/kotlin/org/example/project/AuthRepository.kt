@@ -147,34 +147,90 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun fetchProfile(): UserProfile? {
-        val uid = auth.currentUser?.uid ?: return null
+        val authUser = auth.currentUser ?: return null
+        val uid = authUser.uid
+        val authEmail = authUser.email
+        val authEmailLower = authEmail?.trim()?.lowercase()
+
         return try {
             val doc = Firebase.firestore.collection("users").document(uid).get()
-            val profile = UserProfile(
-                fullName = doc.get<String?>("displayName") ?: "",
-                email = doc.get<String?>("email") ?: "",
-                countryName = doc.get<String?>("countryName") ?: "Zimbabwe",
-                countryFlag = doc.get<String?>("countryFlag") ?: "",
-                phoneCode = doc.get<String?>("phoneCode") ?: "+263",
-                phoneNumber = doc.get<String?>("phoneNumber") ?: "",
-                birthday = doc.get<String?>("birthday") ?: "",
-                gender = doc.get<String?>("gender") ?: "",
-                photoResKey = doc.get<String?>("photoResKey"),
-                photoUri = doc.get<String?>("photoUri"),
-                favorites = doc.get<List<String>?>("favorites") ?: emptyList(),
-                role = doc.get<String?>("role") ?: "customer",
-            )
+
+            if (!doc.exists) {
+                return null
+            }
+
+            val docEmail = doc.get<String?>("email")?.trim().orEmpty()
+            val docEmailLower = docEmail.lowercase()
+            val rawRole = doc.get<String?>("role")
+
+            val isAdminRole = rawRole?.equals("admin", ignoreCase = true) == true
+            val emailMismatch = authEmailLower != null && docEmailLower.isNotEmpty() &&
+                !docEmailLower.equals(authEmailLower, ignoreCase = true)
+            val baseProfile: UserProfile = if (isAdminRole && emailMismatch && authEmail != null) {
+                val safeProfile = UserProfile(
+                    fullName = authUser.displayName ?: "",
+                    email = authEmail,
+                    countryName = "Zimbabwe",
+                    countryFlag = "",
+                    phoneCode = "+263",
+                    phoneNumber = "",
+                    birthday = "",
+                    gender = "",
+                    photoResKey = null,
+                    photoUri = null,
+                    favorites = emptyList(),
+                    role = "customer",
+                )
+
+                runCatching {
+                    Firebase.firestore.collection("users").document(uid).set(
+                        mapOf(
+                            "uid" to uid,
+                            "displayName" to safeProfile.fullName,
+                            "email" to safeProfile.email,
+                            "countryName" to safeProfile.countryName,
+                            "countryFlag" to safeProfile.countryFlag,
+                            "phoneCode" to safeProfile.phoneCode,
+                            "phoneNumber" to safeProfile.phoneNumber,
+                            "birthday" to safeProfile.birthday,
+                            "gender" to safeProfile.gender,
+                            "photoResKey" to safeProfile.photoResKey,
+                            "photoUri" to safeProfile.photoUri,
+                            "favorites" to safeProfile.favorites,
+                            "role" to safeProfile.role,
+                        ),
+                        merge = true
+                    )
+                }
+
+                safeProfile
+            } else {
+                UserProfile(
+                    fullName = doc.get<String?>("displayName") ?: (authUser.displayName ?: ""),
+                    email = if (docEmail.isNotBlank()) docEmail else (authEmail ?: ""),
+                    countryName = doc.get<String?>("countryName") ?: "Zimbabwe",
+                    countryFlag = doc.get<String?>("countryFlag") ?: "",
+                    phoneCode = doc.get<String?>("phoneCode") ?: "+263",
+                    phoneNumber = doc.get<String?>("phoneNumber") ?: "",
+                    birthday = doc.get<String?>("birthday") ?: "",
+                    gender = doc.get<String?>("gender") ?: "",
+                    photoResKey = doc.get<String?>("photoResKey"),
+                    photoUri = doc.get<String?>("photoUri"),
+                    favorites = doc.get<List<String>?>("favorites") ?: emptyList(),
+                    role = rawRole ?: "customer",
+                )
+            }
 
             // Ensure the public, minimal index is created/updated for pre-auth avatar lookup.
             try {
-                val emailKey = profile.email.trim().lowercase()
+                val emailKey = baseProfile.email.trim().lowercase()
                 if (emailKey.isNotBlank()) {
                     Firebase.firestore.collection("publicProfiles").document(emailKey).set(
                         mapOf(
                             "emailLower" to emailKey,
-                            "email" to profile.email.trim(),
-                            "displayName" to profile.fullName,
-                            "photoUri" to profile.photoUri,
+                            "email" to baseProfile.email.trim(),
+                            "displayName" to baseProfile.fullName,
+                            "photoUri" to baseProfile.photoUri,
                         ),
                         merge = true
                     )
@@ -183,7 +239,7 @@ class FirebaseAuthRepository(
                 // Best-effort only; don't break sign-in if this fails.
             }
 
-            profile
+            baseProfile
         } catch (_: Throwable) {
             null
         }

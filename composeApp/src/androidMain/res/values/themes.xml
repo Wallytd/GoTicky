@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Dark launch/splash theme to match GoTicky branding -->
+    <style name="Theme.GoTicky.Launcher" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- Use a dark background instead of white -->
+        <item name="android:windowBackground">@color/splash_background</item>
+        <!-- Ensure splash screen background (API 31+) also uses dark -->
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <!-- Keep status bar consistent/dark -->
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
+    </style>
+</resources>
