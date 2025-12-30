@@ -21,6 +21,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -235,6 +236,7 @@ import org.example.project.platform.BiometricPromptConfig
 import org.example.project.platform.BiometricResult
 import org.example.project.platform.rememberBiometricLauncher
 import org.example.project.platform.rememberProfileImageStorage
+import org.example.project.platform.rememberNewsFlashImageStorage
 import org.example.project.platform.rememberUriPainter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
@@ -255,9 +257,14 @@ import org.jetbrains.compose.resources.painterResource
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.SpanStyle
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -292,6 +299,10 @@ private fun NewsFlashSection(
     onExpiresAtChange: (String) -> Unit,
     onRefreshNewsFlash: () -> Unit,
     onSaveNewsFlash: (NewsFlash) -> Unit,
+    onPickImage: () -> Unit,
+    newsFlashUploadProgress: Float,
+    newsFlashUploading: Boolean,
+    newsFlashUploadError: String?,
     addActivity: (String, Color) -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.secondary
@@ -319,13 +330,23 @@ private fun NewsFlashSection(
         pinned = false,
         status = "draft"
     )
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .navigationBarsPadding()
+            .padding(bottom = 64.dp)
+    ) {
         SectionHeader(
             title = "News Flash",
             action = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (loadingNewsFlash) LoadingSpinner(size = 22)
                     NeonTextButton(text = "Refresh", onClick = onRefreshNewsFlash, modifier = Modifier.pressAnimated())
+                    NeonTextButton(
+                        text = "Upload image",
+                        onClick = onPickImage,
+                        modifier = Modifier.pressAnimated(scaleDown = 0.94f)
+                    )
                     NeonTextButton(text = if (editingNewsFlash != null) "New draft" else "Create", onClick = {
                         onEditNewsFlashChange(
                             NewsFlash(
@@ -520,7 +541,7 @@ private fun NewsFlashSection(
                                         NeonTextButton(text = if (flash.status == "published") "Archive" else "Publish", onClick = {
                                             val next = if (flash.status == "published") "archived" else "published"
                                             onSaveNewsFlash(flash.copy(status = next, updatedAt = currentInstant()))
-                                            addActivity("News Flash ${flash.title} -> $next", statusColor)
+                                            addActivity("News Flash ${flash.title.ifBlank { flash.id }} -> $next", statusColor)
                                         })
                                     }
                                 }
@@ -589,23 +610,93 @@ private fun NewsFlashSection(
                         shape = goTickyShapes.medium
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = seedDraft.imageUrl.orEmpty(),
-                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageUrl = it)) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Image URL (optional)") },
-                        singleLine = true,
-                        shape = goTickyShapes.medium
-                    )
-                    OutlinedTextField(
-                        value = seedDraft.imageKey.orEmpty(),
-                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageKey = it)) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Image key (cache)") },
-                        singleLine = true,
-                        shape = goTickyShapes.medium
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = seedDraft.imageUrl.orEmpty(),
+                            onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageUrl = it)) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Image URL (optional)") },
+                            singleLine = true,
+                            shape = goTickyShapes.medium
+                        )
+                        OutlinedTextField(
+                            value = seedDraft.imageKey.orEmpty(),
+                            onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageKey = it)) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Image key (cache)") },
+                            singleLine = true,
+                            shape = goTickyShapes.medium
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        PrimaryButton(
+                            text = if (newsFlashUploading) "Uploading…" else "Add news flash image",
+                            modifier = Modifier
+                                .weight(1f)
+                                .pressAnimated(scaleDown = 0.95f),
+                            onClick = {
+                                if (!newsFlashUploading) {
+                                    onPickImage()
+                                }
+                            },
+                        )
+                        if (!seedDraft.imageUrl.isNullOrBlank()) {
+                            Pill(
+                                text = "Preview",
+                                modifier = Modifier.pressAnimated(scaleDown = 0.94f),
+                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
+                                textColor = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        val painter = seedDraft.imageUrl?.takeIf { it.isNotBlank() }?.let { rememberUriPainter(it) }
+                        AnimatedVisibility(
+                            visible = painter != null,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 140.dp)
+                                    .clip(goTickyShapes.large)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f),
+                                        shape = goTickyShapes.large
+                                    )
+                                    .pressAnimated(scaleDown = 0.97f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                painter?.let {
+                                    Image(
+                                        painter = it,
+                                        contentDescription = "News flash cover preview",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (newsFlashUploading || newsFlashUploadProgress > 0f) {
+                        AnimatedProgressBar(
+                            progress = newsFlashUploadProgress.coerceIn(0f, 1f),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    newsFlashUploadError?.let { error ->
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
@@ -704,6 +795,30 @@ private fun NewsFlashSection(
                         item = editingNewsFlash.toEntertainmentNewsItem(currentInstant()),
                         isPrimary = true,
                         onReadMore = { }
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PrimaryButton(
+                        text = "Save",
+                        modifier = Modifier.weight(1f).pressAnimated(scaleDown = 0.96f),
+                    ) {
+                        val published = parseInstantOrNull(publishedAtInput) ?: currentInstant()
+                        val expires = parseInstantOrNull(expiresAtInput)
+                        val draft = seedDraft.copy(
+                            publishedAt = published,
+                            expiresAt = expires,
+                            updatedAt = currentInstant()
+                        )
+                        onSaveNewsFlash(draft)
+                        addActivity("Saved news flash '${draft.title.ifBlank { draft.id }}'", accent)
+                        onEditNewsFlashChange(null)
+                        onPublishedAtChange("")
+                        onExpiresAtChange("")
+                    }
+                    GhostButton(
+                        text = "Cancel",
+                        modifier = Modifier.weight(1f).pressAnimated(scaleDown = 0.96f),
+                        onClick = { onEditNewsFlashChange(null) }
                     )
                 }
             }
@@ -1510,6 +1625,18 @@ private fun colorToHex(color: Color): String {
     return "#" + r.toHex2() + g.toHex2() + b.toHex2()
 }
 
+private fun applyShade(color: Color, shade: Float): Color {
+    val t = shade.coerceIn(0f, 1f)
+    val eased = FastOutSlowInEasing.transform(t)
+    return if (eased < 0.5f) {
+        val factor = eased * 2f
+        lerp(Color(0xFF0A0C10), color, factor)
+    } else {
+        val factor = (eased - 0.5f) * 2f
+        lerp(color, Color.White, factor)
+    }.copy(alpha = color.alpha)
+}
+
 private suspend fun fetchHeroBannersFromFirestore(): List<HeroSlide> {
     return try {
         ensureSettingsSession()
@@ -2203,6 +2330,7 @@ private fun GoTickyRoot() {
     var secureSignInInProgress by remember { mutableStateOf(false) }
     val authRepo = remember { FirebaseAuthRepository() }
     val profileImageStorage = rememberProfileImageStorage()
+    val newsFlashImageStorage = rememberNewsFlashImageStorage()
     val bannerImageStorage = rememberBannerImageStorage()
     val biometricLauncher = rememberBiometricLauncher()
     val scope = rememberCoroutineScope()
@@ -2243,6 +2371,27 @@ private fun GoTickyRoot() {
     var editingNewsDraft by remember { mutableStateOf<NewsFlash?>(null) }
     var publishedAtInput by remember { mutableStateOf("") }
     var expiresAtInput by remember { mutableStateOf("") }
+    var newsFlashUploading by remember { mutableStateOf(false) }
+    var newsFlashUploadProgress by remember { mutableStateOf(0f) }
+    var newsFlashUploadError by remember { mutableStateOf<String?>(null) }
+
+    fun newNewsFlashDraft(): NewsFlash = NewsFlash(
+        id = "nf-${currentTimestampIsoString()}",
+        title = "",
+        summary = "",
+        source = "GoTicky desk",
+        tag = "Update",
+        category = IconCategory.Discover,
+        imageUrl = "",
+        imageKey = "",
+        ctaLabel = "",
+        ctaLink = "",
+        publishedAt = currentInstant(),
+        expiresAt = null,
+        priority = 0,
+        pinned = false,
+        status = "draft"
+    )
 
     fun refreshNewsFlash() {
         scope.launch {
@@ -2272,6 +2421,33 @@ private fun GoTickyRoot() {
             saveNewsFlashToFirestore(draft.copy(updatedAt = currentInstant()))
             refreshNewsFlash()
             snackbarHostState.showSnackbar("News flash saved")
+        }
+    }
+
+    val newsFlashImagePicker = rememberImagePicker { uri ->
+        if (uri == null) return@rememberImagePicker
+        scope.launch {
+            newsFlashUploading = true
+            newsFlashUploadError = null
+            newsFlashUploadProgress = 0.05f
+            val draft = editingNewsDraft ?: newNewsFlashDraft().also { editingNewsDraft = it }
+            val result = newsFlashImageStorage.uploadNewsFlashImage(draft.id, uri) { p ->
+                newsFlashUploadProgress = 0.1f + 0.8f * p
+            }
+            if (result == null) {
+                newsFlashUploadError = "Upload failed. Please retry."
+                newsFlashUploading = false
+                newsFlashUploadProgress = 0f
+                return@launch
+            }
+            val updated = (editingNewsDraft ?: draft).copy(
+                imageUrl = result.downloadUrl,
+                imageKey = result.storagePath
+            )
+            editingNewsDraft = updated
+            newsFlashUploading = false
+            newsFlashUploadProgress = 1f
+            snackbarHostState.showSnackbar("News flash image attached")
         }
     }
 
@@ -3774,7 +3950,11 @@ private fun GoTickyRoot() {
                                                                 expiresAtInput = expiresAtInput,
                                                                 onExpiresAtChange = { expiresAtInput = it },
                                                                 onRefreshNewsFlash = { refreshNewsFlash() },
-                                                                onSaveNewsFlash = { draft -> saveNewsFlash(draft) }
+                                                                onSaveNewsFlash = { draft -> saveNewsFlash(draft) },
+                                                                onPickNewsFlashImage = { newsFlashImagePicker.pickFromGallery() },
+                                                                newsFlashUploadProgress = newsFlashUploadProgress,
+                                                                newsFlashUploading = newsFlashUploading,
+                                                                newsFlashUploadError = newsFlashUploadError,
                                                             )
                                                             LaunchedEffect(Unit) {
                                                                 Analytics.log(
@@ -3907,6 +4087,10 @@ private fun AdminDashboardScreen(
     onExpiresAtChange: (String) -> Unit,
     onRefreshNewsFlash: () -> Unit,
     onSaveNewsFlash: (NewsFlash) -> Unit,
+    onPickNewsFlashImage: () -> Unit,
+    newsFlashUploadProgress: Float,
+    newsFlashUploading: Boolean,
+    newsFlashUploadError: String?,
 ) {
     val scrollState = rememberScrollState()
     val baseModifier = Modifier
@@ -4230,6 +4414,10 @@ private fun AdminDashboardScreen(
                     onExpiresAtChange = onExpiresAtChange,
                     onRefreshNewsFlash = onRefreshNewsFlash,
                     onSaveNewsFlash = onSaveNewsFlash,
+                    onPickImage = onPickNewsFlashImage,
+                    newsFlashUploadProgress = newsFlashUploadProgress,
+                    newsFlashUploading = newsFlashUploading,
+                    newsFlashUploadError = newsFlashUploadError,
                     addActivity = addActivity
                 )
             }
@@ -5913,21 +6101,149 @@ private fun BannersSection(
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
                     )
-                    OutlinedTextField(
-                        value = bannerDraft.accentHex,
-                        onValueChange = {
-                            val color = colorFromHex(it)
-                            onBannerDraftChange(bannerDraft.copy(accentHex = it, accent = color))
-                        },
+                    Column(
                         modifier = Modifier.weight(1f),
-                        label = { Text("Accent hex") },
-                        singleLine = true,
-                        shape = goTickyShapes.medium,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Accent color",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    )
+                        val presetPalette = listOf(
+                            Color(0xFF00E676) to "Mint",
+                            Color(0xFF40C4FF) to "Sky",
+                            Color(0xFFFFC107) to "Amber",
+                            Color(0xFFFF7043) to "Coral",
+                            Color(0xFF9C7BFF) to "Lilac",
+                            Color(0xFF00C853) to "Emerald"
+                        )
+                        var baseColor by remember(bannerDraft.id) { mutableStateOf(bannerDraft.accent) }
+                        var shade by remember(bannerDraft.id) { mutableStateOf(0.5f) }
+                        LaunchedEffect(bannerDraft.accent) {
+                            val currentHex = colorToHex(applyShade(baseColor, shade))
+                            val incomingHex = colorToHex(bannerDraft.accent)
+                            if (incomingHex != currentHex) {
+                                baseColor = bannerDraft.accent
+                                shade = 0.5f
+                            }
+                        }
+                        fun commit(color: Color, shadeValue: Float) {
+                            val shaded = applyShade(color, shadeValue)
+                            onBannerDraftChange(
+                                bannerDraft.copy(
+                                    accent = shaded,
+                                    accentHex = colorToHex(shaded)
+                                )
+                            )
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            presetPalette.forEach { (presetColor, name) ->
+                                val selected = colorToHex(baseColor) == colorToHex(presetColor)
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape)
+                                        .background(presetColor)
+                                        .border(
+                                            width = if (selected) 3.dp else 1.dp,
+                                            color = if (selected) bannerDraft.accent else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                                            shape = CircleShape
+                                        )
+                                        .pressAnimated(scaleDown = 0.9f)
+                                        .clickable {
+                                            baseColor = presetColor
+                                            commit(presetColor, shade)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Check,
+                                            contentDescription = name,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        val animatedShade by animateFloatAsState(
+                            targetValue = shade,
+                            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                            label = "shadeAnim"
+                        )
+                        val shadeDark = applyShade(baseColor, 0f)
+                        val shadeLight = applyShade(baseColor, 1f)
+                        val shadeCurrent = applyShade(baseColor, animatedShade)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Shade",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(shadeDark, shadeCurrent, shadeLight).forEachIndexed { index, swatch ->
+                                    Box(
+                                        modifier = Modifier
+                                            .size(if (index == 1) 26.dp else 20.dp)
+                                            .clip(CircleShape)
+                                            .background(swatch)
+                                            .border(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.outline.copy(alpha = if (index == 1) 0.6f else 0.4f),
+                                                CircleShape
+                                            )
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(shadeDark, shadeCurrent, shadeLight)
+                                        )
+                                    )
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .padding(horizontal = 4.dp)
+                            ) {
+                                Slider(
+                                    value = shade,
+                                    onValueChange = {
+                                        shade = it
+                                        commit(baseColor, it)
+                                    },
+                                    valueRange = 0f..1f,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = shadeCurrent,
+                                        activeTrackColor = Color.Transparent,
+                                        inactiveTrackColor = Color.Transparent,
+                                        activeTickColor = Color.Transparent,
+                                        inactiveTickColor = Color.Transparent
+                                    )
+                                )
+                            }
+                            Text(
+                                "${(animatedShade * 100).roundToInt()}% • ${colorToHex(shadeCurrent)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = bannerDraft.imageHint,
