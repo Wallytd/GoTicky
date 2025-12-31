@@ -15,6 +15,7 @@ data class NewsFlash(
     val source: String,
     val tag: String,
     val category: IconCategory,
+    val accentHex: String? = null,
     val imageUrl: String? = null,
     val imageKey: String? = null,
     val ctaLabel: String? = null,
@@ -44,6 +45,8 @@ fun NewsFlash.toEntertainmentNewsItem(now: Instant): EntertainmentNewsItem {
         tag = tag,
         minutesAgo = minutesAgo.toInt(),
         category = category,
+        accentHex = accentHex,
+        imageUrl = this.imageUrl,
         imageKey = imageKey
     )
 }

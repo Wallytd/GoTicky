@@ -270,6 +270,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.LocalDateTime
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Duration.Companion.hours
@@ -309,7 +310,111 @@ private fun NewsFlashSection(
     val scope = rememberCoroutineScope()
     val listScroll = rememberLazyListState()
     var categoryExpanded by remember { mutableStateOf(false) }
+    var tagExpanded by remember { mutableStateOf(false) }
     val categories = remember { IconCategory.values().toList() }
+    val categoryOptions = remember {
+        listOf(
+            IconCategory.Discover to "Discover",
+            IconCategory.Calendar to "Calendar & Dates",
+            IconCategory.Map to "Map & Venue",
+            IconCategory.Ticket to "Ticketing & Fees",
+            IconCategory.Alerts to "Alerts & Safety",
+            IconCategory.Profile to "Profile / Family",
+            IconCategory.Wallet to "Wallet & Payments",
+            IconCategory.Admin to "Admin & Ops",
+        )
+    }
+    val tagSuggestions = remember(newsFlashItems) {
+        val curated = listOf(
+            "Update",
+            "Breaking",
+            "Announcement",
+            "Official",
+            "Exclusive",
+            "Trending",
+            "Viral",
+            "Hot",
+            "Concert",
+            "Festival",
+            "Nightlife",
+            "Party",
+            "Club night",
+            "Afterparty",
+            "Day party",
+            "DJ set",
+            "Live band",
+            "Open mic",
+            "Karaoke",
+            "Watch party",
+            "Meet & greet",
+            "Pop-up",
+            "Roadshow",
+            "Tour",
+            "Amapiano",
+            "Dancehall",
+            "Afrobeats",
+            "Hip hop",
+            "R&B",
+            "Gospel",
+            "Jazz",
+            "Reggae",
+            "House",
+            "EDM",
+            "Comedy",
+            "Comedy night",
+            "Stand-up",
+            "Movie night",
+            "Premiere",
+            "Sports",
+            "Football",
+            "Basketball",
+            "Rugby",
+            "Family",
+            "Kids",
+            "Arts",
+            "Theatre",
+            "Culture",
+            "Food",
+            "Food & drinks",
+            "Brunch",
+            "Tickets",
+            "VIP",
+            "Giveaway",
+            "Competition",
+            "Last chance",
+            "Early Bird",
+            "Presale",
+            "Flash Sale",
+            "Discount",
+            "Promo code",
+            "Sold out",
+            "More tickets",
+            "Gate times",
+            "Headliner",
+            "Weather",
+            "Traffic",
+            "Lineup",
+            "Venue",
+            "Parking",
+            "Security",
+            "Safety",
+            "Schedule",
+            "Doors open",
+            "Set times",
+            "New date",
+            "Date changed",
+            "Rescheduled",
+            "Cancelled",
+        )
+
+        val fromExisting = newsFlashItems
+            .map { it.tag.trim() }
+            .filter { it.isNotBlank() }
+
+        (curated + fromExisting)
+            .distinctBy { it.lowercase() }
+            .sortedBy { it.lowercase() }
+    }
     val statusCounts = remember(newsFlashItems) {
         newsFlashItems.groupingBy { it.status }.eachCount()
     }
@@ -320,6 +425,7 @@ private fun NewsFlashSection(
         source = "GoTicky desk",
         tag = "Update",
         category = IconCategory.Discover,
+        accentHex = null,
         imageUrl = "",
         imageKey = "",
         ctaLabel = "",
@@ -330,6 +436,74 @@ private fun NewsFlashSection(
         pinned = false,
         status = "draft"
     )
+    var showExpiresPicker by remember { mutableStateOf(false) }
+    val expiresTimeSlots = remember { generateTimeSlots() }
+    val expiresMonths = listOf(
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    )
+    var expiresYear by remember { mutableStateOf(currentInstant().toLocalDateTime(TimeZone.currentSystemDefault()).year) }
+    var expiresMonthIndex by remember { mutableStateOf(0) }
+    var expiresDay by remember { mutableStateOf(1) }
+    var expiresTimeLabel by remember { mutableStateOf(expiresTimeSlots.first()) }
+
+    fun toTimeSlotLabel(hour: Int, minute: Int): String {
+        val isPm = hour >= 12
+        val hour12 = when (val h = hour % 12) {
+            0 -> 12
+            else -> h
+        }
+        val minuteLabel = minute.toString().padStart(2, '0')
+        val suffix = if (isPm) "PM" else "AM"
+        return "$hour12:$minuteLabel $suffix"
+    }
+
+    fun parseTimeSlot(label: String): Pair<Int, Int> {
+        val parts = label.split(" ")
+        if (parts.size != 2) return 0 to 0
+        val hm = parts[0].split(":")
+        val hour12 = hm.getOrNull(0)?.toIntOrNull() ?: 0
+        val minute = hm.getOrNull(1)?.toIntOrNull() ?: 0
+        val isPm = parts[1].equals("PM", ignoreCase = true)
+        val hour24 = when {
+            isPm && hour12 < 12 -> hour12 + 12
+            !isPm && hour12 == 12 -> 0
+            else -> hour12
+        }
+        return hour24 to minute
+    }
+
+    fun daysInMonth(year: Int, monthIndex: Int): Int {
+        val leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+        return when (monthIndex) {
+            0, 2, 4, 6, 7, 9, 11 -> 31
+            3, 5, 8, 10 -> 30
+            1 -> if (leap) 29 else 28
+            else -> 31
+        }
+    }
+
+    LaunchedEffect(showExpiresPicker) {
+        if (showExpiresPicker) {
+            val base = parseInstantOrNull(expiresAtInput) ?: currentInstant()
+            val local = base.toLocalDateTime(TimeZone.currentSystemDefault())
+            expiresYear = local.year
+            expiresMonthIndex = (local.monthNumber - 1).coerceIn(0, expiresMonths.lastIndex)
+            expiresDay = local.dayOfMonth.coerceIn(1, 31)
+            val label = toTimeSlotLabel(local.hour, local.minute)
+            expiresTimeLabel = if (label in expiresTimeSlots) label else expiresTimeSlots.first()
+        }
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
@@ -338,34 +512,7 @@ private fun NewsFlashSection(
     ) {
         SectionHeader(
             title = "News Flash",
-            action = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (loadingNewsFlash) LoadingSpinner(size = 22)
-                    NeonTextButton(text = "Refresh", onClick = onRefreshNewsFlash, modifier = Modifier.pressAnimated())
-                    NeonTextButton(
-                        text = "Upload image",
-                        onClick = onPickImage,
-                        modifier = Modifier.pressAnimated(scaleDown = 0.94f)
-                    )
-                    NeonTextButton(text = if (editingNewsFlash != null) "New draft" else "Create", onClick = {
-                        onEditNewsFlashChange(
-                            NewsFlash(
-                                id = "nf-${currentTimestampIsoString()}",
-                                title = "",
-                                summary = "",
-                                source = "GoTicky desk",
-                                tag = "Update",
-                                category = IconCategory.Discover,
-                                publishedAt = currentInstant(),
-                                expiresAt = null,
-                                priority = 0,
-                                pinned = false,
-                                status = "draft"
-                            )
-                        )
-                    }, modifier = Modifier.pressAnimated(scaleDown = 0.96f))
-                }
-            }
+            action = null
         )
 
         if (newsFlashError != null) {
@@ -394,7 +541,10 @@ private fun NewsFlashSection(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
-                        Text("Active to public", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                        Text(
+                            "Active to public",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        )
                         val activeCount = newsFeedItems.size
                         Text("$activeCount live on home", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -463,7 +613,10 @@ private fun NewsFlashSection(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Queue", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                    Text(
+                        "Queue",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                    )
                     NeonTextButton(text = "Scroll to top", onClick = { scope.launch { listScroll.animateScrollToItem(0) } })
                 }
                 if (newsFlashItems.isEmpty()) {
@@ -524,7 +677,11 @@ private fun NewsFlashSection(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text(flash.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                                        Text(
+                                            flash.title.ifBlank { "Untitled" },
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
                                         Pill(text = flash.status, modifier = Modifier, color = statusColor.copy(alpha = 0.14f), textColor = statusColor)
                                         if (flash.pinned) Pill(text = "Pinned", modifier = Modifier, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), textColor = MaterialTheme.colorScheme.primary)
                                         Spacer(Modifier.weight(1f))
@@ -558,7 +715,10 @@ private fun NewsFlashSection(
                 .pressAnimated(scaleDown = 0.97f)
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (editingNewsFlash != null) "Edit News Flash" else "Create News Flash", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                Text(
+                    if (editingNewsFlash != null) "Edit News Flash" else "Create News Flash",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                )
                 OutlinedTextField(
                     value = seedDraft.title,
                     onValueChange = { onEditNewsFlashChange(seedDraft.copy(title = it)) },
@@ -584,14 +744,76 @@ private fun NewsFlashSection(
                     singleLine = true,
                     shape = goTickyShapes.medium
                 )
-                OutlinedTextField(
-                    value = seedDraft.tag,
-                    onValueChange = { onEditNewsFlashChange(seedDraft.copy(tag = it)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Tag") },
-                    singleLine = true,
-                    shape = goTickyShapes.medium
-                )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    val tagQuery = seedDraft.tag.trim()
+                    val filteredSuggestions = remember(tagQuery, tagSuggestions) {
+                        if (tagSuggestions.isEmpty()) emptyList()
+                        else if (tagQuery.isBlank()) tagSuggestions
+                        else {
+                            val matches = tagSuggestions.filter { it.contains(tagQuery, ignoreCase = true) }
+                            val remainder = tagSuggestions.filterNot { candidate ->
+                                matches.any { it.equals(candidate, ignoreCase = true) }
+                            }
+                            (matches + remainder).distinctBy { it.lowercase() }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = seedDraft.tag,
+                        onValueChange = {
+                            onEditNewsFlashChange(seedDraft.copy(tag = it))
+                            if (!tagExpanded) tagExpanded = true
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { state ->
+                                if (state.isFocused && filteredSuggestions.isNotEmpty()) {
+                                    tagExpanded = true
+                                }
+                            },
+                        label = { Text("Tag") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium,
+                        trailingIcon = {
+                            IconButton(
+                                modifier = Modifier.pressAnimated(scaleDown = 0.88f),
+                                onClick = { tagExpanded = !tagExpanded }
+                            ) {
+                                Icon(
+                                    imageVector = if (tagExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                    contentDescription = "Pick tag",
+                                    tint = accent.copy(alpha = 0.9f)
+                                )
+                            }
+                        }
+                    )
+
+                    DropdownMenu(
+                        expanded = tagExpanded && filteredSuggestions.isNotEmpty(),
+                        onDismissRequest = { tagExpanded = false }
+                    ) {
+                        val trimmed = seedDraft.tag.trim()
+                        val hasExactMatch = trimmed.isNotBlank() && filteredSuggestions.any { it.equals(trimmed, ignoreCase = true) }
+                        if (trimmed.isNotBlank() && !hasExactMatch) {
+                            DropdownMenuItem(
+                                text = { Text("Use \"$trimmed\"") },
+                                onClick = {
+                                    onEditNewsFlashChange(seedDraft.copy(tag = trimmed))
+                                    tagExpanded = false
+                                }
+                            )
+                        }
+                        filteredSuggestions.take(12).forEach { suggestion ->
+                            DropdownMenuItem(
+                                text = { Text(suggestion) },
+                                onClick = {
+                                    onEditNewsFlashChange(seedDraft.copy(tag = suggestion))
+                                    tagExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = seedDraft.ctaLabel.orEmpty(),
@@ -610,34 +832,274 @@ private fun NewsFlashSection(
                         shape = goTickyShapes.medium
                     )
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = publishedAtInput,
+                        onValueChange = onPublishedAtChange,
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Published at (ISO)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                    OutlinedTextField(
+                        value = expiresAtInput,
+                        onValueChange = { },
+                        modifier = Modifier
+                            .weight(1f)
+                            .pressAnimated(scaleDown = 0.98f),
+                        label = { Text("Expires at (ISO)") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium,
+                        readOnly = true,
+                        trailingIcon = {
+                            IconButton(onClick = { showExpiresPicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Event,
+                                    contentDescription = "Pick expiry date",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = seedDraft.priority.toString(),
+                        onValueChange = { value ->
+                            val p = value.toIntOrNull() ?: 0
+                            onEditNewsFlashChange(seedDraft.copy(priority = p))
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Priority") },
+                        singleLine = true,
+                        shape = goTickyShapes.medium
+                    )
+                    Box(modifier = Modifier.weight(1f)) {
+                        val selectedCategoryLabel = categoryOptions
+                            .firstOrNull { it.first == seedDraft.category }
+                            ?.second ?: seedDraft.category.name
+                        val categoryTint = IconCategoryColors[seedDraft.category] ?: MaterialTheme.colorScheme.primary
+                        val arrowRotation by animateFloatAsState(
+                            targetValue = if (categoryExpanded) 180f else 0f,
+                            animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                            label = "newsFlashCategoryArrowRotation"
+                        )
+
+                        OutlinedTextField(
+                            value = selectedCategoryLabel,
+                            onValueChange = { },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated(scaleDown = 0.98f)
+                                .pointerInput(Unit) {
+                                    detectTapGestures { categoryExpanded = true }
+                                },
+                            label = { Text("Category") },
+                            singleLine = true,
+                            shape = goTickyShapes.medium,
+                            readOnly = true,
+                            trailingIcon = {
+                                IconButton(
+                                    modifier = Modifier.pressAnimated(scaleDown = 0.88f),
+                                    onClick = { categoryExpanded = !categoryExpanded }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Pick category",
+                                        tint = categoryTint.copy(alpha = 0.9f),
+                                        modifier = Modifier.graphicsLayer(rotationZ = arrowRotation)
+                                    )
+                                }
+                            }
+                        )
+                        DropdownMenu(
+                            expanded = categoryExpanded,
+                            onDismissRequest = { categoryExpanded = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            categoryOptions.forEach { (category, label) ->
+                                val itemTint = IconCategoryColors[category] ?: MaterialTheme.colorScheme.primary
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .clip(CircleShape)
+                                                    .background(itemTint.copy(alpha = 0.85f))
+                                            )
+                                            Text(label)
+                                        }
+                                    },
+                                    onClick = {
+                                        categoryExpanded = false
+                                        onEditNewsFlashChange(seedDraft.copy(category = category))
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Accent color",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val presetPalette = listOf(
+                        Color(0xFF4BE8FF) to "Cyan",
+                        Color(0xFF9C7BFF) to "Lilac",
+                        Color(0xFFFFC94A) to "Amber",
+                        Color(0xFF4CAF50) to "Green",
+                        Color(0xFFFF6B6B) to "Rose",
+                        Color(0xFF40C4FF) to "Sky",
+                    )
+                    val fallbackAccent = IconCategoryColors[seedDraft.category] ?: accent
+                    var baseColor by remember(seedDraft.id) { mutableStateOf(colorFromHex(seedDraft.accentHex ?: colorToHex(fallbackAccent))) }
+                    var shade by remember(seedDraft.id) { mutableStateOf(0.5f) }
+                    LaunchedEffect(seedDraft.accentHex, seedDraft.category) {
+                        val incoming = seedDraft.accentHex?.takeIf { it.isNotBlank() }?.let(::colorFromHex)
+                        val targetBase = incoming ?: (IconCategoryColors[seedDraft.category] ?: accent)
+                        if (colorToHex(baseColor) != colorToHex(targetBase)) {
+                            baseColor = targetBase
+                            shade = 0.5f
+                        }
+                    }
+                    fun commit(color: Color, shadeValue: Float) {
+                        val shaded = applyShade(color, shadeValue)
+                        onEditNewsFlashChange(seedDraft.copy(accentHex = colorToHex(shaded)))
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presetPalette.forEach { (presetColor, name) ->
+                            val selected = colorToHex(baseColor) == colorToHex(presetColor)
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(presetColor)
+                                    .border(
+                                        width = if (selected) 3.dp else 1.dp,
+                                        color = if (selected) colorFromHex(seedDraft.accentHex ?: colorToHex(fallbackAccent)) else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                                        shape = CircleShape
+                                    )
+                                    .pressAnimated(scaleDown = 0.9f)
+                                    .clickable {
+                                        baseColor = presetColor
+                                        commit(presetColor, shade)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (selected) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Check,
+                                        contentDescription = name,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    val animatedShade by animateFloatAsState(
+                        targetValue = shade,
+                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                        label = "newsFlashShadeAnim"
+                    )
+                    val shadeDark = applyShade(baseColor, 0f)
+                    val shadeLight = applyShade(baseColor, 1f)
+                    val shadeCurrent = applyShade(baseColor, animatedShade)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Shade",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf(shadeDark, shadeCurrent, shadeLight).forEachIndexed { index, swatch ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (index == 1) 26.dp else 20.dp)
+                                        .clip(CircleShape)
+                                        .background(swatch)
+                                        .border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.outline.copy(alpha = if (index == 1) 0.6f else 0.4f),
+                                            CircleShape
+                                        )
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(shadeDark, shadeCurrent, shadeLight)
+                                    )
+                                )
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 4.dp)
+                        ) {
+                            Slider(
+                                value = shade,
+                                onValueChange = {
+                                    shade = it
+                                    commit(baseColor, it)
+                                },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = shadeCurrent,
+                                    activeTrackColor = Color.Transparent,
+                                    inactiveTrackColor = Color.Transparent,
+                                    activeTickColor = Color.Transparent,
+                                    inactiveTickColor = Color.Transparent
+                                )
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "${(animatedShade * 100).roundToInt()}% • ${colorToHex(shadeCurrent)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            NeonTextButton(
+                                text = "Clear",
+                                onClick = { onEditNewsFlashChange(seedDraft.copy(accentHex = null)) }
+                            )
+                        }
+                    }
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = seedDraft.imageUrl.orEmpty(),
-                            onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageUrl = it)) },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Image URL (optional)") },
-                            singleLine = true,
-                            shape = goTickyShapes.medium
-                        )
-                        OutlinedTextField(
-                            value = seedDraft.imageKey.orEmpty(),
-                            onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageKey = it)) },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Image key (cache)") },
-                            singleLine = true,
-                            shape = goTickyShapes.medium
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
                         PrimaryButton(
                             text = if (newsFlashUploading) "Uploading…" else "Add news flash image",
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .pressAnimated(scaleDown = 0.95f),
                             onClick = {
                                 if (!newsFlashUploading) {
@@ -645,44 +1107,6 @@ private fun NewsFlashSection(
                                 }
                             },
                         )
-                        if (!seedDraft.imageUrl.isNullOrBlank()) {
-                            Pill(
-                                text = "Preview",
-                                modifier = Modifier.pressAnimated(scaleDown = 0.94f),
-                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
-                                textColor = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                        val painter = seedDraft.imageUrl?.takeIf { it.isNotBlank() }?.let { rememberUriPainter(it) }
-                        AnimatedVisibility(
-                            visible = painter != null,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 140.dp)
-                                    .clip(goTickyShapes.large)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
-                                    .border(
-                                        width = 1.dp,
-                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f),
-                                        shape = goTickyShapes.large
-                                    )
-                                    .pressAnimated(scaleDown = 0.97f),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                painter?.let {
-                                    Image(
-                                        painter = it,
-                                        contentDescription = "News flash cover preview",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                }
-                            }
-                        }
                     }
                     if (newsFlashUploading || newsFlashUploadProgress > 0f) {
                         AnimatedProgressBar(
@@ -700,93 +1124,20 @@ private fun NewsFlashSection(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
-                        value = publishedAtInput,
-                        onValueChange = onPublishedAtChange,
+                        value = seedDraft.imageUrl.orEmpty(),
+                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageUrl = it)) },
                         modifier = Modifier.weight(1f),
-                        label = { Text("Published at (ISO)") },
+                        label = { Text("Image URL (optional)") },
                         singleLine = true,
                         shape = goTickyShapes.medium
                     )
                     OutlinedTextField(
-                        value = expiresAtInput,
-                        onValueChange = onExpiresAtChange,
+                        value = seedDraft.imageKey.orEmpty(),
+                        onValueChange = { onEditNewsFlashChange(seedDraft.copy(imageKey = it)) },
                         modifier = Modifier.weight(1f),
-                        label = { Text("Expires at (ISO)") },
+                        label = { Text("Image key (cache)") },
                         singleLine = true,
                         shape = goTickyShapes.medium
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = seedDraft.priority.toString(),
-                        onValueChange = { value ->
-                            val p = value.toIntOrNull() ?: 0
-                            onEditNewsFlashChange(seedDraft.copy(priority = p))
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Priority") },
-                        singleLine = true,
-                        shape = goTickyShapes.medium
-                    )
-                    Box(modifier = Modifier.weight(1f)) {
-                        OutlinedTextField(
-                            value = seedDraft.category.name,
-                            onValueChange = { },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .pressAnimated(scaleDown = 0.98f)
-                                .pointerInput(Unit) {
-                                    detectTapGestures { categoryExpanded = true }
-                                },
-                            label = { Text("Category") },
-                            singleLine = true,
-                            shape = goTickyShapes.medium,
-                            readOnly = true,
-                            trailingIcon = {
-                                Icon(
-                                    imageVector = if (categoryExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                    contentDescription = null
-                                )
-                            }
-                        )
-                        DropdownMenu(
-                            expanded = categoryExpanded,
-                            onDismissRequest = { categoryExpanded = false }
-                        ) {
-                            categories.forEach { category ->
-                                DropdownMenuItem(
-                                    text = { Text(category.name) },
-                                    onClick = {
-                                        categoryExpanded = false
-                                        onEditNewsFlashChange(seedDraft.copy(category = category))
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PrimaryButton(
-                        text = "Save",
-                        modifier = Modifier.weight(1f).pressAnimated(scaleDown = 0.96f),
-                    ) {
-                        val published = parseInstantOrNull(publishedAtInput) ?: currentInstant()
-                        val expires = parseInstantOrNull(expiresAtInput)
-                        val draft = seedDraft.copy(
-                            publishedAt = published,
-                            expiresAt = expires,
-                            updatedAt = currentInstant()
-                        )
-                        onSaveNewsFlash(draft)
-                        addActivity("Saved news flash '${draft.title.ifBlank { draft.id }}'", accent)
-                        onEditNewsFlashChange(null)
-                        onPublishedAtChange("")
-                        onExpiresAtChange("")
-                    }
-                    GhostButton(
-                        text = "Cancel",
-                        modifier = Modifier.weight(1f).pressAnimated(scaleDown = 0.96f),
-                        onClick = { onEditNewsFlashChange(null) }
                     )
                 }
                 if (editingNewsFlash != null) {
@@ -794,7 +1145,8 @@ private fun NewsFlashSection(
                     EntertainmentNewsCard(
                         item = editingNewsFlash.toEntertainmentNewsItem(currentInstant()),
                         isPrimary = true,
-                        onReadMore = { }
+                        onReadMore = { },
+                        remoteImageUrl = editingNewsFlash.imageUrl
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -807,6 +1159,7 @@ private fun NewsFlashSection(
                         val draft = seedDraft.copy(
                             publishedAt = published,
                             expiresAt = expires,
+                            status = "published",
                             updatedAt = currentInstant()
                         )
                         onSaveNewsFlash(draft)
@@ -823,6 +1176,200 @@ private fun NewsFlashSection(
                 }
             }
         }
+    }
+    if (showExpiresPicker) {
+        AlertDialog(
+            onDismissRequest = { showExpiresPicker = false },
+            title = { Text("Pick expiry date & time") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.94f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "newsFlashExpiryDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        NeonTextButton(
+                            text = "<",
+                            onClick = {
+                                expiresMonthIndex = if (expiresMonthIndex == 0) expiresMonths.lastIndex else expiresMonthIndex - 1
+                            }
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "${expiresMonths[expiresMonthIndex]} $expiresYear",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                NeonTextButton(
+                                    text = "-",
+                                    onClick = { expiresYear = (expiresYear - 1).coerceAtLeast(1970) }
+                                )
+                                Text(
+                                    text = expiresYear.toString(),
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                NeonTextButton(
+                                    text = "+",
+                                    onClick = { expiresYear = (expiresYear + 1).coerceAtMost(2100) }
+                                )
+                            }
+                            Text(
+                                text = "Tap a day, then choose a time",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        NeonTextButton(
+                            text = ">",
+                            onClick = {
+                                expiresMonthIndex = if (expiresMonthIndex == expiresMonths.lastIndex) 0 else expiresMonthIndex + 1
+                            }
+                        )
+                    }
+
+                    LaunchedEffect(expiresYear, expiresMonthIndex) {
+                        val maxDay = daysInMonth(expiresYear, expiresMonthIndex)
+                        if (expiresDay > maxDay) expiresDay = maxDay
+                    }
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val maxDay = daysInMonth(expiresYear, expiresMonthIndex)
+                        (1..maxDay).forEach { d ->
+                            val selected = d == expiresDay
+                            NeonSelectablePill(
+                                text = d.toString(),
+                                selected = selected,
+                                onClick = { expiresDay = d }
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Time",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    val timeSlotHeight = 46.dp
+                    val timeWheelState = rememberLazyListState(
+                        initialFirstVisibleItemIndex = expiresTimeSlots.indexOf(expiresTimeLabel).coerceAtLeast(0)
+                    )
+                    LaunchedEffect(showExpiresPicker) {
+                        if (showExpiresPicker) {
+                            val target = expiresTimeSlots.indexOf(expiresTimeLabel).coerceAtLeast(0)
+                            timeWheelState.scrollToItem(target)
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(timeSlotHeight * 5)
+                            .clip(goTickyShapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                    ) {
+                        LazyColumn(
+                            state = timeWheelState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = timeSlotHeight * 2),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            itemsIndexed(expiresTimeSlots) { _: Int, slot: String ->
+                                val selected = expiresTimeLabel == slot
+                                val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(timeSlotHeight)
+                                        .clip(goTickyShapes.medium)
+                                        .clickable { expiresTimeLabel = slot }
+                                        .padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = slot,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = tint
+                                    )
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CheckCircle,
+                                            contentDescription = null,
+                                            tint = tint
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        0f to MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
+                                        0.2f to Color.Transparent,
+                                        0.8f to Color.Transparent,
+                                        1f to MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
+                                    )
+                                )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .fillMaxWidth()
+                                .height(timeSlotHeight + 6.dp)
+                                .clip(goTickyShapes.medium)
+                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), goTickyShapes.medium)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                PrimaryButton(text = "Apply expiry") {
+                    val (hour24, minute) = parseTimeSlot(expiresTimeLabel)
+                    val monthNumber = (expiresMonthIndex + 1).coerceIn(1, 12)
+                    val day = expiresDay.coerceIn(1, 31)
+                    val localDateTime = LocalDateTime(expiresYear, monthNumber, day, hour24, minute)
+                    val instant = localDateTime.toInstant(TimeZone.currentSystemDefault())
+                    onExpiresAtChange(instant.toString())
+                    showExpiresPicker = false
+                }
+            },
+            dismissButton = {
+                NeonTextButton(
+                    text = "Clear",
+                    onClick = {
+                        onExpiresAtChange("")
+                        showExpiresPicker = false
+                    }
+                )
+            }
+        )
     }
 }
 
@@ -1693,6 +2240,7 @@ private suspend fun fetchNewsFlashDocuments(): List<NewsFlash> {
             val summary = doc.get<String?>("summary") ?: return@mapNotNull null
             val source = doc.get<String?>("source") ?: "GoTicky"
             val tag = doc.get<String?>("tag") ?: "Spotlight"
+            val accentHex = doc.get<String?>("accentHex")
             val category = runCatching {
                 IconCategory.valueOf(doc.get<String?>("category") ?: IconCategory.Discover.name)
             }.getOrDefault(IconCategory.Discover)
@@ -1713,6 +2261,7 @@ private suspend fun fetchNewsFlashDocuments(): List<NewsFlash> {
                 source = source,
                 tag = tag,
                 category = category,
+                accentHex = accentHex,
                 imageUrl = imageUrl,
                 imageKey = imageKey,
                 ctaLabel = ctaLabel,
@@ -1765,6 +2314,7 @@ private suspend fun saveNewsFlashToFirestore(item: NewsFlash) {
                     "source" to item.source,
                     "tag" to item.tag,
                     "category" to item.category.name,
+                    "accentHex" to item.accentHex,
                     "imageUrl" to item.imageUrl,
                     "imageKey" to item.imageKey,
                     "ctaLabel" to item.ctaLabel,
@@ -2170,7 +2720,7 @@ private fun SeatPreview() {
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton(text = "Select seats", onClick = { /* TODO seat map */ })
+                PrimaryButton(text = "Select seats", onClick = { showComingSoon = true })
             }
         }
     }
@@ -2375,24 +2925,6 @@ private fun GoTickyRoot() {
     var newsFlashUploadProgress by remember { mutableStateOf(0f) }
     var newsFlashUploadError by remember { mutableStateOf<String?>(null) }
 
-    fun newNewsFlashDraft(): NewsFlash = NewsFlash(
-        id = "nf-${currentTimestampIsoString()}",
-        title = "",
-        summary = "",
-        source = "GoTicky desk",
-        tag = "Update",
-        category = IconCategory.Discover,
-        imageUrl = "",
-        imageKey = "",
-        ctaLabel = "",
-        ctaLink = "",
-        publishedAt = currentInstant(),
-        expiresAt = null,
-        priority = 0,
-        pinned = false,
-        status = "draft"
-    )
-
     fun refreshNewsFlash() {
         scope.launch {
             loadingNews = true
@@ -2403,16 +2935,37 @@ private fun GoTickyRoot() {
                 newsFlashDocuments.clear()
                 newsFlashDocuments.addAll(docs)
                 newsFeedItems.clear()
-                val resolvedItems = if (publicItems.isNotEmpty()) publicItems else sampleEntertainmentNews
-                newsFeedItems.addAll(resolvedItems)
+                newsFeedItems.addAll(publicItems)
             }.onFailure { t ->
                 newsError = t.message ?: "Unable to load news flash"
                 newsFeedItems.clear()
-                newsFeedItems.addAll(sampleEntertainmentNews)
             }
             loadingNews = false
         }
     }
+
+    LaunchedEffect(Unit) {
+        refreshNewsFlash()
+    }
+
+    fun newNewsFlashDraft(): NewsFlash = NewsFlash(
+        id = "nf-${currentTimestampIsoString()}",
+        title = "",
+        summary = "",
+        source = "GoTicky desk",
+        tag = "Update",
+        category = IconCategory.Discover,
+        accentHex = null,
+        imageUrl = "",
+        imageKey = "",
+        ctaLabel = "",
+        ctaLink = "",
+        publishedAt = currentInstant(),
+        expiresAt = null,
+        priority = 0,
+        pinned = false,
+        status = "draft"
+    )
 
     fun saveNewsFlash(draft: NewsFlash) {
         scope.launch {
@@ -2435,7 +2988,12 @@ private fun GoTickyRoot() {
                 newsFlashUploadProgress = 0.1f + 0.8f * p
             }
             if (result == null) {
-                newsFlashUploadError = "Upload failed. Please retry."
+                val localUpdated = (editingNewsDraft ?: draft).copy(
+                    imageUrl = uri,
+                    imageKey = null
+                )
+                editingNewsDraft = localUpdated
+                newsFlashUploadError = "Upload failed. Showing local preview only."
                 newsFlashUploading = false
                 newsFlashUploadProgress = 0f
                 return@launch
@@ -4319,9 +4877,21 @@ private fun AdminDashboardScreen(
                     title = "Needs attention",
                     action = { NeonTextButton(text = "Open queue", onClick = onOpenApplications) }
                 )
+                val neutralSeverity = MaterialTheme.colorScheme.onSurfaceVariant
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     attention.forEach { item ->
-                        AdminAttentionCard(item)
+                        AdminAttentionCard(
+                            item = item,
+                            onReview = { picked ->
+                                onOpenApplications()
+                                val highlight = when (picked.severity) {
+                                    "High" -> Color(0xFFFF6B6B)
+                                    "Medium" -> Color(0xFFFFC94A)
+                                    else -> neutralSeverity
+                                }
+                                addActivity("Review queue: ${picked.title}", highlight)
+                            }
+                        )
                     }
                 }
 
@@ -6637,7 +7207,10 @@ private fun AdminKpiCard(kpi: AdminKpi) {
 }
 
 @Composable
-private fun AdminAttentionCard(item: AdminAttention) {
+private fun AdminAttentionCard(
+    item: AdminAttention,
+    onReview: (AdminAttention) -> Unit = {},
+) {
     val severityColor = when (item.severity) {
         "High" -> Color(0xFFFF6B6B)
         "Medium" -> Color(0xFFFFC94A)
@@ -6670,7 +7243,7 @@ private fun AdminAttentionCard(item: AdminAttention) {
                 )
             }
             Spacer(Modifier.weight(1f))
-            NeonTextButton(text = "Review", onClick = { /* TODO */ })
+            NeonTextButton(text = "Review", onClick = { onReview(item) })
         }
     }
 }
@@ -6739,6 +7312,7 @@ private fun HomeScreen(
     var activeFilterDialog by remember { mutableStateOf<String?>(null) }
     var showHeatPriceDialog by remember { mutableStateOf(false) }
     var showHeatListDialog by remember { mutableStateOf(false) }
+    var showPopularNearbyDialog by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
     var showComingSoonDialog by remember { mutableStateOf(false) }
     var showForYouPersonalize by remember { mutableStateOf(false) }
@@ -6747,6 +7321,32 @@ private fun HomeScreen(
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
     val publicEvents = sampleEvents.filter { isEventPublic(it.id, adminApplications) }
+    val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
+    val popularNearby = publicEvents.mapNotNull { event ->
+        val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
+
+        val matchesQuery = searchQuery.isBlank() ||
+            event.title.contains(searchQuery, ignoreCase = true) ||
+            event.city.contains(searchQuery, ignoreCase = true)
+
+        val matchesFilter = if (filters.isEmpty()) {
+            true
+        } else {
+            filters.any { pill ->
+                when (pill) {
+                    "Concerts" -> event.category == IconCategory.Discover ||
+                        (event.tag?.contains("EDM", ignoreCase = true) == true)
+                    "Sports" -> event.category == IconCategory.Calendar ||
+                        (event.tag?.contains("Basketball", ignoreCase = true) == true)
+                    "Family" -> event.badge?.contains("Family", ignoreCase = true) == true ||
+                        event.category == IconCategory.Profile
+                    else -> true
+                }
+            }
+        }
+
+        if (matchesQuery && matchesFilter) nearby else null
+    }
 
     LaunchedEffect(forceOpenSearchDialog) {
         if (forceOpenSearchDialog) {
@@ -6996,34 +7596,8 @@ private fun HomeScreen(
         MapPreview(onOpenMap = onOpenMap)
         SectionHeader(
             title = "Popular near you",
-            action = { NeonTextButton(text = "See all", onClick = { /* TODO */ }) }
+            action = { NeonTextButton(text = "See all", onClick = { showPopularNearbyDialog = true }) }
         )
-        val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
-        val popularNearby = publicEvents.mapNotNull { event ->
-            val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
-
-            val matchesQuery = searchQuery.isBlank() ||
-                event.title.contains(searchQuery, ignoreCase = true) ||
-                event.city.contains(searchQuery, ignoreCase = true)
-
-            val matchesFilter = if (filters.isEmpty()) {
-                true
-            } else {
-                filters.any { pill ->
-                    when (pill) {
-                        "Concerts" -> event.category == IconCategory.Discover ||
-                            (event.tag?.contains("EDM", ignoreCase = true) == true)
-                        "Sports" -> event.category == IconCategory.Calendar ||
-                            (event.tag?.contains("Basketball", ignoreCase = true) == true)
-                        "Family" -> event.badge?.contains("Family", ignoreCase = true) == true ||
-                            event.category == IconCategory.Profile
-                        else -> true
-                    }
-                }
-            }
-
-            if (matchesQuery && matchesFilter) nearby else null
-        }
 
         PopularNearbySwingDeck(
             nearby = popularNearby,
@@ -7961,6 +8535,81 @@ private fun HomeScreen(
             }
         )
     }
+
+    if (showPopularNearbyDialog) {
+        AlertDialog(
+            onDismissRequest = { showPopularNearbyDialog = false },
+            title = { Text("Popular near you") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.9f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "popularNearbyScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                ) {
+                    Text(
+                        text = "A quick list view of the same nearby picks.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (popularNearby.isEmpty()) {
+                        Text(
+                            text = "No nearby matches right now.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 280.dp)
+                        ) {
+                            items(popularNearby) { nearby ->
+                                GlowCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressAnimated(scaleDown = 0.96f)
+                                        .clickable {
+                                            onEventSelected(nearby.event)
+                                            showPopularNearbyDialog = false
+                                        }
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            nearby.event.title,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            "${nearby.event.city} • ${nearby.distance.formatted}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            nearby.event.priceFrom,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                NeonTextButton(text = "Close", onClick = { showPopularNearbyDialog = false })
+            }
+        )
+    }
     if (showComingSoonDialog) {
         AlertDialog(
             onDismissRequest = { showComingSoonDialog = false },
@@ -8835,8 +9484,10 @@ private fun EntertainmentNewsCard(
     item: EntertainmentNewsItem,
     isPrimary: Boolean,
     onReadMore: () -> Unit,
+    remoteImageUrl: String? = null,
 ) {
-    val accent = IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.secondary
+    val accent = item.accentHex?.takeIf { it.isNotBlank() }?.let(::colorFromHex)
+        ?: (IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.secondary)
 
     Box(
         modifier = Modifier
@@ -8855,11 +9506,18 @@ private fun EntertainmentNewsCard(
                 .padding(1.5.dp)
                 .clip(goTickyShapes.large)
         ) {
-            val photoRes = item.imageKey?.let { key -> Res.allDrawableResources[key] }
+            val resolvedRemoteUrl = remoteImageUrl?.takeIf { it.isNotBlank() }
+                ?: item.imageUrl?.takeIf { it.isNotBlank() }
+            val painter = when {
+                resolvedRemoteUrl != null -> rememberUriPainter(resolvedRemoteUrl)
+                else -> item.imageKey?.let { key ->
+                    Res.allDrawableResources[key]?.let { res -> painterResource(res) }
+                }
+            }
 
-            if (photoRes != null) {
+            if (painter != null) {
                 Image(
-                    painter = painterResource(photoRes),
+                    painter = painter,
                     contentDescription = null,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop
@@ -14364,8 +15022,8 @@ private fun SectionHeader(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = Color.White
         )
         action?.invoke()
     }

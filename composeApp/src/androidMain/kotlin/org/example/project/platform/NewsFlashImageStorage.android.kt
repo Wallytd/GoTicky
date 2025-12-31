@@ -1,10 +1,9 @@
 package org.example.project.platform
 
 import android.net.Uri
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.storage.FirebaseStorage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.UploadTask
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -12,7 +11,6 @@ import kotlin.coroutines.resumeWithException
 
 private class AndroidNewsFlashImageStorage(
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
 ) : NewsFlashImageStorage {
 
     override suspend fun uploadNewsFlashImage(
@@ -20,10 +18,6 @@ private class AndroidNewsFlashImageStorage(
         localUri: String,
         onProgress: (Float) -> Unit,
     ): NewsFlashImageUploadResult? {
-        // Ensure we have a user for Storage rules (best-effort).
-        if (auth.currentUser == null) {
-            runCatching { auth.signInAnonymously() }
-        }
         val fileUri = Uri.parse(localUri)
         val safeId = if (flashId.isBlank()) System.currentTimeMillis().toString() else flashId
         val path = "newsflash/$safeId/cover-${System.currentTimeMillis()}.jpg"

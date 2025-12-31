@@ -17,9 +17,13 @@ service cloud.firestore {
           data.favorites.size() <= 500);
     }
 
-    // Allow only known roles.
     function roleAllowed(data) {
       return !('role' in data) || data.role in ["customer", "admin"];
+    }
+    function isAdminUser() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
 
     function validAdminSecure(data) {
@@ -32,6 +36,42 @@ service cloud.firestore {
       return ('title' in data && data.title is string && data.title.size() > 0) &&
              (!('order' in data) || data.order is int) &&
              (!('active' in data) || data.active is bool);
+    }
+
+    function validNewsFlash(data) {
+      return ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('summary' in data && data.summary is string) &&
+        ('source' in data && data.source is string) &&
+        ('tag' in data && data.tag is string) &&
+        (!('category' in data) || data.category is string) &&
+        (!('accentHex' in data) || data.accentHex is string || data.accentHex == null) &&
+        (!('imageUrl' in data) || data.imageUrl is string || data.imageUrl == null) &&
+        (!('imageKey' in data) || data.imageKey is string || data.imageKey == null) &&
+        (!('ctaLabel' in data) || data.ctaLabel is string || data.ctaLabel == null) &&
+        (!('ctaLink' in data) || data.ctaLink is string || data.ctaLink == null) &&
+        (!('publishedAt' in data) || data.publishedAt is string) &&
+        (!('expiresAt' in data) || data.expiresAt is string || data.expiresAt == null) &&
+        (!('priority' in data) || data.priority is int) &&
+        (!('pinned' in data) || data.pinned is bool) &&
+        (!('status' in data) || data.status in ["draft", "scheduled", "published", "archived"]) &&
+        (!('region' in data) || data.region is string || data.region == null) &&
+        (!('locale' in data) || data.locale is string || data.locale == null) &&
+        (!('author' in data) || data.author is string || data.author == null) &&
+        (!('createdBy' in data) || data.createdBy is string || data.createdBy == null) &&
+        (!('updatedAt' in data) || data.updatedAt is string || data.updatedAt == null) &&
+        (!('impressions' in data) || data.impressions is int) &&
+        (!('clicks' in data) || data.clicks is int);
+    }
+
+    function validNewsFlashExpiryWindow(data) {
+      return
+        // No expiry set is always allowed.
+        !('expiresAt' in data) ||
+        data.expiresAt == null ||
+        // If we don't know publishedAt, skip the check.
+        !('publishedAt' in data) ||
+        // When both are strings, require expiresAt >= publishedAt.
+        ((data.publishedAt is string) && (data.expiresAt is string) && data.expiresAt >= data.publishedAt);
     }
 
     // Public profile index validation for pre-auth avatar lookup on sign-in.
@@ -106,7 +146,14 @@ service cloud.firestore {
     // anonymous) so only the app/admin tools can modify them.
     match /banners/{bannerId} {
       allow read: if true;
-      allow write: if validBanner(request.resource.data);
+      allow write: if isSignedIn() && validBanner(request.resource.data);
+    }
+
+    match /newsFeeds/{flashId} {
+      allow read: if true;
+      allow write: if
+        validNewsFlash(request.resource.data) &&
+        validNewsFlashExpiryWindow(request.resource.data);
     }
 
     // Human-friendly user directory index for console/admin inspection.

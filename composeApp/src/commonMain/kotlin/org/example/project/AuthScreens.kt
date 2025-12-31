@@ -1209,7 +1209,14 @@ fun AuthScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    NeonTextButton(text = "Forgot password?", onClick = { /* TODO: hook */ })
+                    NeonTextButton(
+                        text = "Forgot password?",
+                        onClick = {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Password reset is coming soon in this demo.")
+                            }
+                        }
+                    )
                     NeonTextButton(
                         text = "Create account",
                         onClick = { mode = AuthMode.SignUp }

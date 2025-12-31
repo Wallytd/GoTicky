@@ -10,6 +10,8 @@ data class EntertainmentNewsItem(
     val tag: String,
     val minutesAgo: Int,
     val category: IconCategory,
+    val accentHex: String? = null,
+    val imageUrl: String? = null,
     val imageKey: String? = null,
 )
 

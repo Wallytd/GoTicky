@@ -34,6 +34,17 @@ service firebase.storage {
         request.resource.contentType.matches('image/.*');
     }
 
+    // News flash images stored per draft/published item.
+    // Public read so the home feed can load thumbnails; writes allowed with
+    // size/type limits (mirrors banners) to keep admin tools working even if
+    // auth/app-check is not ready.
+    match /newsflash/{allPaths=**} {
+      allow read: if true;
+      allow write: if
+        request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
     // Deny everything else by default.
     match /{allPaths=**} {
       allow read, write: if false;
