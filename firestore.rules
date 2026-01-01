@@ -63,6 +63,34 @@ service cloud.firestore {
         (!('clicks' in data) || data.clicks is int);
     }
 
+    function validTonightsHeat(data) {
+      return ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('metaLine' in data && data.metaLine is string) &&
+        ('captionLine1' in data && data.captionLine1 is string) &&
+        (!('captionLine2' in data) || data.captionLine2 is string || data.captionLine2 == null) &&
+        (!('imageUrl' in data) || data.imageUrl is string || data.imageUrl == null) &&
+        (!('imageKey' in data) || data.imageKey is string || data.imageKey == null) &&
+        (!('accentHex' in data) || data.accentHex is string || data.accentHex == null) &&
+        (!('primaryCtaLabel' in data) || data.primaryCtaLabel is string || data.primaryCtaLabel == null) &&
+        (!('secondaryCtaLabel' in data) || data.secondaryCtaLabel is string || data.secondaryCtaLabel == null) &&
+        (!('eventId' in data) || data.eventId is string || data.eventId == null) &&
+        (!('active' in data) || data.active is bool) &&
+        (!('order' in data) || data.order is int);
+    }
+
+    function validRecommendation(data) {
+      return ('eventId' in data && data.eventId is string && data.eventId.size() > 0) &&
+        ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('reason' in data && data.reason is string) &&
+        ('tag' in data && data.tag is string) &&
+        ('city' in data && data.city is string) &&
+        ('priceFrom' in data && data.priceFrom is string) &&
+        (!('imageKey' in data) || data.imageKey is string || data.imageKey == null) &&
+        (!('imageUrl' in data) || data.imageUrl is string || data.imageUrl == null) &&
+        (!('order' in data) || data.order is int) &&
+        (!('active' in data) || data.active is bool);
+    }
+
     function validNewsFlashExpiryWindow(data) {
       return
         // No expiry set is always allowed.
@@ -154,6 +182,16 @@ service cloud.firestore {
       allow write: if
         validNewsFlash(request.resource.data) &&
         validNewsFlashExpiryWindow(request.resource.data);
+    }
+
+    match /tonightsHeat/{heatId} {
+      allow read: if true;
+      allow write: if isSignedIn() && validTonightsHeat(request.resource.data);
+    }
+
+    match /recommendations/{recId} {
+      allow read: if true;
+      allow write: if isSignedIn() && validRecommendation(request.resource.data);
     }
 
     // Human-friendly user directory index for console/admin inspection.

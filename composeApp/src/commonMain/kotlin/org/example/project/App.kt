@@ -1373,6 +1373,47 @@ private fun NewsFlashSection(
     }
 }
 
+private suspend fun fetchRecommendationsFromFirestore(): List<Recommendation> {
+    return try {
+        ensureSettingsSession()
+        val snap = Firebase.firestore
+            .collection("recommendations")
+            .get()
+
+        snap.documents.mapNotNull { doc ->
+            val id = doc.id
+            val eventId = doc.get<String?>("eventId") ?: return@mapNotNull null
+            val title = doc.get<String?>("title") ?: return@mapNotNull null
+            val reason = doc.get<String?>("reason") ?: ""
+            val tag = doc.get<String?>("tag") ?: "For you"
+            val city = doc.get<String?>("city") ?: ""
+            val priceFrom = doc.get<String?>("priceFrom") ?: ""
+            val imageKey = doc.get<String?>("imageKey")
+            val imageUrl = doc.get<String?>("imageUrl")
+            val order = doc.get<Long?>("order")?.toInt() ?: 0
+            val active = doc.get<Boolean?>("active") ?: true
+
+            Recommendation(
+                id = id,
+                eventId = eventId,
+                title = title,
+                reason = reason,
+                tag = tag,
+                city = city,
+                priceFrom = priceFrom,
+                imageKey = imageKey,
+                imageUrl = imageUrl,
+                order = order,
+                active = active,
+            )
+        }
+            .filter { it.active }
+            .sortedBy { it.order }
+    } catch (_: Throwable) {
+        emptyList()
+    }
+}
+
 @Composable
 private fun NeonGuestProgressBar(
     progress: Float,
@@ -1975,6 +2016,29 @@ private fun buildEarlyBirdWindow(app: AdminApplication?, approvedAt: Instant?): 
 private fun isEventPublic(eventId: String, apps: List<AdminApplication>): Boolean {
     val app = apps.firstOrNull { it.eventId == eventId } ?: return true
     return app.status == "Approved"
+}
+
+private fun isEventHappeningToday(
+    event: EventItem,
+    now: Instant,
+    tz: TimeZone,
+): Boolean {
+    val today = now.toLocalDateTime(tz).date
+    val startsAt = event.startsAt
+    return when {
+        startsAt != null -> startsAt.toLocalDateTime(tz).date == today
+        else -> event.dateLabel.contains("Tonight", ignoreCase = true) ||
+            event.dateLabel.contains("Today", ignoreCase = true)
+    }
+}
+
+private fun pickTonightHeatEvent(
+    events: List<EventItem>,
+    now: Instant,
+    tz: TimeZone,
+): EventItem? {
+    val tonight = events.filter { isEventHappeningToday(it, now, tz) }
+    return tonight.minByOrNull { it.startsAt?.toEpochMilliseconds() ?: Long.MAX_VALUE }
 }
 
 private fun buildEarlyBirdBadgeForEvent(
@@ -2864,7 +2928,7 @@ private fun GoTickyRoot() {
     var guestGateTarget by remember { mutableStateOf<GuestGateTarget?>(null) }
     var guestGateMessage by remember { mutableStateOf("Sign up to unlock this action.") }
     val alerts = remember { mutableStateListOf<PriceAlert>(*sampleAlerts.toTypedArray()) }
-    val recommendations = remember { sampleRecommendations }
+    val recommendations = remember { mutableStateListOf<Recommendation>(*sampleRecommendations.toTypedArray()) }
     val organizerEvents = remember { mutableStateListOf<OrganizerEvent>(*sampleOrganizerEvents.toTypedArray()) }
     var showCreateEvent by remember { mutableStateOf(false) }
     var selectedOrganizerEvent by remember { mutableStateOf<OrganizerEvent?>(null) }
@@ -2944,8 +3008,21 @@ private fun GoTickyRoot() {
         }
     }
 
+    fun refreshRecommendations() {
+        scope.launch {
+            runCatching {
+                val remote = fetchRecommendationsFromFirestore()
+                if (remote.isNotEmpty()) {
+                    recommendations.clear()
+                    recommendations.addAll(remote)
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         refreshNewsFlash()
+        refreshRecommendations()
     }
 
     fun newNewsFlashDraft(): NewsFlash = NewsFlash(
@@ -4294,15 +4371,18 @@ private fun GoTickyRoot() {
                                                             heroSlides = heroSlides,
                                                             simulatedHeroBannerId = simulatedHeroBannerId,
                                                             recommendations = personalize(recommendations),
+                                                            onRefreshRecommendations = { refreshRecommendations() },
                                                             adminApplications = adminApplications,
                                                             onOpenMap = { currentScreen = MainScreen.Map },
                                                             searchQuery = searchQuery,
                                                             onSearchQueryChange = { searchQuery = it },
                                                             forceOpenSearchDialog = forceOpenSearchDialog,
                                                             onConsumeForceOpenSearchDialog = { forceOpenSearchDialog = false },
-                                                            onSearchExecuted = { query -> recordSearch(query) },
+                                                            onSearchExecuted = { query ->
+                                                                Analytics.log(AnalyticsEvent(name = "search_query", params = mapOf("query" to query)))
+                                                            },
                                                             favoriteEvents = favoriteEvents,
-                                                            onToggleFavorite = { id -> toggleFavorite(id) },
+                                                            onToggleFavorite = { eventId -> toggleFavorite(eventId) },
                                                             entertainmentNews = newsFeedItems,
                                                             loadingNews = loadingNews,
                                                             onRefreshNews = { refreshNewsFlash() },
@@ -7289,6 +7369,7 @@ private fun HomeScreen(
     heroSlides: List<HeroSlide>,
     simulatedHeroBannerId: String?,
     recommendations: List<Recommendation>,
+    onRefreshRecommendations: () -> Unit,
     adminApplications: List<AdminApplication>,
     onOpenMap: () -> Unit,
     searchQuery: String,
@@ -7321,6 +7402,18 @@ private fun HomeScreen(
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
     val publicEvents = sampleEvents.filter { isEventPublic(it.id, adminApplications) }
+    val tz = remember { TimeZone.currentSystemDefault() }
+    val nowState = remember { mutableStateOf(currentInstant()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowState.value = currentInstant()
+            delay(60_000)
+        }
+    }
+    val now = nowState.value
+    val tonightHeatEvent = remember(publicEvents, now.toLocalDateTime(tz).date) {
+        pickTonightHeatEvent(publicEvents, now, tz)
+    }
     val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
     val popularNearby = publicEvents.mapNotNull { event ->
         val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
@@ -7547,12 +7640,17 @@ private fun HomeScreen(
             action = { NeonTextButton(text = "See all", onClick = { showHeatListDialog = true }) }
         )
         HighlightCard(
+            event = tonightHeatEvent,
             onOpenDetails = {
-                val event = publicEvents.firstOrNull()
-                event?.let { onEventSelected(it) }
+                tonightHeatEvent?.let { onEventSelected(it) }
+                    ?: run { snackbarMessage = "No shows scheduled for today." }
             },
             onSelectSeats = {
-                showComingSoonDialog = true
+                if (tonightHeatEvent != null) {
+                    showComingSoonDialog = true
+                } else {
+                    snackbarMessage = "No seats available because there is no show today."
+                }
             },
             onPriceAlerts = { showHeatPriceDialog = true }
         )
@@ -7571,7 +7669,12 @@ private fun HomeScreen(
         }
         SectionHeader(
             title = "For you",
-            action = { NeonTextButton(text = "Personalize", onClick = { showForYouPersonalize = true }) }
+            action = {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NeonTextButton(text = "Refresh", onClick = onRefreshRecommendations)
+                    NeonTextButton(text = "Personalize", onClick = { showForYouPersonalize = true })
+                }
+            }
         )
         ForYouRecommendationsRow(
             recommendations = recommendations,
@@ -7590,7 +7693,19 @@ private fun HomeScreen(
                 )
 
                 val event = publicEvents.firstOrNull { it.id == rec.eventId }
-                event?.let { onEventSelected(it) }
+                    ?: EventItem(
+                        id = rec.eventId,
+                        title = rec.title,
+                        city = rec.city,
+                        dateLabel = "Recommended",
+                        priceFrom = rec.priceFrom,
+                        category = IconCategory.Discover,
+                        badge = rec.tag,
+                        tag = rec.tag,
+                        month = "",
+                        imagePath = rec.imageKey
+                    )
+                onEventSelected(event)
             }
         )
         MapPreview(onOpenMap = onOpenMap)
@@ -8493,9 +8608,11 @@ private fun HomeScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                val tonightEvents = publicEvents.filter {
-                    it.dateLabel.contains("Tonight", ignoreCase = true) || it.badge?.contains("Hot", ignoreCase = true) == true
-                }
+                val now = currentInstant()
+                val tz = TimeZone.currentSystemDefault()
+                val tonightEvents = publicEvents
+                    .filter { isEventHappeningToday(it, now, tz) }
+                    .sortedBy { it.startsAt?.toEpochMilliseconds() ?: Long.MAX_VALUE }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -9253,6 +9370,7 @@ private fun QuickSearchBar(
 
 @Composable
 private fun HighlightCard(
+    event: EventItem?,
     onOpenDetails: () -> Unit,
     onSelectSeats: () -> Unit,
     onPriceAlerts: () -> Unit,
@@ -9275,8 +9393,8 @@ private fun HighlightCard(
                 .padding(1.5.dp)
                 .clip(goTickyShapes.large)
         ) {
-            // Fixed key for Tonight's heat hero image
-            val photoRes = Res.allDrawableResources["tonights_heat_marquee_night"]
+            val photoRes = event?.imagePath?.let { key -> Res.allDrawableResources[key] }
+                ?: Res.allDrawableResources["tonights_heat_marquee_night"]
 
             if (photoRes != null) {
                 Image(
@@ -9323,7 +9441,7 @@ private fun HighlightCard(
                     )
                     Column {
                         Text(
-                            "Marquee Night",
+                            event?.title ?: "Tonight's heat",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 shadow = Shadow(
@@ -9335,7 +9453,8 @@ private fun HighlightCard(
                             color = Color(0xFFFDFDFE)
                         )
                         Text(
-                            "Harare – Reps Theatre – Tonight – Limited VIP",
+                            event?.let { "${it.city} • ${it.dateLabel}" }
+                                ?: "No show scheduled for today.",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 shadow = Shadow(
                                     color = Color.Black.copy(alpha = 0.7f),
@@ -9349,7 +9468,8 @@ private fun HighlightCard(
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Best seats highlighted with neon glow. See transparent fees before checkout.",
+                        event?.let { "Tap to see details and secure your seats before it sells out." }
+                            ?: "Come back later for the next big event.",
                         style = MaterialTheme.typography.bodyMedium.copy(
                             shadow = Shadow(
                                 color = Color.Black.copy(alpha = 0.7f),
@@ -12377,8 +12497,18 @@ private fun ForYouRecommendationsRow(
                         val imageKey = rec.imageKey
                             ?: sampleEvents.firstOrNull { it.id == rec.eventId }?.imagePath
                         val photoRes = imageKey?.let { key -> Res.allDrawableResources[key] }
+                        val remotePainter = rec.imageUrl
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { rememberUriPainter(it) }
 
-                        if (photoRes != null) {
+                        if (remotePainter != null) {
+                            Image(
+                                painter = remotePainter,
+                                contentDescription = null,
+                                modifier = Modifier.matchParentSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (photoRes != null) {
                             Image(
                                 painter = painterResource(photoRes),
                                 contentDescription = null,

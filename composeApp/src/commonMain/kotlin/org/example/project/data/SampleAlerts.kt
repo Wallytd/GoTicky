@@ -23,6 +23,9 @@ data class Recommendation(
     val city: String,
     val priceFrom: String,
     val imageKey: String? = null,
+    val imageUrl: String? = null,
+    val order: Int = 0,
+    val active: Boolean = true,
 )
 
 val sampleAlerts = listOf(

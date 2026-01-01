@@ -50,15 +50,15 @@ kotlin {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation("com.google.android.gms:play-services-maps:19.2.0")
-            implementation("com.google.maps.android:maps-compose:6.12.2")
+            implementation("com.google.maps.android:maps-compose:7.0.0")
             implementation("com.google.zxing:core:3.5.4")
-            implementation("com.google.firebase:firebase-auth-ktx:23.0.0")
-            implementation("com.google.firebase:firebase-appcheck-playintegrity:18.0.0")
+            implementation("com.google.firebase:firebase-auth-ktx:23.2.1")
+            implementation("com.google.firebase:firebase-appcheck-playintegrity:19.0.1")
             implementation("androidx.biometric:biometric:1.1.0")
             // CardView for IntroActivity neumorphic logo container
             implementation("androidx.cardview:cardview:1.0.0")
             // Remote image loading for profile previews (Sign-In avatar)
-            implementation("io.coil-kt:coil-compose:2.5.0")
+            implementation("io.coil-kt:coil-compose:2.7.0")
         }
         commonMain.dependencies {
             implementation(compose.runtime)

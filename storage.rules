@@ -45,6 +45,24 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
+    // Tonight's heat hero images.
+    // Public read so the home card can load; writes limited to signed-in sessions
+    // with strict size/content-type.
+    match /tonights_heat/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // For You recommendation images.
+    match /recommendations/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
     // Deny everything else by default.
     match /{allPaths=**} {
       allow read, write: if false;
