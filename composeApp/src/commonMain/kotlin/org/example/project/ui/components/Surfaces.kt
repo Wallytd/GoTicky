@@ -97,3 +97,23 @@ fun Pill(
         )
     }
 }
+
+@Composable
+fun GlowPill(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(goTickyShapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
+            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}

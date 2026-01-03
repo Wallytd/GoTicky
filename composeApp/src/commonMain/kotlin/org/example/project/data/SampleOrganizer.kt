@@ -8,6 +8,7 @@ data class OrganizerEvent(
     val venue: String,
     val dateLabel: String,
     val priceFrom: String,
+    val isApproved: Boolean = true,
     val status: String,
     val views: Int,
     val saves: Int,

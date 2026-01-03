@@ -42,22 +42,23 @@ fun PrimaryButton(
     text: String,
     modifier: Modifier = Modifier,
     icon: (@Composable (() -> Unit))? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
+        targetValue = if (enabled && pressed) 0.96f else 1f,
         animationSpec = tween(GoTickyMotion.Standard),
         label = "primaryPress"
     )
     Box(
         modifier = modifier
-            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .graphicsLayer(scaleX = scale, scaleY = scale, alpha = if (enabled) 1f else 0.55f)
             .clip(goTickyShapes.large)
             .background(GoTickyGradients.Cta)
             .shadow(elevation = 8.dp, shape = goTickyShapes.large, spotColor = Color(0x66D6FF1F))
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() }
             // Slightly lower vertical padding so there is more text room inside short pills (e.g. height = 44.dp).
             .padding(horizontal = 18.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
@@ -81,21 +82,22 @@ fun GhostButton(
     text: String,
     modifier: Modifier = Modifier,
     icon: (@Composable () -> Unit)? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.95f else 1f,
+        targetValue = if (enabled && pressed) 0.95f else 1f,
         animationSpec = tween(GoTickyMotion.Standard),
         label = "ghostPress"
     )
     Row(
         modifier = modifier
-            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .graphicsLayer(scaleX = scale, scaleY = scale, alpha = if (enabled) 1f else 0.55f)
             .clip(goTickyShapes.medium)
             .background(Color.Transparent)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() }
             .border(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 shape = goTickyShapes.medium
@@ -111,7 +113,7 @@ fun GhostButton(
         Text(
             text = text,
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

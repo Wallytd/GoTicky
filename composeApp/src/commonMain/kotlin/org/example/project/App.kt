@@ -180,19 +180,24 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import kotlin.math.round
+import org.example.project.MapEvent
 import org.example.project.data.TicketPass
 import org.example.project.data.OrderSummary
 import org.example.project.data.Recommendation
 import org.example.project.data.prettyDate
 import org.example.project.data.EventItem
 import org.example.project.data.OrganizerEvent
+import org.example.project.data.EventDraftInput
+import org.example.project.data.EventRepository
 import org.example.project.data.NewsFlash
 import org.example.project.data.sampleAlerts
 import org.example.project.data.sampleEvents
 import org.example.project.data.sampleOrder
 import org.example.project.data.sampleRecommendations
 import org.example.project.data.sampleTickets
-import org.example.project.data.sampleOrganizerEvents
 import org.example.project.data.sampleNearbyEvents
 import org.example.project.data.EntertainmentNewsItem
 import org.example.project.data.sampleEntertainmentNews
@@ -202,6 +207,8 @@ import org.example.project.data.adminSeeds
 import org.example.project.data.adminSeedByCredentials
 import org.example.project.data.seedAdminProfilesIfMissing
 import org.example.project.data.PriceAlert
+import org.example.project.data.NearbyEvent
+import org.example.project.data.DistanceSample
 import org.example.project.analytics.Analytics
 import org.example.project.analytics.AnalyticsEvent
 import org.example.project.ui.components.AnimatedProgressBar
@@ -209,6 +216,7 @@ import org.example.project.ui.components.CheckoutScreen
 import org.example.project.ui.components.EventCard
 import org.example.project.ui.components.FabGlow
 import org.example.project.ui.components.GhostButton
+import org.example.project.ui.components.GlowPill
 import org.example.project.ui.components.GlowCard
 import org.example.project.ui.components.LoadingRow
 import org.example.project.ui.components.LoadingSpinner
@@ -237,6 +245,7 @@ import org.example.project.platform.BiometricResult
 import org.example.project.platform.rememberBiometricLauncher
 import org.example.project.platform.rememberProfileImageStorage
 import org.example.project.platform.rememberNewsFlashImageStorage
+import org.example.project.platform.rememberEventImageStorage
 import org.example.project.platform.rememberUriPainter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
@@ -262,8 +271,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.SpanStyle
 import kotlinx.datetime.Instant
@@ -310,6 +321,7 @@ private fun NewsFlashSection(
     val scope = rememberCoroutineScope()
     val listScroll = rememberLazyListState()
     var categoryExpanded by remember { mutableStateOf(false) }
+
     var tagExpanded by remember { mutableStateOf(false) }
     val categories = remember { IconCategory.values().toList() }
     val categoryOptions = remember {
@@ -1927,14 +1939,16 @@ private data class AdminActivity(val text: String, val time: String, val accent:
 private enum class AdminSurface { Dashboard, Applications, Moderation, Organizer, Catalog, Banners, NewsFlash, Settings }
 private enum class BottomNavVisibility { Visible, Hidden }
 private enum class GuestGateTarget { Checkout, Organizer }
-data class AdminApplication(
+private data class AdminApplication(
     val id: String,
     val eventId: String,
+    val organizerId: String = "",
     val title: String,
     val organizer: String,
     val city: String,
     val category: String,
     var status: String,
+    var isApproved: Boolean = false,
     val risk: String,
     val ageHours: Int,
     val completeness: Int,
@@ -1948,6 +1962,8 @@ data class AdminApplication(
     val earlyBirdDurationHours: Int = 72,
     val earlyBirdManualStartAt: Instant? = null,
     val earlyBirdPaused: Boolean = false,
+    // Optional flyer image URL for this event (organizer-uploaded poster).
+    val flyerUrl: String? = null,
 )
 private data class EarlyBirdWindow(
     val start: Instant,
@@ -2014,8 +2030,8 @@ private fun buildEarlyBirdWindow(app: AdminApplication?, approvedAt: Instant?): 
 }
 
 private fun isEventPublic(eventId: String, apps: List<AdminApplication>): Boolean {
-    val app = apps.firstOrNull { it.eventId == eventId } ?: return true
-    return app.status == "Approved"
+    val app = apps.firstOrNull { it.eventId == eventId } ?: return apps.isEmpty()
+    return app.isApproved || app.status == "Approved"
 }
 
 private fun isEventHappeningToday(
@@ -2077,11 +2093,17 @@ private data class AdminOrganizer(
     val strikes: Int,
     val frozen: Boolean,
     val notes: String,
+    val photoUri: String? = null,
+    val email: String = "",
+    val countryName: String = "",
+    val phoneCode: String = "",
+    val phoneNumber: String = "",
+    val role: String = "",
 )
 private data class AdminRoleEntry(
     val id: String,
     val name: String,
-    var role: String,
+    val role: String,
     val email: String,
 )
 private data class HeroSlide(
@@ -2217,6 +2239,16 @@ private val defaultHeroSlides = listOf(
 )
 
 private fun currentTimestampIsoString(): String = currentInstant().toString()
+
+private fun formatFixedDecimal(value: Double, decimals: Int): String {
+    var factor = 1L
+    repeat(decimals) { factor *= 10L }
+    val scaled = round(value * factor).toLong()
+    val intPart = scaled / factor
+    val fracPart = kotlin.math.abs(scaled % factor)
+    val frac = fracPart.toString().padStart(decimals, '0')
+    return "$intPart.$frac"
+}
 
 private fun colorFromHex(hex: String?): Color {
     val cleaned = hex?.trim()?.removePrefix("#") ?: return Color(0xFF9C7BFF)
@@ -2828,12 +2860,14 @@ private fun SeatPreview() {
 private fun FlyerPreviewCard(
     isUploading: Boolean,
     hasFlyer: Boolean,
+    previewUri: String?,
     flyerLabel: String,
     onReplace: () -> Unit,
     onClear: () -> Unit,
 ) {
     val pulse = infinitePulseAmplitude(minScale = 0.995f, maxScale = 1.02f, durationMillis = 2400)
     val accent = MaterialTheme.colorScheme.secondary
+    val previewPainter = previewUri?.let { rememberUriPainter(it) }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -2862,6 +2896,26 @@ private fun FlyerPreviewCard(
                 AnimatedProgressBar(progress = 0.78f, modifier = Modifier.fillMaxWidth(0.86f))
             }
         } else {
+            if (previewPainter != null) {
+                Image(
+                    painter = previewPainter,
+                    contentDescription = "Flyer preview",
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.55f),
+                                0.55f to Color.Transparent,
+                                1f to Color.Black.copy(alpha = 0.6f)
+                            )
+                        )
+                        .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                )
+            }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -2929,8 +2983,10 @@ private fun GoTickyRoot() {
     var guestGateMessage by remember { mutableStateOf("Sign up to unlock this action.") }
     val alerts = remember { mutableStateListOf<PriceAlert>(*sampleAlerts.toTypedArray()) }
     val recommendations = remember { mutableStateListOf<Recommendation>(*sampleRecommendations.toTypedArray()) }
-    val organizerEvents = remember { mutableStateListOf<OrganizerEvent>(*sampleOrganizerEvents.toTypedArray()) }
+    val organizerEvents = remember { mutableStateListOf<OrganizerEvent>() }
     var showCreateEvent by remember { mutableStateOf(false) }
+    var createEventSaving by remember { mutableStateOf(false) }
+    var createEventUploadProgress by remember { mutableStateOf(0f) }
     var selectedOrganizerEvent by remember { mutableStateOf<OrganizerEvent?>(null) }
     var isScrolling by remember { mutableStateOf(false) }
     var showIntro by rememberSaveable { mutableStateOf(true) }
@@ -2946,6 +3002,7 @@ private fun GoTickyRoot() {
     val profileImageStorage = rememberProfileImageStorage()
     val newsFlashImageStorage = rememberNewsFlashImageStorage()
     val bannerImageStorage = rememberBannerImageStorage()
+    val eventImageStorage = rememberEventImageStorage()
     val biometricLauncher = rememberBiometricLauncher()
     val scope = rememberCoroutineScope()
     var logoutInProgress by remember { mutableStateOf(false) }
@@ -2977,6 +3034,7 @@ private fun GoTickyRoot() {
     val bannerPicker = rememberImagePicker { uri ->
         uri?.let { bannerDraft = bannerDraft.copy(localImageUri = it) }
     }
+    val eventRepository = remember { EventRepository(eventImageStorage) }
     var relaxJob by remember { mutableStateOf<Job?>(null) }
     val newsFlashDocuments = remember { mutableStateListOf<NewsFlash>() }
     val newsFeedItems = remember { mutableStateListOf<EntertainmentNewsItem>() }
@@ -3008,6 +3066,18 @@ private fun GoTickyRoot() {
         }
     }
 
+    fun refreshOrganizerEvents() {
+        scope.launch {
+            val result = eventRepository.fetchOrganizerEvents()
+            result.onSuccess { remote ->
+                organizerEvents.clear()
+                organizerEvents.addAll(remote)
+            }.onFailure { t ->
+                snackbarHostState.showSnackbar(t.message ?: "Unable to load your events.")
+            }
+        }
+    }
+
     fun refreshRecommendations() {
         scope.launch {
             runCatching {
@@ -3023,6 +3093,12 @@ private fun GoTickyRoot() {
     LaunchedEffect(Unit) {
         refreshNewsFlash()
         refreshRecommendations()
+    }
+
+    LaunchedEffect(currentScreen) {
+        if (currentScreen == MainScreen.Organizer) {
+            refreshOrganizerEvents()
+        }
     }
 
     fun newNewsFlashDraft(): NewsFlash = NewsFlash(
@@ -3233,73 +3309,146 @@ private fun GoTickyRoot() {
         )
     }
 
-    val adminApplications = remember {
-        mutableStateListOf(
-            AdminApplication(
-                id = "app-1",
-                eventId = "1",
-                title = "Midnight Neon Fest",
-                organizer = "Neon Live",
-                city = "Harare",
-                category = "EDM",
-                status = "Approved",
-                risk = "Low",
-                ageHours = 4,
-                completeness = 82,
-                attachmentsReady = true,
-                notes = "All docs present",
-                eventDateTime = "Dec 22, 2025 • 20:00",
-                pricingTiers = listOf("Early bird $25", "GA $40", "VIP $90")
-            ),
-            AdminApplication(
-                id = "app-2",
-                eventId = "6",
-                title = "Bulawayo Street Fest",
-                organizer = "City Beats",
-                city = "Bulawayo",
-                category = "Festival",
-                status = "In Review",
-                risk = "High",
-                ageHours = 14,
-                completeness = 54,
-                attachmentsReady = false,
-                notes = "Missing permit upload",
-                eventDateTime = "Jan 10, 2026 • 14:00",
-                pricingTiers = listOf("Free entry", "Food court tokens $10")
-            ),
-            AdminApplication(
-                id = "app-3",
-                eventId = "4",
-                title = "Family Lights Parade",
-                organizer = "Sunrise Events",
-                city = "Victoria Falls",
-                category = "Family",
-                status = "Needs Info",
-                risk = "Medium",
-                ageHours = 28,
-                completeness = 70,
-                attachmentsReady = true,
-                notes = "Clarify road closure",
-                eventDateTime = "Dec 29, 2025 • 18:30",
-                pricingTiers = listOf("Adult $15", "Child $8", "Family pack $40")
-            ),
-            AdminApplication(
-                id = "app-4",
-                eventId = "5",
-                title = "Savanna Sky Sessions",
-                organizer = "VibeCo",
-                city = "Maun",
-                category = "Live band",
-                status = "New",
-                risk = "Medium",
-                ageHours = 6,
-                completeness = 66,
-                attachmentsReady = true,
-                notes = "Check pricing rationale",
-                eventDateTime = "Jan 4, 2026 • 19:00",
-                pricingTiers = listOf("GA $35", "VIP deck $75")
-            ),
-        )
+    var adminApplications = remember { mutableStateListOf<AdminApplication>() }
+    var adminApplicationsLoading by remember { mutableStateOf(false) }
+    var adminApplicationsError by remember { mutableStateOf<String?>(null) }
+    var adminApplicationsInitialized by remember { mutableStateOf(false) }
+    var adminAuthEnsured by remember { mutableStateOf(false) }
+    // Map of organizerId -> AdminOrganizer, populated from real user profiles when admin applications load.
+    val adminOrganizers = remember { mutableStateListOf<AdminOrganizer>() }
+
+    suspend fun ensureAdminAuthForApplications() {
+        if (adminAuthEnsured) return
+        val auth = Firebase.auth
+        if (auth.currentUser == null) {
+            runCatching { auth.signInAnonymously() }
+        }
+        // We only need a signed-in session so Firestore rules allow reads; do not mutate user profiles here.
+        adminAuthEnsured = true
+    }
+
+    fun refreshAdminApplications() {
+        scope.launch {
+            adminApplicationsLoading = true
+            adminApplicationsError = null
+            runCatching {
+                ensureAdminAuthForApplications()
+                val snap = Firebase.firestore.collection("events").get()
+                val now = currentInstant()
+                val items = snap.documents.mapNotNull { doc ->
+                    val title = doc.get<String?>("title") ?: return@mapNotNull null
+                    val organizerId = doc.get<String?>("organizerId") ?: ""
+                    val isApproved = doc.get<Boolean?>("isApproved") ?: false
+                    val status = when {
+                        isApproved -> "Approved"
+                        else -> doc.get<String?>("status") ?: "In Review"
+                    }
+                    val createdAt = doc.get<String?>("createdAt")
+                    val ageHours = createdAt?.let {
+                        runCatching { (now - Instant.parse(it)).inWholeHours.toInt().coerceAtLeast(0) }.getOrNull()
+                    } ?: 0
+                    val ticketsMapDouble = runCatching { doc.get<Map<String, Double>?>("tickets") }.getOrNull()
+                    val ticketsMapLong = if (ticketsMapDouble == null) {
+                        runCatching { doc.get<Map<String, Long>?>("tickets") }.getOrNull()
+                    } else null
+                    val ticketsMap: Map<String, Number> = (ticketsMapDouble ?: ticketsMapLong) ?: emptyMap()
+                    val pricingTiers = ticketsMap.entries.mapNotNull { (tier, price) ->
+                        val numeric = price.toDouble()
+                        val formatted = formatPriceTwoDecimals(numeric)
+                        "$tier $$formatted"
+                    }
+                    val flyerUrl = doc.get<String?>("flyerUrl")
+                    val risk = when {
+                        isApproved -> "Low"
+                        status.equals("Rejected", ignoreCase = true) -> "High"
+                        else -> "Medium"
+                    }
+                    AdminApplication(
+                        id = doc.id,
+                        eventId = doc.id,
+                        organizerId = organizerId,
+                        title = title,
+                        organizer = doc.get<String?>("companyName") ?: doc.get<String?>("organizerName") ?: "Organizer",
+                        city = doc.get<String?>("city") ?: "",
+                        category = doc.get<String?>("category") ?: "General",
+                        status = status,
+                        isApproved = isApproved,
+                        risk = risk,
+                        ageHours = ageHours,
+                        completeness = (doc.get<Long?>("completeness") ?: 70L).toInt().coerceIn(0, 100),
+                        attachmentsReady = doc.get<Boolean?>("attachmentsReady") ?: false,
+                        notes = doc.get<String?>("notes") ?: "",
+                        eventDateTime = doc.get<String?>("dateLabel") ?: "",
+                        pricingTiers = if (pricingTiers.isNotEmpty()) pricingTiers else listOf(doc.get<String?>("priceFrom") ?: "Tier pending"),
+                        approvedAt = doc.get<String?>("approvedAt")?.let { runCatching { Instant.parse(it) }.getOrNull() },
+                        flyerUrl = flyerUrl,
+                    )
+                }
+                adminApplications.clear()
+                adminApplications.addAll(items)
+
+                // Build organizer profiles from /users for any organizerIds present on the applications.
+                val organizerIds = items.mapNotNull { it.organizerId.takeIf { id -> id.isNotBlank() } }.distinct()
+                if (organizerIds.isNotEmpty()) {
+                    val firestore = Firebase.firestore
+                    val fetchedOrganizers = mutableListOf<AdminOrganizer>()
+                    organizerIds.forEach { id ->
+                        runCatching {
+                            val userDoc = firestore.collection("users").document(id).get()
+                            if (userDoc.exists) {
+                                val displayName = userDoc.get<String?>("displayName") ?: "Organizer"
+                                val role = userDoc.get<String?>("role") ?: "organizer"
+                                val kycStatus = if (role.equals("organizer", ignoreCase = true)) "Verified" else "Pending"
+                                val trust = (userDoc.get<Long?>("trustScore") ?: 70L).toInt().coerceIn(0, 100)
+                                val strikes = (userDoc.get<Long?>("strikes") ?: 0L).toInt().coerceAtLeast(0)
+                                val frozen = userDoc.get<Boolean?>("frozen") ?: false
+                                val notes = userDoc.get<String?>("notes") ?: "Profile imported from user record."
+                                val photoUri = userDoc.get<String?>("photoUri")
+                                val email = userDoc.get<String?>("email") ?: ""
+                                val countryName = userDoc.get<String?>("countryName") ?: ""
+                                val phoneCode = userDoc.get<String?>("phoneCode") ?: ""
+                                val phoneNumber = userDoc.get<String?>("phoneNumber") ?: ""
+                                fetchedOrganizers += AdminOrganizer(
+                                    id = id,
+                                    name = displayName,
+                                    kycStatus = kycStatus,
+                                    trustScore = trust,
+                                    strikes = strikes,
+                                    frozen = frozen,
+                                    notes = notes,
+                                    photoUri = photoUri,
+                                    email = email,
+                                    countryName = countryName,
+                                    phoneCode = phoneCode,
+                                    phoneNumber = phoneNumber,
+                                    role = role,
+                                )
+                            }
+                        }
+                    }
+                    adminOrganizers.clear()
+                    adminOrganizers.addAll(fetchedOrganizers)
+                } else {
+                    adminOrganizers.clear()
+                }
+            }.onFailure { t ->
+                adminApplicationsError = t.message ?: "Unable to load applications."
+                adminApplicationsInitialized = false
+                snackbarHostState.showSnackbar(adminApplicationsError ?: "Unable to load applications.")
+            }.onSuccess {
+                adminApplicationsError = null
+                adminApplicationsInitialized = true
+            }
+            adminApplicationsLoading = false
+        }
+    }
+
+    LaunchedEffect(currentScreen, adminApplicationsInitialized, adminApplicationsLoading, adminApplications.size) {
+        val shouldFetch =
+            currentScreen == MainScreen.Home &&
+                !adminApplicationsLoading &&
+                (!adminApplicationsInitialized || adminApplications.isEmpty())
+        if (shouldFetch) refreshAdminApplications()
     }
 
     suspend fun startAdminSessionFromSeed(seed: AdminSeed, rememberMe: Boolean): AuthResult {
@@ -3311,11 +3460,7 @@ private fun GoTickyRoot() {
 
         val currentUser = auth.currentUser
         val seedEmailLower = seed.email.trim().lowercase()
-        val adminUid = when {
-            currentUser?.email?.trim()?.equals(seed.email.trim(), ignoreCase = true) == true ->
-                currentUser.uid
-            else -> seedEmailLower
-        }
+        val adminUid = currentUser?.uid ?: seedEmailLower
 
         // Build a local admin profile shell from the seed.
         val adminProfile = UserProfile(
@@ -3480,6 +3625,12 @@ private fun GoTickyRoot() {
         if (adminActivity.size > 30) adminActivity.removeLast()
     }
     var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
+
+    LaunchedEffect(adminSurface, hasAdminAccess, adminApplicationsInitialized) {
+        if (adminSurface == AdminSurface.Applications && !adminApplicationsInitialized && hasAdminAccess) {
+            refreshAdminApplications()
+        }
+    }
     val adminReports = remember {
         mutableStateListOf(
             AdminReport("rep-1", "Courtside Classics", "Image inappropriate", "High", 3, "Open"),
@@ -3498,16 +3649,8 @@ private fun GoTickyRoot() {
     val adminReviewers = remember { listOf("Tari", "Rudo", "Kuda", "Amina") }
     val reviewerByApp = remember { mutableStateMapOf<String, String>() }
     val commentsByApp = remember { mutableStateMapOf<String, SnapshotStateList<String>>() }
-    val adminOrganizers = remember {
-        mutableStateListOf(
-            AdminOrganizer("org-1", "Neon Live", "Verified", 86, 0, false, "Strong past performance; timely payouts."),
-            AdminOrganizer("org-2", "City Beats", "Pending", 62, 1, false, "Missing permit for Bulawayo Street Fest."),
-            AdminOrganizer("org-3", "VibeCo", "Pending", 55, 2, false, "Needs KYC refresh; pricing mismatch flagged."),
-            AdminOrganizer("org-4", "Sunrise Events", "Verified", 78, 0, false, "Family-friendly focus; clean history."),
-        )
-    }
     val adminRoles = remember {
-        mutableStateListOf(
+        mutableStateListOf<AdminRoleEntry>(
             AdminRoleEntry("user-1", "Tari D.", "Admin", "tari@goticky.com"),
             AdminRoleEntry("user-2", "Rudo M.", "Admin", "rudo@goticky.com"),
             AdminRoleEntry("user-3", "Kuda P.", "Organizer", "kuda@goticky.com"),
@@ -3618,8 +3761,58 @@ private fun GoTickyRoot() {
         if (idx != -1) {
             val now = currentInstant()
             val app = adminApplications[idx]
-            val newApprovedAt = if (status == "Approved" && app.approvedAt == null) now else app.approvedAt
-            adminApplications[idx] = app.copy(status = status, approvedAt = newApprovedAt)
+            val approvedFlag = status == "Approved"
+            val newApprovedAt = if (approvedFlag && app.approvedAt == null) now else app.approvedAt
+            val updatedApp = app.copy(status = status, isApproved = approvedFlag, approvedAt = newApprovedAt)
+            adminApplications[idx] = updatedApp
+
+            // Reflect approval toggle in organizer view so cards update immediately.
+            val organizerIdx = organizerEvents.indexOfFirst { it.eventId == app.eventId }
+            if (organizerIdx != -1) {
+                val orgEvent = organizerEvents[organizerIdx]
+                organizerEvents[organizerIdx] = orgEvent.copy(
+                    isApproved = approvedFlag,
+                    status = orgEvent.status // keep organizer status; approval is tracked separately
+                )
+            }
+
+            // Persist status + approval to Firestore so public surfaces and organizer dashboard stay in sync.
+            scope.launch {
+                runCatching {
+                    val firestore = Firebase.firestore
+                    val approvedAtIso = updatedApp.approvedAt?.toString()
+
+                    // Update public events collection used by map / public surfaces.
+                    val publicPayload = mutableMapOf<String, Any?>(
+                        "status" to status,
+                        "isApproved" to approvedFlag,
+                        "updatedAt" to currentInstant().toString(),
+                    )
+                    if (approvedAtIso != null) {
+                        publicPayload["approvedAt"] = approvedAtIso
+                    }
+                    firestore.collection("events").document(app.eventId).set(publicPayload, merge = true)
+
+                    // Mirror approval to organizer's private events collection when we know the organizerId.
+                    if (app.organizerId.isNotBlank()) {
+                        val organizerPayload = mapOf(
+                            "isApproved" to approvedFlag,
+                            "status" to status,
+                            "updatedAt" to currentInstant().toString(),
+                        )
+                        firestore
+                            .collection("organizers")
+                            .document(app.organizerId)
+                            .collection("events")
+                            .document(app.eventId)
+                            .set(organizerPayload, merge = true)
+                    }
+                }.onFailure { t ->
+                    // Do not block the local UI on sync failures; surface a soft warning.
+                    snackbarHostState.showSnackbar(t.message ?: "Approval saved locally; sync will retry on refresh.")
+                }
+            }
+
             val accent = when (status) {
                 "Approved" -> adminPrimaryAccent
                 "Rejected" -> Color(0xFFFF6B6B)
@@ -3627,7 +3820,7 @@ private fun GoTickyRoot() {
                 else -> adminSecondaryAccent
             }
             val suffix = if (status == "Approved") " + Early Bird opens for 72h" else ""
-            log("Set $status for ${adminApplications[idx].title}$suffix", accent)
+            log("Set $status for ${updatedApp.title}$suffix", accent)
         }
     }
     fun updateEarlyBirdConfig(
@@ -4364,7 +4557,7 @@ private fun GoTickyRoot() {
                                                         HomeScreen(
                                                             userProfile = userProfile,
                                                             isGuest = isGuestMode,
-                                                            onOpenAlerts = { currentScreen = MainScreen.Alerts },
+                                                            onOpenAlerts = { currentScreen = MainScreen.Profile },
                                                             onEventSelected = { event ->
                                                                 detailEvent = event
                                                             },
@@ -4467,35 +4660,38 @@ private fun GoTickyRoot() {
                                                             showCreateEvent -> {
                                                                 CreateEventScreen(
                                                                     userProfile = userProfile,
-                                                                    onBack = { showCreateEvent = false },
-                                                                    onSaveDraft = { title, city, venue, dateLabel, priceFrom, status, ticketCountStr ->
-                                                                        val index = organizerEvents.size + 1
-                                                                        val newEvent = OrganizerEvent(
-                                                                            id = "org-$index",
-                                                                            eventId = "new-$index",
-                                                                            title = if (title.isNotBlank()) title else "Untitled event $index",
-                                                                            city = city.ifBlank { "City TBD" },
-                                                                            venue = venue.ifBlank { "Venue TBD" },
-                                                                            dateLabel = dateLabel,
-                                                                            priceFrom = priceFrom.ifBlank { "From $0" },
-                                                                            status = status,
-                                                                            views = 0,
-                                                                            saves = 0,
-                                                                            sales = 0,
-                                                                            ticketCount = ticketCountStr.toIntOrNull() ?: 0,
-                                                                            isVerified = false
-                                                                        )
-                                                                        organizerEvents.add(0, newEvent)
-                                                                        Analytics.log(
-                                                                            AnalyticsEvent(
-                                                                                name = "organizer_event_saved",
-                                                                                params = mapOf(
-                                                                                    "event_id" to newEvent.eventId,
-                                                                                    "status" to newEvent.status
+                                                                    isSaving = createEventSaving,
+                                                                    uploadProgress = createEventUploadProgress,
+                                                                    onBack = {
+                                                                        if (!createEventSaving) showCreateEvent = false
+                                                                    },
+                                                                    onSaveDraft = { input, localFlyerUri ->
+                                                                        if (createEventSaving) return@CreateEventScreen
+                                                                        createEventSaving = true
+                                                                        createEventUploadProgress = 0f
+                                                                        scope.launch {
+                                                                            val result = eventRepository.saveEvent(input, localFlyerUri) { p ->
+                                                                                createEventUploadProgress = p
+                                                                            }
+                                                                            result.onSuccess { saved ->
+                                                                                organizerEvents.add(0, saved.event)
+                                                                                Analytics.log(
+                                                                                    AnalyticsEvent(
+                                                                                        name = "organizer_event_saved",
+                                                                                        params = mapOf(
+                                                                                            "event_id" to saved.publicId,
+                                                                                            "status" to saved.event.status
+                                                                                        )
+                                                                                    )
                                                                                 )
-                                                                            )
-                                                                        )
-                                                                        showCreateEvent = false
+                                                                                snackbarHostState.showSnackbar("Event \"${saved.event.title}\" saved")
+                                                                                showCreateEvent = false
+                                                                            }.onFailure { t ->
+                                                                                snackbarHostState.showSnackbar(t.message ?: "Save failed. Check connection and try again.")
+                                                                            }
+                                                                            createEventUploadProgress = 0f
+                                                                            createEventSaving = false
+                                                                        }
                                                                     }
                                                                 )
                                                             }
@@ -4527,6 +4723,9 @@ private fun GoTickyRoot() {
                                                                 attention = adminAttention,
                                                                 activity = adminActivity,
                                                                 applications = adminApplications,
+                                                                applicationsLoading = adminApplicationsLoading,
+                                                                applicationsError = adminApplicationsError,
+                                                                onRefreshApplications = { refreshAdminApplications() },
                                                                 reports = adminReports,
                                                                 flags = adminFlags,
                                                                 organizers = adminOrganizers,
@@ -4674,6 +4873,9 @@ private fun AdminDashboardScreen(
     attention: List<AdminAttention>,
     activity: List<AdminActivity>,
     applications: List<AdminApplication>,
+    applicationsLoading: Boolean,
+    applicationsError: String?,
+    onRefreshApplications: () -> Unit,
     reports: List<AdminReport>,
     flags: List<AdminFeatureFlag>,
     organizers: List<AdminOrganizer>,
@@ -4784,6 +4986,9 @@ private fun AdminDashboardScreen(
             }
             ApplicationsSection(
                 applications = applications,
+                loading = applicationsLoading,
+                error = applicationsError,
+                onRefresh = onRefreshApplications,
                 onUpdateStatus = onUpdateApplicationStatus,
                 onUpdateEarlyBird = onUpdateEarlyBird,
                 addActivity = addActivity,
@@ -4989,6 +5194,9 @@ private fun AdminDashboardScreen(
             AdminSurface.Applications -> {
                 ApplicationsSection(
                     applications = applications,
+                    loading = applicationsLoading,
+                    error = applicationsError,
+                    onRefresh = onRefreshApplications,
                     onUpdateStatus = onUpdateApplicationStatus,
                     onUpdateEarlyBird = onUpdateEarlyBird,
                     addActivity = addActivity,
@@ -5088,6 +5296,9 @@ private fun AdminDashboardScreen(
 @Composable
 private fun ApplicationsSection(
     applications: List<AdminApplication>,
+    loading: Boolean,
+    error: String?,
+    onRefresh: () -> Unit,
     onUpdateStatus: (String, String) -> Unit,
     onUpdateEarlyBird: (String, Boolean, Int, Int, Boolean, Boolean) -> Unit,
     addActivity: (String, Color) -> Unit,
@@ -5142,7 +5353,14 @@ private fun ApplicationsSection(
         ) {
             SectionHeader(
                 title = "Applications",
-                action = null
+                action = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AnimatedVisibility(visible = loading) {
+                            LoadingSpinner(size = 18)
+                        }
+                        NeonTextButton(text = "Refresh", onClick = onRefresh)
+                    }
+                }
             )
 
             val hasFilterActive = statusFilter != "All" ||
@@ -5163,8 +5381,10 @@ private fun ApplicationsSection(
                         .clickable { showFilterSheet = !showFilterSheet }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.Top,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(Icons.Outlined.FilterList, contentDescription = "Filters", tint = MaterialTheme.colorScheme.primary)
@@ -5188,16 +5408,42 @@ private fun ApplicationsSection(
                         .clickable { showSortSheet = !showSortSheet }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Outlined.Sort, contentDescription = "Sort", tint = MaterialTheme.colorScheme.secondary)
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
-                            Text("Sort", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text("Mode: $sortMode", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(
+                            Icons.Outlined.Sort,
+                            contentDescription = "Sort",
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "Sort mode",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = sortMode,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        Pill(text = "Change", modifier = Modifier)
+                        Pill(
+                            text = "Change",
+                            modifier = Modifier
+                                .pressAnimated()
+                                .clickable { showSortSheet = !showSortSheet }
+                        )
                     }
                 }
             }
@@ -5282,14 +5528,36 @@ private fun ApplicationsSection(
                     }
                 }
             }
-            if (filtered.isEmpty()) {
+            if (error != null) {
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Couldn’t load applications", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+                        Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        PrimaryButton(text = "Retry", onClick = onRefresh, modifier = Modifier.fillMaxWidth().pressAnimated())
+                    }
+                }
+            } else if (filtered.isEmpty()) {
                 GlowCard(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("No applications match these filters.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Adjust filters to see the queue.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (loading) "Loading applications…" else "No applications yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            if (loading) "Fetching from Firestore" else "New submissions will appear here automatically.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (!loading) {
+                            NeonTextButton(text = "Refresh", onClick = onRefresh, modifier = Modifier.align(Alignment.End))
+                        }
                     }
                 }
             } else {
@@ -5476,7 +5744,7 @@ private fun ApplicationsSection(
                 .background(GoTickyGradients.CardGlow)
         ) {
             val app = applications.firstOrNull { it.id == detailAppId }
-            val organizer = organizers.firstOrNull { it.name == app?.organizer }
+            val organizer = organizers.firstOrNull { it.id == app?.organizerId }
             if (app != null) {
                 ApplicationDetailScreen(
                     app = app,
@@ -5523,9 +5791,8 @@ private fun ApplicationCard(
         "Medium" -> Color(0xFFFFC94A)
         else -> MaterialTheme.colorScheme.tertiary
     }
-    val poster = remember(app.id) {
-        resolveProfilePhotoRes() ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
-    }
+    // Prefer the organizer-uploaded flyerUrl when present; fall back to a branded placeholder.
+    val fallbackPosterRes = remember { resolveProfilePhotoRes() ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"] }
     GlowCard(
         modifier = Modifier
             .graphicsLayer(scaleX = scale, scaleY = scale)
@@ -5558,7 +5825,13 @@ private fun ApplicationCard(
                 Pill(text = app.status, modifier = Modifier.background(severityColor.copy(alpha = 0.18f), shape = goTickyShapes.small).padding(horizontal = 10.dp, vertical = 6.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                poster?.let { drawable ->
+                val posterPainter = when {
+                    !app.flyerUrl.isNullOrBlank() && app.flyerUrl.startsWith("http", ignoreCase = true) ->
+                        rememberUriPainter(app.flyerUrl)
+                    else -> fallbackPosterRes?.let { painterResource(it) }
+                }
+
+                posterPainter?.let { painter ->
                     Box(
                         modifier = Modifier
                             .size(78.dp)
@@ -5566,7 +5839,7 @@ private fun ApplicationCard(
                             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.25f))
                     ) {
                         Image(
-                            painter = painterResource(drawable),
+                            painter = painter,
                             contentDescription = "Event poster",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -5643,6 +5916,7 @@ private fun ApplicationDetailScreen(
     var rationale by remember { mutableStateOf("") }
     var rationaleError by remember { mutableStateOf(false) }
     var showDocs by remember { mutableStateOf(false) }
+    var showOrganizerProfile by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val statusColor = when (app.risk) {
         "High" -> Color(0xFFFF6B6B)
@@ -5651,9 +5925,10 @@ private fun ApplicationDetailScreen(
     }
     val commentAccent = MaterialTheme.colorScheme.primary
     val heroPoster = remember(app.id) {
+        // Fallback hero image when no flyerUrl is available for this event.
         resolveProfilePhotoRes() ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
     }
-    val organizerAvatar = remember(organizer?.id) {
+    val organizerAvatarRes = remember(organizer?.id) {
         Res.allDrawableResources["gotickypic"] ?: heroPoster
     }
 
@@ -5746,20 +6021,26 @@ private fun ApplicationDetailScreen(
                     }
                 }
 
-                heroPoster?.let { drawable ->
-                    GlowCard {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                GlowCard {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp)
+                                .clip(goTickyShapes.large)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .clip(goTickyShapes.large)
-                            ) {
+                            val flyerPainter = when {
+                                !app.flyerUrl.isNullOrBlank() && app.flyerUrl.startsWith("http", ignoreCase = true) ->
+                                    rememberUriPainter(app.flyerUrl)
+                                else -> heroPoster?.let { painterResource(it) }
+                            }
+
+                            flyerPainter?.let { painter ->
                                 Image(
-                                    painter = painterResource(drawable),
+                                    painter = painter,
                                     contentDescription = "Event flyer",
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
@@ -5770,41 +6051,139 @@ private fun ApplicationDetailScreen(
                                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.12f))
                                 )
                             }
-                            Text("Flyer preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
                         }
+                        Text("Flyer preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
                 GlowCard {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Organizer", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Organizer",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                         organizer?.let {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                organizerAvatar?.let { avatar ->
+                                val statusColor = when {
+                                    it.frozen || it.strikes >= 3 -> MaterialTheme.colorScheme.error
+                                    it.kycStatus.equals("Verified", ignoreCase = true) && it.trustScore >= 80 -> MaterialTheme.colorScheme.tertiary
+                                    it.kycStatus.equals("Verified", ignoreCase = true) -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.outlineVariant
+                                }
+                                val statusTransition = rememberInfiniteTransition(label = "organizerStatus-${it.id}")
+                                val highTrustPulse by statusTransition.animateFloat(
+                                    initialValue = 0.9f,
+                                    targetValue = 1.1f,
+                                    animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing))
+                                )
+                                val frozenFlash by statusTransition.animateFloat(
+                                    initialValue = 0.5f,
+                                    targetValue = 1f,
+                                    animationSpec = infiniteRepeatable(tween(700, easing = LinearEasing))
+                                )
+                                val isFrozenOrHighRisk = it.frozen || it.strikes >= 3
+                                val isHighTrustVerified = !isFrozenOrHighRisk &&
+                                    it.kycStatus.equals("Verified", ignoreCase = true) && it.trustScore >= 80
+                                val baseBorderWidth = 2.dp
+                                val borderWidth = if (isHighTrustVerified) baseBorderWidth * highTrustPulse else baseBorderWidth
+                                val animatedStatusColor = if (isFrozenOrHighRisk) statusColor.copy(alpha = frozenFlash) else statusColor
+
+                                val avatarPainter = it.photoUri
+                                    ?.takeIf { uri -> uri.isNotBlank() }
+                                    ?.let { uri -> rememberUriPainter(uri) }
+                                    ?: organizerAvatarRes?.let { res -> painterResource(res) }
+
+                                avatarPainter?.let { painter ->
                                     Image(
-                                        painter = painterResource(avatar),
+                                        painter = painter,
                                         contentDescription = "Organizer avatar",
                                         modifier = Modifier
                                             .size(56.dp)
                                             .clip(CircleShape)
+                                            .border(borderWidth, animatedStatusColor, CircleShape)
                                             .background(MaterialTheme.colorScheme.surfaceVariant),
                                         contentScale = ContentScale.Crop
                                     )
                                 }
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                                    Text(it.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                                    Text("KYC: ${it.kycStatus}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("Trust ${it.trustScore} • Strikes ${it.strikes} • Frozen: ${it.frozen}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        it.name,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "KYC: ${it.kycStatus} • Role: ${it.role.ifBlank { "organizer" }}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "Trust ${it.trustScore} • Strikes ${it.strikes} • Frozen: ${it.frozen}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (it.email.isNotBlank()) {
+                                        Text(
+                                            it.email,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+
+                                    val rawCode = it.phoneCode.trim()
+                                    val rawNumber = it.phoneNumber.trim()
+                                    val digitsCode = rawCode.removePrefix("+").replace(" ", "")
+                                    val digitsNumber = rawNumber.removePrefix("+").replace(" ", "")
+                                    val phone = when {
+                                        rawCode.isBlank() && rawNumber.isBlank() -> ""
+                                        rawCode.isBlank() -> rawNumber
+                                        digitsNumber.startsWith(digitsCode) -> rawNumber
+                                        else -> listOf(rawCode, rawNumber)
+                                            .filter { part -> part.isNotBlank() }
+                                            .joinToString(" ")
+                                    }
+
+                                    if (phone.isNotBlank() || it.countryName.isNotBlank()) {
+                                        Text(
+                                            listOf(phone, it.countryName)
+                                                .filter { part -> part.isNotBlank() }
+                                                .joinToString(" • "),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
-                                NeonSelectablePill(text = "View profile", selected = false, onClick = {})
+
+                                NeonSelectablePill(
+                                    text = "View profile",
+                                    selected = false,
+                                    onClick = { showOrganizerProfile = true }
+                                )
                             }
+
                             if (it.notes.isNotBlank()) {
-                                Text(it.notes, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    it.notes,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        } ?: Text("No organizer record linked", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } ?: Text(
+                            "No organizer record linked",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -5999,6 +6378,170 @@ private fun ApplicationDetailScreen(
                             comments.add(commentDraft.trim())
                             addActivity("Commented on ${app.title}", commentAccent)
                             commentDraft = ""
+                        }
+                    }
+                }
+            }
+        }
+
+        if (organizer != null) {
+            OrganizerProfileSheet(
+                organizer = organizer,
+                visible = showOrganizerProfile,
+                onDismiss = { showOrganizerProfile = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun OrganizerProfileSheet(
+    organizer: AdminOrganizer,
+    visible: Boolean,
+    onDismiss: () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + slideInVertically { it / 5 },
+        exit = fadeOut() + slideOutVertically { it / 5 },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable { onDismiss() }
+            )
+
+            GlowCard(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 16.dp)
+                    .pressAnimated()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Organizer profile",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.weight(1f))
+                        NeonTextButton(text = "Close", onClick = onDismiss)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val statusColor = when {
+                            organizer.frozen || organizer.strikes >= 3 -> MaterialTheme.colorScheme.error
+                            organizer.kycStatus.equals("Verified", ignoreCase = true) && organizer.trustScore >= 80 -> MaterialTheme.colorScheme.tertiary
+                            organizer.kycStatus.equals("Verified", ignoreCase = true) -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.outlineVariant
+                        }
+
+                        val avatarPainter = organizer.photoUri
+                            ?.takeIf { uri -> uri.isNotBlank() }
+                            ?.let { uri -> rememberUriPainter(uri) }
+
+                        avatarPainter?.let { painter ->
+                            Image(
+                                painter = painter,
+                                contentDescription = "Organizer avatar",
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .border(2.dp, statusColor, CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentScale = ContentScale.Crop
+                            )
+                        } ?: Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                organizer.name.firstOrNull()?.uppercase() ?: "?",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                organizer.name,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Role: ${organizer.role.ifBlank { "organizer" }}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "KYC: ${organizer.kycStatus}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "Trust ${organizer.trustScore} • Strikes ${organizer.strikes} • Frozen: ${organizer.frozen}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (organizer.email.isNotBlank()) {
+                            Text(
+                                organizer.email,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        val rawCode = organizer.phoneCode.trim()
+                        val rawNumber = organizer.phoneNumber.trim()
+                        val digitsCode = rawCode.removePrefix("+").replace(" ", "")
+                        val digitsNumber = rawNumber.removePrefix("+").replace(" ", "")
+                        val phone = when {
+                            rawCode.isBlank() && rawNumber.isBlank() -> ""
+                            rawCode.isBlank() -> rawNumber
+                            digitsNumber.startsWith(digitsCode) -> rawNumber
+                            else -> listOf(rawCode, rawNumber)
+                                .filter { part -> part.isNotBlank() }
+                                .joinToString(" ")
+                        }
+
+                        if (phone.isNotBlank() || organizer.countryName.isNotBlank()) {
+                            Text(
+                                listOf(phone, organizer.countryName)
+                                    .filter { part -> part.isNotBlank() }
+                                    .joinToString(" • "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (organizer.notes.isNotBlank()) {
+                            Text(
+                                organizer.notes,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -6453,10 +6996,59 @@ private fun OrganizerCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(organizer.name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                Pill(text = organizer.kycStatus, modifier = Modifier)
-                Pill(text = "Strikes: ${organizer.strikes}", modifier = Modifier)
-                Spacer(Modifier.weight(1f))
+                val fallbackAvatarRes = remember(organizer.id) {
+                    Res.allDrawableResources["gotickypic"] ?: resolveProfilePhotoRes()
+                }
+                val statusColor = when {
+                    organizer.frozen || organizer.strikes >= 3 -> MaterialTheme.colorScheme.error
+                    organizer.kycStatus.equals("Verified", ignoreCase = true) && organizer.trustScore >= 80 -> MaterialTheme.colorScheme.tertiary
+                    organizer.kycStatus.equals("Verified", ignoreCase = true) -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.outlineVariant
+                }
+                val statusTransition = rememberInfiniteTransition(label = "organizerListStatus-${organizer.id}")
+                val highTrustPulse by statusTransition.animateFloat(
+                    initialValue = 0.9f,
+                    targetValue = 1.1f,
+                    animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing))
+                )
+                val frozenFlash by statusTransition.animateFloat(
+                    initialValue = 0.5f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(700, easing = LinearEasing))
+                )
+                val isFrozenOrHighRisk = organizer.frozen || organizer.strikes >= 3
+                val isHighTrustVerified = !isFrozenOrHighRisk &&
+                    organizer.kycStatus.equals("Verified", ignoreCase = true) && organizer.trustScore >= 80
+                val baseBorderWidth = 2.dp
+                val borderWidth = if (isHighTrustVerified) baseBorderWidth * highTrustPulse else baseBorderWidth
+                val animatedStatusColor = if (isFrozenOrHighRisk) statusColor.copy(alpha = frozenFlash) else statusColor
+
+                val avatarPainter = organizer.photoUri
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { uri -> rememberUriPainter(uri) }
+                    ?: fallbackAvatarRes?.let { res -> painterResource(res) }
+
+                avatarPainter?.let { painter ->
+                    Image(
+                        painter = painter,
+                        contentDescription = "Organizer avatar",
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .border(borderWidth, animatedStatusColor, CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                    Text(organizer.name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Pill(text = organizer.kycStatus, modifier = Modifier)
+                        Pill(text = "Strikes: ${organizer.strikes}", modifier = Modifier)
+                    }
+                }
+
                 if (organizer.frozen) {
                     NeonSelectablePill(text = "Frozen", selected = true, onClick = {})
                 }
@@ -7401,7 +7993,36 @@ private fun HomeScreen(
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
-    val publicEvents = sampleEvents.filter { isEventPublic(it.id, adminApplications) }
+
+    val publicEventsFromApplications = adminApplications
+        .filter { isEventPublic(it.eventId, adminApplications) }
+        .filter { app -> sampleEvents.none { it.id == app.eventId } }
+        .map { app ->
+            val priceLabel = app.pricingTiers.firstOrNull().orEmpty()
+            val category = when (app.category.lowercase()) {
+                "sports" -> IconCategory.Calendar
+                "family" -> IconCategory.Profile
+                "concert", "music" -> IconCategory.Discover
+                else -> IconCategory.Discover
+            }
+            EventItem(
+                id = app.eventId,
+                title = app.title,
+                city = app.city,
+                dateLabel = app.eventDateTime.ifBlank { "Date TBC" },
+                priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
+                category = category,
+                badge = if (app.status == "Approved") "Live" else null,
+                tag = app.category,
+                month = "Live",
+                imagePath = null,
+            )
+        }
+
+    val publicEvents = sampleEvents
+        .filter { isEventPublic(it.id, adminApplications) }
+        .plus(publicEventsFromApplications)
+        .distinctBy { it.id }
     val tz = remember { TimeZone.currentSystemDefault() }
     val nowState = remember { mutableStateOf(currentInstant()) }
     LaunchedEffect(Unit) {
@@ -7416,7 +8037,14 @@ private fun HomeScreen(
     }
     val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
     val popularNearby = publicEvents.mapNotNull { event ->
-        val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
+        val nearby = nearbyByEventId[event.id] ?: NearbyEvent(
+            event = event,
+            distance = DistanceSample(
+                eventId = event.id,
+                fromLabel = "Nearby",
+                distanceKm = 2.5
+            )
+        )
 
         val matchesQuery = searchQuery.isBlank() ||
             event.title.contains(searchQuery, ignoreCase = true) ||
@@ -12027,6 +12655,21 @@ private fun OrganizerEventCard(
             .pressAnimated(scaleDown = 0.97f)
             .clickable { onClick() }
     ) {
+        val pulse = rememberInfiniteTransition(label = "pendingPulse").animateFloat(
+            initialValue = 0.88f,
+            targetValue = 1.04f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pendingPulseValue"
+        ).value
+        val (statusPillColor, statusPillTextColor) = when (event.status.trim().lowercase()) {
+            "live" -> Color(0xFFFF4B5C) to Color.White
+            "draft" -> Color(0xFFFFC94A) to Color(0xFF111111)
+            else -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurface
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -12040,7 +12683,86 @@ private fun OrganizerEventCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                Pill(text = event.status)
+                Pill(
+                    text = event.status,
+                    color = statusPillColor,
+                    textColor = statusPillTextColor
+                )
+            }
+            if (!event.isApproved) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(goTickyShapes.medium)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFFFFF3E0),
+                                    Color(0xFFFFE0B2),
+                                    Color(0xFFFFCC80)
+                                )
+                            )
+                        )
+                        .border(1.dp, Color(0xFFFFA726).copy(alpha = 0.8f), goTickyShapes.medium)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .scale(pulse)
+                            .background(Color(0xFFFFB74D), shape = CircleShape)
+                    )
+                    Text(
+                        text = "Pending approval",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF8D6E63)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = "Only you can see this",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(goTickyShapes.medium)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFFE8F5E9),
+                                    Color(0xFFDCEDC8),
+                                    Color(0xFFC5E1A5)
+                                )
+                            )
+                        )
+                        .border(1.dp, Color(0xFF7CB342).copy(alpha = 0.7f), goTickyShapes.medium)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Approved",
+                        tint = Color(0xFF558B2F),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Approved",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF33691E)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = "Live in Home screen",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Black
+                    )
+                }
             }
             Text(
                 text = "${event.city} • ${event.venue}",
@@ -14208,13 +14930,16 @@ private fun EventDetailScreen(
 @Composable
 private fun CreateEventScreen(
     userProfile: UserProfile,
+    isSaving: Boolean,
+    uploadProgress: Float,
     onBack: () -> Unit,
-    onSaveDraft: (String, String, String, String, String, String, String) -> Unit,
+    onSaveDraft: (EventDraftInput, String?) -> Unit,
 ) {
     var companyName by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var dateLabel by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf<String?>(null) }
+    var selectedYear by remember { mutableStateOf<Int?>(null) }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var priceFrom by remember { mutableStateOf("") }
     var ticketCount by remember { mutableStateOf("") }
@@ -14225,31 +14950,64 @@ private fun CreateEventScreen(
     var venue by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }
     var country by remember { mutableStateOf("") }
+    var latInput by remember { mutableStateOf("") }
+    var lngInput by remember { mutableStateOf("") }
+    var showMapPicker by remember { mutableStateOf(false) }
+    var stagedLat by remember { mutableStateOf<Double?>(null) }
+    var stagedLng by remember { mutableStateOf<Double?>(null) }
     var status by remember { mutableStateOf("Draft") }
     var flyerUrl by remember { mutableStateOf("") }
+    var localFlyerUri by remember { mutableStateOf<String?>(null) }
     var flyerUploading by remember { mutableStateOf(false) }
     var flyerUploaded by remember { mutableStateOf(false) }
     var showDateTimePicker by remember { mutableStateOf(false) }
     val timeSlots: List<String> = remember { generateTimeSlots() }
     val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+    val nowYear = remember { currentInstant().toLocalDateTime(TimeZone.currentSystemDefault()).year }
     var datePickerMonthIndex by remember { mutableStateOf(0) }
     var datePickerDay by remember { mutableStateOf(7) }
     var datePickerTime by remember { mutableStateOf("6:00 PM") }
+    var datePickerYear by remember { mutableStateOf(nowYear) }
     var showErrors by remember { mutableStateOf(false) }
     val flyerImagePicker = rememberImagePicker { uri ->
         flyerUploading = false
         uri?.let {
             flyerUploaded = true
-            flyerUrl = it.substringAfterLast('/')
+            localFlyerUri = it
+        }
+    }
+
+    fun extractDay(label: String?): Int? {
+        val digits = label?.dropWhile { !it.isDigit() }?.takeWhile { it.isDigit() }
+        return digits?.toIntOrNull()
+    }
+    fun extractYear(label: String?): Int? {
+        val digits = label?.substringAfterLast(",", missingDelimiterValue = "")
+            ?.trim()
+            ?.takeWhile { it.isDigit() }
+        return digits?.toIntOrNull()
+    }
+    fun daysInMonth(year: Int, monthIndex: Int): Int {
+        val leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+        return when (monthIndex) {
+            0, 2, 4, 6, 7, 9, 11 -> 31
+            3, 5, 8, 10 -> 30
+            1 -> if (leap) 29 else 28
+            else -> 30
         }
     }
 
     LaunchedEffect(showDateTimePicker) {
         if (showDateTimePicker) {
-            datePickerMonthIndex = months.indexOf(selectedDate?.substringBefore(" ") ?: userProfile.birthday.substringBefore(" ").ifBlank { months.first() }).coerceAtLeast(0)
-            datePickerDay = selectedDate?.substringAfter(" ")?.toIntOrNull()
-                ?: userProfile.birthday.substringAfter(" ").toIntOrNull()
+            val baseMonth = selectedDate?.substringBefore(" ")
+                ?: userProfile.birthday.substringBefore(" ").ifBlank { months.first() }
+            datePickerMonthIndex = months.indexOf(baseMonth).coerceAtLeast(0)
+            datePickerDay = extractDay(selectedDate)
+                ?: extractDay(userProfile.birthday)
                 ?: 7
+            datePickerYear = selectedYear
+                ?: extractYear(selectedDate)
+                ?: nowYear
             val resolvedTime = selectedTime ?: datePickerTime
             datePickerTime = if (resolvedTime in timeSlots) resolvedTime else timeSlots.first()
         }
@@ -14278,6 +15036,31 @@ private fun CreateEventScreen(
         (if (hasAnyPrice) 1 else 0) +
         if (flyerUploaded || flyerUrl.isNotBlank()) 1 else 0
     val progress = (completedFields / 12f).coerceIn(0f, 1f)
+
+    fun fallbackLatLng(cityLabel: String): Pair<Double, Double> =
+        when (cityLabel.trim()) {
+            "Harare" -> -17.8292 to 31.0522
+            "Bulawayo" -> -20.1325 to 28.6265
+            "Gaborone" -> -24.6282 to 25.9231
+            "Victoria Falls" -> -17.9243 to 25.8562
+            "Maun" -> -19.9833 to 23.4167
+            "Francistown" -> -21.1700 to 27.5072
+            else -> -17.8292 to 31.0522
+        }
+    val typedLat = latInput.toDoubleOrNull()
+    val typedLng = lngInput.toDoubleOrNull()
+    val defaultCoords = fallbackLatLng(city.ifBlank { "Harare" })
+    val previewLat = typedLat ?: defaultCoords.first
+    val previewLng = typedLng ?: defaultCoords.second
+    val previewEvents = listOf(
+        MapEvent(
+            id = "draft-preview",
+            title = if (title.isBlank()) "Your event" else title,
+            city = if (city.isBlank()) "Set city to refine pin" else city,
+            lat = previewLat,
+            lng = previewLng
+        )
+    )
 
     Column(
         modifier = Modifier
@@ -14388,6 +15171,53 @@ private fun CreateEventScreen(
             }
         }
 
+        GlowCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Pin the location",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    "Tap the map to set precise coordinates for the venue. This keeps the live map accurate for attendees.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                        .clip(goTickyShapes.large)
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), goTickyShapes.large)
+                ) {
+                    EventMapView(
+                        events = previewEvents,
+                        modifier = Modifier.fillMaxSize(),
+                        selected = typedLat?.let { lat -> typedLng?.let { lng -> lat to lng } },
+                        onMapClick = { lat, lng ->
+                            latInput = formatFixedDecimal(lat, 5)
+                            lngInput = formatFixedDecimal(lng, 5)
+                        }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    GlowPill(label = if (latInput.isBlank()) "Lat pending" else "Lat: $latInput")
+                    GlowPill(label = if (lngInput.isBlank()) "Lng pending" else "Lng: $lngInput")
+                }
+                PrimaryButton(
+                    text = "Open full map picker",
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSaving
+                ) {
+                    stagedLat = typedLat
+                    stagedLng = typedLng
+                    showMapPicker = true
+                }
+            }
+        }
         GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -14656,7 +15486,10 @@ private fun CreateEventScreen(
                     value = flyerUrl,
                     onValueChange = {
                         flyerUrl = it
-                        flyerUploaded = it.isNotBlank()
+                        if (it.startsWith("http", ignoreCase = true)) {
+                            localFlyerUri = null
+                        }
+                        flyerUploaded = it.isNotBlank() || !localFlyerUri.isNullOrBlank()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Flyer link or name") },
@@ -14676,39 +15509,88 @@ private fun CreateEventScreen(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PrimaryButton(
-                        text = if (flyerUploading) "Uploading..." else "Upload flyer",
-                        modifier = Modifier.weight(1f)
+                        text = when {
+                            flyerUploading -> "Uploading..."
+                            isSaving -> "Saving…"
+                            else -> "Upload flyer"
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !isSaving
                     ) {
                         flyerUploading = true
                         flyerImagePicker.pickFromGallery()
                     }
                     GhostButton(
                         text = "Clear",
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        enabled = !isSaving
                     ) {
                         flyerUrl = ""
                         flyerUploaded = false
                         flyerUploading = false
+                        localFlyerUri = null
                     }
                 }
-                FlyerPreviewCard(
-                    isUploading = flyerUploading,
-                    hasFlyer = flyerUploaded || flyerUrl.isNotBlank(),
-                    flyerLabel = if (flyerUrl.isBlank()) "Your flyer will be shown here" else flyerUrl,
-                    onReplace = {
-                        flyerUploading = true
-                        flyerImagePicker.pickFromGallery()
-                    },
-                    onClear = {
-                        flyerUrl = ""
-                        flyerUploaded = false
-                        flyerUploading = false
-                    }
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AnimatedProgressBar(
+                        progress = if (flyerUploading || uploadProgress > 0f) uploadProgress.coerceIn(0f, 1f) else 0f,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp),
+                        label = if (flyerUploading) "Uploading flyer…" else if (uploadProgress > 0f && isSaving) "Saving…" else null
+                    )
+                    FlyerPreviewCard(
+                        isUploading = flyerUploading,
+                        hasFlyer = flyerUploaded || flyerUrl.isNotBlank(),
+                        previewUri = localFlyerUri ?: flyerUrl.takeIf { it.startsWith("http", ignoreCase = true) },
+                        flyerLabel = when {
+                            !localFlyerUri.isNullOrBlank() -> "Selected from gallery"
+                            flyerUrl.isBlank() -> "Your flyer will be shown here"
+                            else -> flyerUrl
+                        },
+                        onReplace = {
+                            flyerUploading = true
+                            flyerImagePicker.pickFromGallery()
+                        },
+                        onClear = {
+                            flyerUrl = ""
+                            flyerUploaded = false
+                            flyerUploading = false
+                            localFlyerUri = null
+                        }
+                    )
+                }
             }
         }
         GlowCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                val isSubmittingLive = isSaving && status == "Live"
+                var submissionProgress by remember { mutableStateOf(0f) }
+                var wasSubmittingLive by remember { mutableStateOf(false) }
+
+                LaunchedEffect(isSubmittingLive) {
+                    if (isSubmittingLive) {
+                        wasSubmittingLive = true
+                        submissionProgress = 0f
+                        while (true) {
+                            delay(90)
+                            val cap = 0.96f
+                            val next = submissionProgress + when {
+                                submissionProgress < 0.22f -> 0.06f
+                                submissionProgress < 0.55f -> 0.03f
+                                submissionProgress < 0.78f -> 0.018f
+                                else -> 0.008f
+                            }
+                            submissionProgress = next.coerceAtMost(cap)
+                        }
+                    } else if (wasSubmittingLive) {
+                        submissionProgress = 1f
+                        delay(520)
+                        submissionProgress = 0f
+                        wasSubmittingLive = false
+                    }
+                }
+
                 Text(
                     "Status",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -14724,18 +15606,25 @@ private fun CreateEventScreen(
                         )
                     }
                 }
-                val primaryLabel = if (status == "Live") "Submit application" else "Save draft"
+                val primaryLabel = when {
+                    isSaving && status == "Live" -> "Submitting…"
+                    isSaving -> "Saving…"
+                    status == "Live" -> "Submit application"
+                    else -> "Save draft"
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
                 ) {
                     GhostButton(
                         text = "Cancel",
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        enabled = !isSaving
                     ) { onBack() }
                     PrimaryButton(
                         text = primaryLabel,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        enabled = !isSaving
                     ) {
                         val valid = title.isNotBlank() &&
                             dateLabel.isNotBlank() &&
@@ -14749,23 +15638,140 @@ private fun CreateEventScreen(
                         } else {
                             val normalizedPrice = if (priceFrom.isBlank()) resolvedPriceFrom() else priceFrom
                             val normalizedTickets = ticketCount.ifBlank { "0" }
-                            onSaveDraft(
-                                title.trim(),
-                                city.trim(),
-                                venue.trim(),
-                                dateLabel.ifBlank { "${selectedDate ?: ""} ${selectedTime ?: ""}".trim() },
-                                normalizedPrice.ifBlank { "0" },
-                                status,
-                                normalizedTickets
+                            val parsedLat = latInput.toDoubleOrNull()
+                            val parsedLng = lngInput.toDoubleOrNull()
+                            val input = EventDraftInput(
+                                title = title.trim(),
+                                city = city.trim(),
+                                venue = venue.trim(),
+                                dateLabel = dateLabel.ifBlank { "${selectedDate ?: ""} ${selectedTime ?: ""}".trim() },
+                                country = country.trim(),
+                                priceFrom = normalizedPrice.ifBlank { "0" },
+                                status = status,
+                                isApproved = false,
+                                ticketCount = normalizedTickets.toIntOrNull() ?: 0,
+                                ticketEarlyBird = ticketEarlyBird,
+                                ticketGeneral = ticketGeneral,
+                                ticketVip = ticketVip,
+                                ticketStudent = ticketStudent,
+                                flyerUrl = flyerUrl,
+                                companyName = companyName,
+                                lat = parsedLat,
+                                lng = parsedLng,
                             )
+                            onSaveDraft(input, localFlyerUri)
                             showErrors = false
                         }
                     }
+                }
+
+                if (isSubmittingLive || submissionProgress > 0f) {
+                    val percent = (submissionProgress.coerceIn(0f, 1f) * 100).roundToInt()
+                    Text(
+                        text = "Submitting • $percent%",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    AnimatedProgressBar(progress = submissionProgress, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
         AnimatedProgressBar(progress = progress, modifier = Modifier.fillMaxWidth())
     }
+
+     if (showMapPicker) {
+         Dialog(
+             onDismissRequest = { if (!isSaving) showMapPicker = false },
+             properties = DialogProperties(usePlatformDefaultWidth = false)
+         ) {
+             Box(
+                 modifier = Modifier
+                     .fillMaxSize()
+                     .background(
+                         Brush.verticalGradient(
+                             listOf(
+                                 MaterialTheme.colorScheme.surface,
+                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.94f)
+                             )
+                         )
+                     ),
+                 contentAlignment = Alignment.BottomCenter
+             ) {
+                 Column(
+                     modifier = Modifier
+                         .fillMaxSize()
+                         .padding(16.dp),
+                     verticalArrangement = Arrangement.SpaceBetween
+                 ) {
+                     GlowCard(modifier = Modifier.fillMaxWidth()) {
+                         TopBar(
+                             title = "Pin event location",
+                             onBack = { if (!isSaving) showMapPicker = false },
+                             actions = null,
+                             backgroundColor = Color.Transparent
+                         )
+                     }
+                     Box(
+                         modifier = Modifier
+                             .weight(1f)
+                             .fillMaxWidth()
+                             .padding(vertical = 12.dp)
+                             .clip(goTickyShapes.large)
+                             .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                     ) {
+                         val selectedPair = stagedLat?.let { lat -> stagedLng?.let { lng -> lat to lng } }
+                         EventMapView(
+                             events = previewEvents,
+                             modifier = Modifier.fillMaxSize(),
+                             selected = selectedPair,
+                             onMapClick = { lat, lng ->
+                                 stagedLat = lat
+                                 stagedLng = lng
+                             },
+                             liveUpdates = false
+                         )
+                         if (selectedPair == null) {
+                             Box(
+                                 modifier = Modifier
+                                     .align(Alignment.Center)
+                                     .clip(goTickyShapes.medium)
+                                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                                     .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+                                     .padding(horizontal = 12.dp, vertical = 8.dp)
+                             ) {
+                                 Text(
+                                     "Tap map to drop a pin",
+                                     style = MaterialTheme.typography.labelMedium,
+                                     color = MaterialTheme.colorScheme.onSurface
+                                 )
+                             }
+                         }
+                     }
+                     Row(
+                         modifier = Modifier.fillMaxWidth(),
+                         horizontalArrangement = Arrangement.spacedBy(10.dp)
+                     ) {
+                         GhostButton(
+                             text = "Cancel",
+                             modifier = Modifier.weight(1f),
+                             enabled = !isSaving
+                         ) { showMapPicker = false }
+                         PrimaryButton(
+                             text = if (stagedLat != null && stagedLng != null) "Use this location" else "Tap to set pin",
+                             modifier = Modifier.weight(1f),
+                             enabled = stagedLat != null && stagedLng != null && !isSaving
+                         ) {
+                             val lat = stagedLat ?: return@PrimaryButton
+                             val lng = stagedLng ?: return@PrimaryButton
+                             latInput = formatFixedDecimal(lat, 5)
+                             lngInput = formatFixedDecimal(lng, 5)
+                             showMapPicker = false
+                         }
+                     }
+                 }
+             }
+         }
+     }
 
     if (showDateTimePicker) {
         AlertDialog(
@@ -14792,12 +15798,17 @@ private fun CreateEventScreen(
                         NeonTextButton(
                             text = "<",
                             onClick = {
-                                datePickerMonthIndex = if (datePickerMonthIndex == 0) months.lastIndex else datePickerMonthIndex - 1
+                                if (datePickerMonthIndex == 0) {
+                                    datePickerMonthIndex = months.lastIndex
+                                    datePickerYear -= 1
+                                } else {
+                                    datePickerMonthIndex -= 1
+                                }
                             }
                         )
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = months[datePickerMonthIndex],
+                                text = "${months[datePickerMonthIndex]} $datePickerYear",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -14810,9 +15821,38 @@ private fun CreateEventScreen(
                         NeonTextButton(
                             text = ">",
                             onClick = {
-                                datePickerMonthIndex = if (datePickerMonthIndex == months.lastIndex) 0 else datePickerMonthIndex + 1
+                                if (datePickerMonthIndex == months.lastIndex) {
+                                    datePickerMonthIndex = 0
+                                    datePickerYear += 1
+                                } else {
+                                    datePickerMonthIndex += 1
+                                }
                             }
                         )
+                    }
+
+                    Text(
+                        "Year",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        (datePickerYear - 3..datePickerYear + 3).forEach { y ->
+                            NeonSelectablePill(
+                                text = y.toString(),
+                                selected = y == datePickerYear,
+                                onClick = { datePickerYear = y }
+                            )
+                        }
+                    }
+
+                    LaunchedEffect(datePickerYear, datePickerMonthIndex) {
+                        val maxDay = daysInMonth(datePickerYear, datePickerMonthIndex)
+                        if (datePickerDay > maxDay) datePickerDay = maxDay
                     }
 
                     FlowRow(
@@ -14820,7 +15860,8 @@ private fun CreateEventScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        (1..30).forEach { d ->
+                        val maxDay = daysInMonth(datePickerYear, datePickerMonthIndex)
+                        (1..maxDay).forEach { d ->
                             val selected = d == datePickerDay
                             NeonSelectablePill(
                                 text = d.toString(),
@@ -14918,8 +15959,9 @@ private fun CreateEventScreen(
             confirmButton = {
                 PrimaryButton(text = "Apply") {
                     val month = months[datePickerMonthIndex]
-                    val date = "$month $datePickerDay"
+                    val date = "$month $datePickerDay, $datePickerYear"
                     selectedDate = date
+                    selectedYear = datePickerYear
                     val timeLabel = datePickerTime
                     selectedTime = timeLabel
                     dateLabel = "$date at $timeLabel"

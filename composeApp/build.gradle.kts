@@ -1,6 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -53,7 +54,6 @@ kotlin {
             implementation("com.google.maps.android:maps-compose:7.0.0")
             implementation("com.google.zxing:core:3.5.4")
             implementation("com.google.firebase:firebase-auth-ktx:23.2.1")
-            implementation("com.google.firebase:firebase-appcheck-playintegrity:19.0.1")
             implementation("androidx.biometric:biometric:1.1.0")
             // CardView for IntroActivity neumorphic logo container
             implementation("androidx.cardview:cardview:1.0.0")
@@ -101,6 +101,20 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
+
+        // Google Maps key is supplied via Gradle/local.properties to avoid hardcoding secrets.
+        val mapsKeyProvider = providers.gradleProperty("MAPS_API_KEY")
+            .orElse(providers.environmentVariable("MAPS_API_KEY"))
+        val mapsKeyFromGradle = mapsKeyProvider.getOrElse("")
+        val mapsKeyFromLocal = runCatching {
+            val props = Properties()
+            val localPropsFile = rootProject.file("local.properties")
+            if (localPropsFile.exists()) {
+                localPropsFile.inputStream().use(props::load)
+            }
+            props.getProperty("MAPS_API_KEY").orEmpty()
+        }.getOrElse { "" }
+        manifestPlaceholders["MAPS_API_KEY"] = mapsKeyFromGradle.ifBlank { mapsKeyFromLocal }
     }
     packaging {
         resources {

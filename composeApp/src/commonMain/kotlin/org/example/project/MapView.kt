@@ -16,4 +16,7 @@ expect fun EventMapView(
     events: List<MapEvent>,
     modifier: Modifier = Modifier,
     onEventSelected: (MapEvent) -> Unit = {},
+    selected: Pair<Double, Double>? = null,
+    onMapClick: ((Double, Double) -> Unit)? = null,
+    liveUpdates: Boolean = true,
 )

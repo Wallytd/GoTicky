@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -9,11 +12,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GoTicky.Launcher">
 
-        <!-- Google Maps API key is disabled for now to avoid missing resource errors.
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="@string/google_maps_key" />
-        -->
+            android:value="${MAPS_API_KEY}" />
+
+        <meta-data
+            android:name="firebase_inapp_messaging_auto_data_collection_enabled"
+            android:value="false" />
 
         <!-- Existing Compose host activity -->
         <activity

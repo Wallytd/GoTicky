@@ -34,13 +34,14 @@ import kotlin.math.sin
 @Composable
 fun AnimatedProgressBar(
     progress: Float,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    label: String? = null
 ) {
     val clamped = progress.coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(
         targetValue = clamped,
         animationSpec = tween(GoTickyMotion.Comfort, easing = LinearEasing),
-        label = "progressAnim"
+        label = label ?: "progressAnim"
     )
     val shimmerX by shimmerDrift()
     Box(
