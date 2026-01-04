@@ -4500,7 +4500,7 @@ private fun GoTickyRoot() {
                         contentWindowInsets = WindowInsets(0, 0, 0, 0),
                         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                         floatingActionButton = {
-                            if (showRootChrome) {
+                            if (showRootChrome && !introActive) {
                                 FabGlow(
                                     modifier = Modifier.graphicsLayer(alpha = fabAlpha),
                                     icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
@@ -4854,6 +4854,25 @@ private fun GoTickyRoot() {
                                                     }
                                                 )
                                             }
+                                            selectedTicket != null -> {
+                                                TicketDetailScreen(
+                                                    ticket = selectedTicket!!,
+                                                    profilePhotoPainter = profilePainter(userProfile),
+                                                    onBack = {
+                                                        selectedTicket = null
+                                                    },
+                                                    onAddToWallet = {
+                                                        scope.launch {
+                                                            snackbarHostState.showSnackbar("Wallet integration coming soon.")
+                                                        }
+                                                    },
+                                                    onTransfer = {
+                                                        scope.launch {
+                                                            snackbarHostState.showSnackbar("Transfer feature coming soon.")
+                                                        }
+                                                    }
+                                                )
+                                            }
                                             else -> {
                                                 when (currentScreen) {
                                                     MainScreen.Home -> {
@@ -4885,8 +4904,10 @@ private fun GoTickyRoot() {
                                                         )
                                                     }
                                                     MainScreen.Tickets -> {
+                                                        val profilePhotoPainter = profilePainter(userProfile)
                                                         TicketsScreen(
                                                             tickets = userTickets,
+                                                            profilePainter = profilePhotoPainter,
                                                             onTicketSelected = { ticket ->
                                                                 selectedTicket = ticket
                                                             },
@@ -11379,6 +11400,7 @@ private fun NeonSelectablePill(
 @Composable
 private fun TicketsScreen(
     tickets: List<TicketPass>,
+    profilePainter: Painter? = null,
     onTicketSelected: (TicketPass) -> Unit,
     onCheckout: () -> Unit
 ) {
@@ -11474,7 +11496,7 @@ private fun TicketsScreen(
                 }
             } else {
                 items(tickets) { ticket ->
-                    TicketCard(ticket = ticket) { onTicketSelected(ticket) }
+                    TicketCard(ticket = ticket, profilePainter = profilePainter) { onTicketSelected(ticket) }
                 }
             }
         }

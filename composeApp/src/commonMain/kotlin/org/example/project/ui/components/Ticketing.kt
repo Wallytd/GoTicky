@@ -42,15 +42,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -79,6 +80,7 @@ import org.jetbrains.compose.resources.painterResource
 fun TicketCard(
     ticket: TicketPass,
     showOpenButton: Boolean = true,
+    profilePainter: Painter? = null,
     onClick: () -> Unit
 ) {
     val metallic = metallicPalette(ticket.type)
@@ -176,14 +178,19 @@ fun TicketCard(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             ProfileAvatar(
                                 modifier = Modifier.size(42.dp),
                                 initials = ticket.holderInitials,
-                                onClick = {}
+                                onClick = {},
+                                photoPainter = profilePainter
                             )
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
@@ -196,7 +203,9 @@ fun TicketCard(
                                             blurRadius = 7f
                                         )
                                     ),
-                                    color = metallic.ink
+                                    color = metallic.ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     "ID ${ticket.id}",
@@ -207,21 +216,34 @@ fun TicketCard(
                                             blurRadius = 5f
                                         )
                                     ),
-                                    color = metallic.ink.copy(alpha = 0.85f)
+                                    color = metallic.ink.copy(alpha = 0.85f),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                        Text(
-                            ticket.dateLabel,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                shadow = Shadow(
-                                    color = metallic.darkStroke.copy(alpha = 0.45f),
-                                    offset = Offset(0f, 1.2f),
-                                    blurRadius = 6f
-                                )
-                            ),
-                            color = metallic.ink.copy(alpha = 0.95f)
-                        )
+                        Column(
+                            modifier = Modifier
+                                .clip(goTickyShapes.medium)
+                                .background(metallic.darkStroke.copy(alpha = 0.06f))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            Text(
+                                ticket.dateLabel,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    shadow = Shadow(
+                                        color = metallic.darkStroke.copy(alpha = 0.45f),
+                                        offset = Offset(0f, 1.2f),
+                                        blurRadius = 6f
+                                    )
+                                ),
+                                color = metallic.ink.copy(alpha = 0.95f),
+                                textAlign = TextAlign.End,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
                     Row(
@@ -404,7 +426,8 @@ fun TicketDetailScreen(
     ticket: TicketPass,
     onBack: () -> Unit,
     onAddToWallet: () -> Unit,
-    onTransfer: () -> Unit
+    onTransfer: () -> Unit,
+    profilePhotoPainter: Painter? = null,
 ) {
     val onShare = rememberTicketShareAction(ticket)
 
@@ -489,7 +512,7 @@ fun TicketDetailScreen(
                 )
             }
             TicketEventHeaderImage(ticket = ticket)
-            TicketCard(ticket = ticket, showOpenButton = false) { /* already in detail */ }
+            TicketCard(ticket = ticket, showOpenButton = false, profilePainter = profilePhotoPainter) { /* already in detail */ }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryButton(
                     text = "Add to Wallet",
@@ -1099,10 +1122,10 @@ private fun metallicPalette(type: TicketType): MetallicPalette = when (type) {
         darkStroke = Color(0xFFB8AA84)
     )
     TicketType.General -> MetallicPalette(
-        gradient = listOf(Color(0xFFE8ECF1), Color(0xFFD7DBE2)),
-        glow = Color(0xFFE1E6EF),
-        ink = Color(0xFF2E3848),
-        darkStroke = Color(0xFF8A93A0)
+        gradient = listOf(Color(0xFFD9E9FF), Color(0xFFB7CFF5)),
+        glow = Color(0xFFD2E7FF),
+        ink = Color(0xFF17283A),
+        darkStroke = Color(0xFF5F7AA3)
     )
     TicketType.VIP -> MetallicPalette(
         gradient = listOf(Color(0xFFF5F7FA), Color(0xFFDDE2E8)),
