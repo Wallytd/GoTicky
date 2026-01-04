@@ -185,7 +185,10 @@ import androidx.compose.ui.window.PopupProperties
 import kotlin.math.round
 import org.example.project.MapEvent
 import org.example.project.data.TicketPass
+import org.example.project.data.TicketType
+import org.example.project.data.OrderItem
 import org.example.project.data.OrderSummary
+import org.example.project.data.FeeItem
 import org.example.project.data.Recommendation
 import org.example.project.data.prettyDate
 import org.example.project.data.EventItem
@@ -197,7 +200,6 @@ import org.example.project.data.sampleAlerts
 import org.example.project.data.sampleEvents
 import org.example.project.data.sampleOrder
 import org.example.project.data.sampleRecommendations
-import org.example.project.data.sampleTickets
 import org.example.project.data.sampleNearbyEvents
 import org.example.project.data.EntertainmentNewsItem
 import org.example.project.data.sampleEntertainmentNews
@@ -449,7 +451,7 @@ private fun NewsFlashSection(
         status = "draft"
     )
     var showExpiresPicker by remember { mutableStateOf(false) }
-    val expiresTimeSlots = remember { generateTimeSlots() }
+    val expiresTimeSlots: List<String> = remember { generateTimeSlots() }
     val expiresMonths = listOf(
         "January",
         "February",
@@ -467,7 +469,7 @@ private fun NewsFlashSection(
     var expiresYear by remember { mutableStateOf(currentInstant().toLocalDateTime(TimeZone.currentSystemDefault()).year) }
     var expiresMonthIndex by remember { mutableStateOf(0) }
     var expiresDay by remember { mutableStateOf(1) }
-    var expiresTimeLabel by remember { mutableStateOf(expiresTimeSlots.first()) }
+    var expiresTimeLabel by remember { mutableStateOf<String>(expiresTimeSlots.first()) }
 
     fun toTimeSlotLabel(hour: Int, minute: Int): String {
         val isPm = hour >= 12
@@ -1994,6 +1996,152 @@ private fun parsePrice(value: String): Double? {
     return numeric.toDoubleOrNull()
 }
 
+private fun buildOrderSummary(
+    event: EventItem,
+    ticketType: String,
+    ticketPriceLabel: String?,
+): OrderSummary {
+    val basePrice = parsePrice(ticketPriceLabel ?: event.priceFrom) ?: 0.0
+    val normalizedBase = "$${formatPriceTwoDecimals(basePrice)}"
+    val serviceFee = (basePrice * 0.08).coerceAtLeast(0.5)
+    val venueFee = (basePrice * 0.03).coerceAtLeast(0.25)
+    val total = basePrice + serviceFee + venueFee
+    return OrderSummary(
+        id = "ORD-${event.id}-${(1000..9999).random()}",
+        items = listOf(
+            OrderItem(
+                label = "${event.title} • $ticketType",
+                price = normalizedBase,
+                qty = 1
+            )
+        ),
+        fees = listOf(
+            FeeItem(label = "Service fee", price = "$${formatPriceTwoDecimals(serviceFee)}"),
+            FeeItem(label = "Venue fee", price = "$${formatPriceTwoDecimals(venueFee)}"),
+        ),
+        total = "$${formatPriceTwoDecimals(total)}"
+    )
+}
+
+private fun ticketTypeFromLabel(label: String?): TicketType =
+    when {
+        label == null -> TicketType.General
+        label.contains("early", ignoreCase = true) -> TicketType.EarlyBird
+        label.contains("vip", ignoreCase = true) -> TicketType.VIP
+        label.contains("gold", ignoreCase = true) -> TicketType.GoldenCircle
+        else -> TicketType.General
+    }
+
+private fun initialsFromName(name: String): String {
+    val parts = name.trim().split(" ", limit = 3).filter { it.isNotBlank() }
+    return when {
+        parts.isEmpty() -> "GT"
+        parts.size == 1 -> parts.first().take(2).uppercase()
+        else -> (parts[0].take(1) + parts[1].take(1)).uppercase()
+    }
+}
+
+private fun buildTicketPassFromBooking(
+    event: EventItem?,
+    order: OrderSummary?,
+    ticketTypeLabel: String,
+    user: UserProfile,
+): TicketPass {
+    val ticketId = order?.id ?: "T-${(1000..9999).random()}"
+    val eventTitle = event?.title ?: order?.items?.firstOrNull()?.label ?: "Your event"
+    val venue = event?.city?.takeIf { it.isNotBlank() } ?: "Venue to be announced"
+    val dateLabel = event?.dateLabel ?: "See event details"
+    val seatLabel = "${ticketTypeLabel.ifBlank { "General Admission" }} • ${order?.items?.firstOrNull()?.price ?: "Your seat"}"
+    val type = ticketTypeFromLabel(ticketTypeLabel)
+    val qrSeed = "${ticketId}-${user.email.hashCode()}-${ticketTypeLabel.take(3)}"
+    val holderInitials = initialsFromName(user.fullName)
+    return TicketPass(
+        id = ticketId,
+        eventTitle = eventTitle,
+        venue = venue,
+        dateLabel = dateLabel,
+        seat = seatLabel,
+        status = "Ready",
+        type = type,
+        holderName = user.fullName,
+        holderInitials = holderInitials,
+        qrSeed = qrSeed
+    )
+}
+
+private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
+    val auth = Firebase.auth
+    if (auth.currentUser == null) {
+        runCatching { auth.signInAnonymously() }
+    }
+    val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("No auth session to save ticket"))
+    val nowIso = currentInstant().toString()
+    val firestore = Firebase.firestore
+    return runCatching {
+        firestore
+            .collection("users")
+            .document(uid)
+            .collection("tickets")
+            .document(pass.id)
+            .set(
+                mapOf(
+                    "ownerId" to uid,
+                    "eventTitle" to pass.eventTitle,
+                    "venue" to pass.venue,
+                    "dateLabel" to pass.dateLabel,
+                    "seat" to pass.seat,
+                    "status" to pass.status,
+                    "type" to pass.type.name,
+                    "holderName" to pass.holderName,
+                    "holderInitials" to pass.holderInitials,
+                    "qrSeed" to pass.qrSeed,
+                    "createdAt" to nowIso,
+                    "updatedAt" to nowIso,
+                )
+            )
+    }
+}
+
+private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
+    val auth = Firebase.auth
+    if (auth.currentUser == null) {
+        runCatching { auth.signInAnonymously() }
+    }
+    val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("No auth session to load tickets"))
+    val firestore = Firebase.firestore
+    return runCatching {
+        val snap = firestore
+            .collection("users")
+            .document(uid)
+            .collection("tickets")
+            .get()
+        snap.documents.mapNotNull { doc ->
+            val eventTitle = doc.get<String?>("eventTitle") ?: return@mapNotNull null
+            val venue = doc.get<String?>("venue") ?: "Venue TBC"
+            val dateLabel = doc.get<String?>("dateLabel") ?: "See event details"
+            val seat = doc.get<String?>("seat") ?: "General Admission"
+            val status = doc.get<String?>("status") ?: "Ready"
+            val typeLabel = doc.get<String?>("type") ?: "General"
+            val type = runCatching { TicketType.valueOf(typeLabel) }.getOrDefault(TicketType.General)
+            val holderName = doc.get<String?>("holderName") ?: "Guest"
+            val holderInitials = doc.get<String?>("holderInitials") ?: initialsFromName(holderName)
+            val qrSeed = doc.get<String?>("qrSeed") ?: doc.id
+            TicketPass(
+                id = doc.id,
+                eventTitle = eventTitle,
+                venue = venue,
+                dateLabel = dateLabel,
+                seat = seat,
+                status = status,
+                type = type,
+                holderName = holderName,
+                holderInitials = holderInitials,
+                qrSeed = qrSeed,
+            )
+        }
+    }
+}
+
 private fun formatPriceTwoDecimals(value: Double): String {
     val roundedCents = (value * 100.0).roundToInt()
     val major = roundedCents / 100
@@ -2048,13 +2196,27 @@ private fun isEventHappeningToday(
     }
 }
 
-private fun pickTonightHeatEvent(
+private fun pickUpcomingEvent(
     events: List<EventItem>,
     now: Instant,
     tz: TimeZone,
 ): EventItem? {
-    val tonight = events.filter { isEventHappeningToday(it, now, tz) }
-    return tonight.minByOrNull { it.startsAt?.toEpochMilliseconds() ?: Long.MAX_VALUE }
+    // Prefer events with parsed start times, soonest after "now".
+    val withStart = events.filter { it.startsAt != null }.sortedBy { it.startsAt }
+    val upcomingWithStart = withStart.filter { it.startsAt!! >= now }
+    if (upcomingWithStart.isNotEmpty()) return upcomingWithStart.first()
+
+    // If all start times are in the past, surface the most recent (still better than empty).
+    if (withStart.isNotEmpty()) return withStart.last()
+
+    // Fallback: use label hints for soonish events.
+    val hintToday = events.firstOrNull { isEventHappeningToday(it, now, tz) }
+    if (hintToday != null) return hintToday
+
+    val weekendHint = events.firstOrNull { it.dateLabel.contains("Fri", true) || it.dateLabel.contains("Sat", true) }
+    if (weekendHint != null) return weekendHint
+
+    return events.firstOrNull()
 }
 
 private fun buildEarlyBirdBadgeForEvent(
@@ -2322,7 +2484,47 @@ private suspend fun fetchHeroBannersFromFirestore(): List<HeroSlide> {
     }
 }
 
-private fun parseInstantOrNull(raw: String?): Instant? = runCatching { raw?.let(Instant::parse) }.getOrNull()
+private fun parseInstantOrNull(raw: String?): Instant? {
+    if (raw.isNullOrBlank()) return null
+    runCatching { Instant.parse(raw) }.getOrNull()?.let { return it }
+
+    // Fallback: parse friendly strings like "January 18, 2026 at 6:00 PM"
+    val regex = Regex("""([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4}).*?(\d{1,2}):(\d{2})\s*(AM|PM)""", RegexOption.IGNORE_CASE)
+    val match = regex.find(raw)
+    if (match != null) {
+        val monthName = match.groupValues[1].lowercase()
+        val day = match.groupValues[2].toIntOrNull() ?: return null
+        val year = match.groupValues[3].toIntOrNull() ?: return null
+        val hour12 = match.groupValues[4].toIntOrNull() ?: return null
+        val minute = match.groupValues[5].toIntOrNull() ?: 0
+        val meridiem = match.groupValues[6].uppercase()
+        val monthIndex = monthNameToNumber(monthName) ?: return null
+        val hour24 = when {
+            meridiem == "AM" && hour12 == 12 -> 0
+            meridiem == "PM" && hour12 < 12 -> hour12 + 12
+            else -> hour12
+        }
+        return runCatching {
+            LocalDateTime(year, monthIndex, day, hour24, minute).toInstant(TimeZone.currentSystemDefault())
+        }.getOrNull()
+    }
+    return null
+}
+
+private fun monthNameToNumber(name: String): Int? {
+    val months = listOf(
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december"
+    )
+    val short = listOf(
+        "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec"
+    )
+    val idx = months.indexOf(name)
+    if (idx >= 0) return idx + 1
+    val shortIdx = short.indexOf(name.take(3))
+    return if (shortIdx >= 0) shortIdx + 1 else null
+}
 
 private suspend fun fetchNewsFlashDocuments(): List<NewsFlash> {
     return try {
@@ -2962,11 +3164,15 @@ private fun GoTickyRoot() {
     var currentScreen by remember { mutableStateOf(MainScreen.Home) }
     var detailEvent by remember { mutableStateOf<org.example.project.data.EventItem?>(null) }
     var checkoutReturnEvent by remember { mutableStateOf<org.example.project.data.EventItem?>(null) }
+    var lastCheckoutEvent by remember { mutableStateOf<org.example.project.data.EventItem?>(null) }
     var selectedTicket by remember { mutableStateOf<TicketPass?>(null) }
     var showCheckout by remember { mutableStateOf(false) }
     var checkoutSuccess by remember { mutableStateOf(false) }
     var lastCheckoutMethod by remember { mutableStateOf<String?>(null) }
     var lastCheckoutAmount by remember { mutableStateOf<Int?>(null) }
+    var checkoutOrder by remember { mutableStateOf<OrderSummary?>(null) }
+    var lastCheckoutOrder by remember { mutableStateOf<OrderSummary?>(null) }
+    val userTickets = remember { mutableStateListOf<TicketPass>() }
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var selectedTicketType by remember { mutableStateOf("General / Standard") }
     var userProfile by rememberSaveable(stateSaver = UserProfileSaver) { mutableStateOf(defaultUserProfile()) }
@@ -2982,7 +3188,12 @@ private fun GoTickyRoot() {
     var guestGateTarget by remember { mutableStateOf<GuestGateTarget?>(null) }
     var guestGateMessage by remember { mutableStateOf("Sign up to unlock this action.") }
     val alerts = remember { mutableStateListOf<PriceAlert>(*sampleAlerts.toTypedArray()) }
-    val recommendations = remember { mutableStateListOf<Recommendation>(*sampleRecommendations.toTypedArray()) }
+    val recommendations = remember { mutableStateListOf<Recommendation>() }
+    var adminApplications = remember { mutableStateListOf<AdminApplication>() }
+    var adminApplicationsLoading by remember { mutableStateOf(false) }
+    var adminApplicationsError by remember { mutableStateOf<String?>(null) }
+    var adminApplicationsInitialized by remember { mutableStateOf(false) }
+    var adminAuthEnsured by remember { mutableStateOf(false) }
     val organizerEvents = remember { mutableStateListOf<OrganizerEvent>() }
     var showCreateEvent by remember { mutableStateOf(false) }
     var createEventSaving by remember { mutableStateOf(false) }
@@ -3085,7 +3296,32 @@ private fun GoTickyRoot() {
                 if (remote.isNotEmpty()) {
                     recommendations.clear()
                     recommendations.addAll(remote)
+                    return@launch
                 }
+                // Fallback: build from approved events (real data) when recommendations collection is empty.
+                val approved = adminApplications.filter { it.status.equals("Approved", true) || it.isApproved }
+                if (approved.isNotEmpty()) {
+                    val mapped = approved.mapIndexed { idx, app ->
+                        val priceLabel = app.pricingTiers.firstOrNull().orEmpty().ifBlank { "Pricing TBC" }
+                        Recommendation(
+                            id = app.id,
+                            eventId = app.eventId,
+                            title = app.title,
+                            reason = app.category.ifBlank { "Live now" },
+                            tag = "For you",
+                            city = app.city,
+                            priceFrom = priceLabel,
+                            imageKey = null,
+                            imageUrl = app.flyerUrl,
+                            order = idx,
+                            active = true
+                        )
+                    }
+                    recommendations.clear()
+                    recommendations.addAll(mapped)
+                }
+            }.onFailure { t ->
+                snackbarHostState.showSnackbar(t.message ?: "Unable to load For You events.")
             }
         }
     }
@@ -3093,6 +3329,27 @@ private fun GoTickyRoot() {
     LaunchedEffect(Unit) {
         refreshNewsFlash()
         refreshRecommendations()
+    }
+
+    LaunchedEffect(adminApplicationsInitialized, adminApplications.size) {
+        if (adminApplicationsInitialized && recommendations.isEmpty()) {
+            refreshRecommendations()
+        }
+    }
+
+    LaunchedEffect(isAuthenticated) {
+        if (isAuthenticated) {
+            scope.launch {
+                fetchTicketsForUser()
+                    .onSuccess { remote ->
+                        userTickets.clear()
+                        userTickets.addAll(remote.sortedByDescending { it.dateLabel })
+                    }
+                    .onFailure { t ->
+                        snackbarHostState.showSnackbar(t.message ?: "Unable to load your tickets.")
+                    }
+            }
+        }
     }
 
     LaunchedEffect(currentScreen) {
@@ -3309,11 +3566,6 @@ private fun GoTickyRoot() {
         )
     }
 
-    var adminApplications = remember { mutableStateListOf<AdminApplication>() }
-    var adminApplicationsLoading by remember { mutableStateOf(false) }
-    var adminApplicationsError by remember { mutableStateOf<String?>(null) }
-    var adminApplicationsInitialized by remember { mutableStateOf(false) }
-    var adminAuthEnsured by remember { mutableStateOf(false) }
     // Map of organizerId -> AdminOrganizer, populated from real user profiles when admin applications load.
     val adminOrganizers = remember { mutableStateListOf<AdminOrganizer>() }
 
@@ -3565,15 +3817,14 @@ private fun GoTickyRoot() {
     fun personalize(recs: List<Recommendation>): List<Recommendation> {
         fun score(rec: Recommendation): Int {
             var score = 0
-            if (rec.city == personalizationPrefs.city) score += 3
-            if (personalizationPrefs.genres.any { tag ->
-                    rec.tag.contains(tag, ignoreCase = true) || rec.reason.contains(tag, ignoreCase = true)
-                }
-            ) {
+            if (rec.city == "Harare") score += 1
+            if (rec.tag.contains("Hot", ignoreCase = true)) score += 3
+            if (rec.tag.contains("Local", ignoreCase = true)) score += 1
+            if (favoriteEvents.contains(rec.id)) {
                 score += 2
             }
             // Treat as "past purchase" if any ticket we hold has the same event title
-            if (sampleTickets.any { it.eventTitle == rec.title }) {
+            if (userTickets.any { it.eventTitle == rec.title }) {
                 score += 2
             }
             if (rec.tag.contains("Trending", ignoreCase = true) || rec.tag.contains("Hot", ignoreCase = true) || rec.tag.contains("For you", ignoreCase = true)) {
@@ -4482,28 +4733,54 @@ private fun GoTickyRoot() {
                                         when {
                                             detailEvent != null -> {
                                                 val event = detailEvent!!
+                                                val adminApp = remember(event.id, adminApplications) {
+                                                    adminApplications.firstOrNull { it.eventId == event.id }
+                                                }
+                                                val detailEarlyBird = remember(adminApp) {
+                                                    buildEarlyBirdWindow(adminApp, adminApp?.approvedAt)
+                                                }
+                                                val detailTicketPricing = remember(adminApp) {
+                                                    adminApp?.pricingTiers
+                                                        ?.mapNotNull { tier ->
+                                                            val parts = tier.split(" ", limit = 2)
+                                                            if (parts.isEmpty()) return@mapNotNull null
+                                                            val key = parts.first().lowercase()
+                                                            val price = parts.getOrNull(1) ?: parts.first()
+                                                            key to price
+                                                        }
+                                                        ?.toMap()
+                                                }
                                                 EventDetailScreen(
                                                     event = event,
                                                     isFavorite = favoriteEvents.contains(event.id),
                                                     onToggleFavorite = { toggleFavorite(event.id) },
                                                     onBack = { detailEvent = null },
-                                                    onProceedToCheckout = { ticketType ->
+                                                    onProceedToCheckout = { ticketType, ticketPrice ->
                                                         requireAuth(
                                                             target = GuestGateTarget.Checkout,
                                                             message = "Create a free account to unlock checkout and manage your tickets.",
                                                         ) {
                                                             selectedTicketType = ticketType
                                                             checkoutReturnEvent = event
+                                                            lastCheckoutEvent = event
+                                                            checkoutOrder = buildOrderSummary(
+                                                                event = event,
+                                                                ticketType = ticketType,
+                                                                ticketPriceLabel = ticketPrice
+                                                            )
                                                             detailEvent = null
                                                             showCheckout = true
                                                         }
                                                     },
                                                     onAlert = { currentScreen = MainScreen.Alerts },
+                                                    adminApplication = adminApp,
+                                                    earlyBirdWindow = detailEarlyBird,
+                                                    ticketPricing = detailTicketPricing,
                                                 )
                                             }
                                             showCheckout -> {
                                                 CheckoutScreen(
-                                                    order = sampleOrder,
+                                                    order = checkoutOrder ?: sampleOrder,
                                                     selectedTicketType = selectedTicketType,
                                                     onBack = {
                                                         showCheckout = false
@@ -4511,22 +4788,47 @@ private fun GoTickyRoot() {
                                                             detailEvent = checkoutReturnEvent
                                                         }
                                                         checkoutReturnEvent = null
+                                                        checkoutOrder = null
                                                     },
-                                                    onPlaceOrder = { paymentMethod, totalAmount ->
+                                                    onPlaceOrder = { paymentMethod, totalAmountCents ->
                                                         Analytics.log(
                                                             AnalyticsEvent(
                                                                 name = "checkout_place_order",
                                                                 params = mapOf(
                                                                     "method" to paymentMethod,
-                                                                    "amount" to totalAmount.toString(),
+                                                                    "amount" to formatPriceTwoDecimals(totalAmountCents / 100.0),
                                                                     "ticket_type" to selectedTicketType
                                                                 )
                                                             )
                                                         )
                                                         showCheckout = false
+                                                        val purchasedEvent = checkoutReturnEvent ?: lastCheckoutEvent
+                                                        val purchasedOrder = checkoutOrder
+                                                        lastCheckoutEvent = purchasedEvent
                                                         checkoutReturnEvent = null
                                                         lastCheckoutMethod = paymentMethod
-                                                        lastCheckoutAmount = totalAmount
+                                                        lastCheckoutAmount = totalAmountCents
+                                                        lastCheckoutOrder = purchasedOrder
+                                                        if (purchasedEvent != null && purchasedOrder != null) {
+                                                            val newTicket = buildTicketPassFromBooking(
+                                                                event = purchasedEvent,
+                                                                order = purchasedOrder,
+                                                                ticketTypeLabel = selectedTicketType,
+                                                                user = userProfile
+                                                            )
+                                                            // Avoid duplicates by ID
+                                                            userTickets.removeAll { it.id == newTicket.id }
+                                                            userTickets.add(0, newTicket)
+                                                            scope.launch {
+                                                                persistTicketForUser(newTicket)
+                                                                    .onFailure { t ->
+                                                                        snackbarHostState.showSnackbar(
+                                                                            t.message ?: "Saved locally; ticket upload failed."
+                                                                        )
+                                                                    }
+                                                            }
+                                                        }
+                                                        checkoutOrder = null
                                                         checkoutSuccess = true
                                                     }
                                                 )
@@ -4536,6 +4838,7 @@ private fun GoTickyRoot() {
                                                     amount = lastCheckoutAmount,
                                                     method = lastCheckoutMethod,
                                                     ticketType = selectedTicketType,
+                                                    order = lastCheckoutOrder,
                                                     onViewTickets = {
                                                         checkoutSuccess = false
                                                         requireAuth(
@@ -4583,7 +4886,7 @@ private fun GoTickyRoot() {
                                                     }
                                                     MainScreen.Tickets -> {
                                                         TicketsScreen(
-                                                            tickets = sampleTickets,
+                                                            tickets = userTickets,
                                                             onTicketSelected = { ticket ->
                                                                 selectedTicket = ticket
                                                             },
@@ -8010,19 +8313,19 @@ private fun HomeScreen(
                 title = app.title,
                 city = app.city,
                 dateLabel = app.eventDateTime.ifBlank { "Date TBC" },
+                startsAt = parseInstantOrNull(app.eventDateTime),
                 priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
                 category = category,
                 badge = if (app.status == "Approved") "Live" else null,
                 tag = app.category,
                 month = "Live",
-                imagePath = null,
+                // Prefer organizer flyer URL; otherwise fall back to a bundled hero so cards always show artwork.
+                imagePath = app.flyerUrl?.takeIf { it.startsWith("http", ignoreCase = true) }
+                    ?: "hero_vic_falls_midnight_lights",
             )
         }
 
-    val publicEvents = sampleEvents
-        .filter { isEventPublic(it.id, adminApplications) }
-        .plus(publicEventsFromApplications)
-        .distinctBy { it.id }
+    val publicEvents = publicEventsFromApplications.distinctBy { it.id }
     val tz = remember { TimeZone.currentSystemDefault() }
     val nowState = remember { mutableStateOf(currentInstant()) }
     LaunchedEffect(Unit) {
@@ -8033,7 +8336,7 @@ private fun HomeScreen(
     }
     val now = nowState.value
     val tonightHeatEvent = remember(publicEvents, now.toLocalDateTime(tz).date) {
-        pickTonightHeatEvent(publicEvents, now, tz)
+        pickUpcomingEvent(publicEvents, now, tz)
     }
     val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
     val popularNearby = publicEvents.mapNotNull { event ->
@@ -8085,7 +8388,8 @@ private fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+                // Extra bottom padding so the CTA row clears system gestures and feels comfortably spaced
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 160.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
         GlowCard(
@@ -8264,7 +8568,7 @@ private fun HomeScreen(
             onReadMore = { newsDetail = it }
         )
         SectionHeader(
-            title = "Tonight's heat",
+            title = "Upcoming event",
             action = { NeonTextButton(text = "See all", onClick = { showHeatListDialog = true }) }
         )
         HighlightCard(
@@ -8295,6 +8599,19 @@ private fun HomeScreen(
                 modifier = Modifier
             )
         }
+        MapPreview(onOpenMap = onOpenMap)
+        SectionHeader(
+            title = "Event Near You",
+            action = { NeonTextButton(text = "See all", onClick = { showPopularNearbyDialog = true }) }
+        )
+
+        PopularNearbySwingDeck(
+            nearby = popularNearby,
+            favoriteEvents = favoriteEvents,
+            onToggleFavorite = onToggleFavorite,
+            onOpen = { event -> onEventSelected(event) }
+        )
+
         SectionHeader(
             title = "For you",
             action = {
@@ -8335,18 +8652,6 @@ private fun HomeScreen(
                     )
                 onEventSelected(event)
             }
-        )
-        MapPreview(onOpenMap = onOpenMap)
-        SectionHeader(
-            title = "Popular near you",
-            action = { NeonTextButton(text = "See all", onClick = { showPopularNearbyDialog = true }) }
-        )
-
-        PopularNearbySwingDeck(
-            nearby = popularNearby,
-            favoriteEvents = favoriteEvents,
-            onToggleFavorite = onToggleFavorite,
-            onOpen = { event -> onEventSelected(event) }
         )
 
         SectionHeader("Progress preview", action = null)
@@ -9165,7 +9470,7 @@ private fun HomeScreen(
     if (showHeatPriceDialog) {
         AlertDialog(
             onDismissRequest = { showHeatPriceDialog = false },
-            title = { Text("Tonight's heat prices") },
+            title = { Text("Upcoming event price") },
             text = {
                 var visible by remember { mutableStateOf(false) }
                 val scale by animateFloatAsState(
@@ -9175,12 +9480,37 @@ private fun HomeScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                val tiers = listOf(
-                    "Early bird" to "\$10",
-                    "General admission" to "\$15",
-                    "Floor / close to stage" to "\$25",
-                    "VIP lounge" to "\$40",
-                )
+                val upcomingAdminApp = remember(tonightHeatEvent, adminApplications) {
+                    adminApplications.firstOrNull { it.eventId == tonightHeatEvent?.id }
+                }
+                val tiers = remember(upcomingAdminApp, tonightHeatEvent) {
+                    val allowedOrder = listOf("early", "general", "vip", "golden")
+                    upcomingAdminApp
+                        ?.pricingTiers
+                        ?.mapNotNull { tier ->
+                            val parts = tier.split(" ", limit = 2)
+                            if (parts.isEmpty()) return@mapNotNull null
+                            val rawLabel = parts.first().ifBlank { "Ticket" }
+                            val priceRaw = parts.getOrNull(1) ?: parts.first()
+                            val numeric = parsePrice(priceRaw) ?: return@mapNotNull null
+                            val type = when {
+                                rawLabel.contains("gold", ignoreCase = true) -> "golden"
+                                rawLabel.contains("vip", ignoreCase = true) -> "vip"
+                                rawLabel.contains("early", ignoreCase = true) -> "early"
+                                rawLabel.contains("gen", ignoreCase = true) -> "general"
+                                else -> return@mapNotNull null
+                            }
+                            val displayLabel = when (type) {
+                                "golden" -> "Golden Circle"
+                                "vip" -> "VIP"
+                                "early" -> "Early Bird"
+                                else -> "General"
+                            }
+                            Triple(displayLabel, "$${formatPriceTwoDecimals(numeric)}", type)
+                        }
+                        ?.sortedBy { allowedOrder.indexOf(it.third).let { idx -> if (idx >= 0) idx else Int.MAX_VALUE } }
+                        ?: emptyList()
+                }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -9188,30 +9518,98 @@ private fun HomeScreen(
                         .graphicsLayer(scaleX = scale, scaleY = scale)
                 ) {
                     Text(
-                        text = "Sample tiers for Marquee Night.",
+                        text = tonightHeatEvent?.let { "Live tiers for ${it.title}." }
+                            ?: "Live tiers for the upcoming event.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.heightIn(max = 280.dp)
-                    ) {
-                        items(tiers) { (label, price) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .pressAnimated(scaleDown = 0.96f)
-                                    .clip(goTickyShapes.medium)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("Sample tier", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (tiers.isEmpty()) {
+                        Text(
+                            text = "Ticket prices are not available yet. Check back soon.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 280.dp)
+                        ) {
+                            items(tiers) { (label, price, type) ->
+                                val (bgBrush, textColor) = when (type) {
+                                    "golden" -> Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFFF9F295),
+                                            Color(0xFFE0AA3E),
+                                            Color(0xFFFAF398),
+                                            Color(0xFFB88A44),
+                                        )
+                                    ) to Color(0xFF2C1A00)
+                                    "vip" -> Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFFE6E9ED),
+                                            Color(0xFFBDC3C7),
+                                            Color(0xFF9DA3AA),
+                                            Color(0xFF7F858D),
+                                            Color(0xFFD3D7DB),
+                                        )
+                                    ) to Color(0xFF0F1114)
+                                    "early" -> Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFF25293A),
+                                            Color(0xFF30364B),
+                                            Color(0xFF222636),
+                                        )
+                                    ) to Color(0xFFE4E7FF)
+                                    "general" -> Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFFE8F2FF),
+                                            Color(0xFFBCD4EA),
+                                            Color(0xFF8BA9CC),
+                                            Color(0xFF7A98BE),
+                                            Color(0xFFD2E4F7),
+                                        )
+                                    ) to Color(0xFF0E1B2D)
+                                    else -> Brush.horizontalGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.surfaceVariant,
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    ) to MaterialTheme.colorScheme.onSurface
                                 }
-                                Text(price, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressAnimated(scaleDown = 0.94f)
+                                        .clip(goTickyShapes.medium)
+                                        .background(brush = bgBrush)
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            label,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                letterSpacing = 0.2.sp
+                                            ),
+                                            color = textColor
+                                        )
+                                        Text(
+                                            "Live tier",
+                                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.1.sp),
+                                            color = textColor.copy(alpha = 0.78f)
+                                        )
+                                    }
+                                    Text(
+                                        price,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.2.sp
+                                        ),
+                                        color = textColor
+                                    )
+                                }
                             }
                         }
                     }
@@ -9226,7 +9624,7 @@ private fun HomeScreen(
     if (showHeatListDialog) {
         AlertDialog(
             onDismissRequest = { showHeatListDialog = false },
-            title = { Text("Tonight's heat") },
+            title = { Text("Upcoming events") },
             text = {
                 var visible by remember { mutableStateOf(false) }
                 val scale by animateFloatAsState(
@@ -9238,37 +9636,53 @@ private fun HomeScreen(
 
                 val now = currentInstant()
                 val tz = TimeZone.currentSystemDefault()
-                val tonightEvents = publicEvents
-                    .filter { isEventHappeningToday(it, now, tz) }
-                    .sortedBy { it.startsAt?.toEpochMilliseconds() ?: Long.MAX_VALUE }
+                val upcomingEvents = publicEvents
+                    .sortedWith(
+                        compareBy<EventItem> {
+                            val start = it.startsAt
+                            when {
+                                start == null -> Long.MAX_VALUE
+                                start < now -> start.toEpochMilliseconds() + 9_000_000_000L // push past events down
+                                else -> start.toEpochMilliseconds()
+                            }
+                        }.thenBy { it.dateLabel }
+                    )
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
                 ) {
                     Text(
-                        text = "Curated picks for tonight from the demo data.",
+                        text = "Sorted by soonest upcoming based on real dates/times.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.heightIn(max = 240.dp)
-                    ) {
-                        items(tonightEvents) { event ->
-                            GlowCard(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .pressAnimated(scaleDown = 0.96f)
-                                    .clickable {
-                                        onEventSelected(event)
-                                        showHeatListDialog = false
+                    if (upcomingEvents.isEmpty()) {
+                        Text(
+                            text = "No upcoming events available.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 240.dp)
+                        ) {
+                            items(upcomingEvents) { event ->
+                                GlowCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressAnimated(scaleDown = 0.96f)
+                                        .clickable {
+                                            onEventSelected(event)
+                                            showHeatListDialog = false
+                                        }
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                        Text("${event.city} – ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(event.priceFrom, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                     }
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("${event.city} – ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(event.priceFrom, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -9284,7 +9698,7 @@ private fun HomeScreen(
     if (showPopularNearbyDialog) {
         AlertDialog(
             onDismissRequest = { showPopularNearbyDialog = false },
-            title = { Text("Popular near you") },
+            title = { Text("Event Near You") },
             text = {
                 var visible by remember { mutableStateOf(false) }
                 val scale by animateFloatAsState(
@@ -10021,12 +10435,20 @@ private fun HighlightCard(
                 .padding(1.5.dp)
                 .clip(goTickyShapes.large)
         ) {
-            val photoRes = event?.imagePath?.let { key -> Res.allDrawableResources[key] }
-                ?: Res.allDrawableResources["tonights_heat_marquee_night"]
+            val remoteUrl = event?.imagePath?.takeIf { it.startsWith("http", ignoreCase = true) }
+            val photoRes = if (remoteUrl == null) {
+                event?.imagePath?.let { key -> Res.allDrawableResources[key] }
+                    ?: Res.allDrawableResources["tonights_heat_marquee_night"]
+            } else null
+            val painter = when {
+                remoteUrl != null -> rememberUriPainter(remoteUrl)
+                photoRes != null -> painterResource(photoRes)
+                else -> null
+            }
 
-            if (photoRes != null) {
+            if (painter != null) {
                 Image(
-                    painter = painterResource(photoRes),
+                    painter = painter,
                     contentDescription = null,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop
@@ -10094,23 +10516,9 @@ private fun HighlightCard(
                         )
                     }
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        event?.let { "Tap to see details and secure your seats before it sells out." }
-                            ?: "Come back later for the next big event.",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            shadow = Shadow(
-                                color = Color.Black.copy(alpha = 0.7f),
-                                offset = Offset(0f, 1.5f),
-                                blurRadius = 5f
-                            )
-                        ),
-                        color = Color.White.copy(alpha = 0.97f)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PrimaryButton(text = "Select seats", onClick = onSelectSeats)
-                        GhostButton(text = "Price alerts", onClick = onPriceAlerts)
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PrimaryButton(text = "Select seats", onClick = onSelectSeats)
+                    GhostButton(text = "Price alerts", onClick = onPriceAlerts)
                 }
             }
         }
@@ -10703,30 +11111,44 @@ private fun NearbySwingCard(
                 .fillMaxSize()
                 .clip(goTickyShapes.extraLarge)
         ) {
-            // Photo layer (resolved from Compose resources)
+            // Photo layer (supports remote flyer URL or bundled resource)
+            val remotePainter = event.imagePath
+                ?.takeIf { it.startsWith("http", ignoreCase = true) }
+                ?.let { rememberUriPainter(it) }
             val photoRes = event.imagePath?.let { key -> Res.allDrawableResources[key] }
 
-            if (photoRes != null) {
-                Image(
-                    painter = painterResource(photoRes),
-                    contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    accent.copy(alpha = 0.8f),
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+            when {
+                remotePainter != null -> {
+                    Image(
+                        painter = remotePainter,
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                photoRes != null -> {
+                    Image(
+                        painter = painterResource(photoRes),
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                else -> {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        accent.copy(alpha = 0.8f),
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                                    )
                                 )
                             )
-                        )
-                )
+                    )
+                }
             }
 
             // Texture + darkening overlay for readability
@@ -11023,9 +11445,38 @@ private fun TicketsScreen(
                 }
             }
         } else {
-        items(tickets) { ticket ->
-            TicketCard(ticket = ticket) { onTicketSelected(ticket) }
-        }
+            if (tickets.isEmpty()) {
+                item {
+                    GlowCard(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "No tickets yet",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Buy your first ticket to see it here with QR and barcode ready for entry.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            PrimaryButton(text = "Find events") { onCheckout() }
+                        }
+                    }
+                }
+            } else {
+                items(tickets) { ticket ->
+                    TicketCard(ticket = ticket) { onTicketSelected(ticket) }
+                }
+            }
         }
     }
 }
@@ -11071,6 +11522,39 @@ private fun ProfileScreen(
     var showProfileDetails by remember { mutableStateOf(false) }
     var showSearchHistory by remember { mutableStateOf(false) }
     var showFavorites by remember { mutableStateOf(false) }
+    val publicEventsFromApplications = remember(adminApplications) {
+        adminApplications
+            .filter { isEventPublic(it.eventId, adminApplications) }
+            .map { app ->
+                val priceLabel = app.pricingTiers.firstOrNull().orEmpty()
+                val category = when (app.category.lowercase()) {
+                    "sports" -> IconCategory.Calendar
+                    "family" -> IconCategory.Profile
+                    "concert", "music" -> IconCategory.Discover
+                    else -> IconCategory.Discover
+                }
+                EventItem(
+                    id = app.eventId,
+                    title = app.title,
+                    city = app.city,
+                    dateLabel = app.eventDateTime.ifBlank { "Date TBC" },
+                    startsAt = parseInstantOrNull(app.eventDateTime),
+                    priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
+                    category = category,
+                    badge = if (app.status == "Approved") "Live" else null,
+                    tag = app.category,
+                    month = "Live",
+                    imagePath = app.flyerUrl?.takeIf { it.startsWith("http", ignoreCase = true) }
+                        ?: "hero_vic_falls_midnight_lights",
+                )
+            }
+    }
+    val publicEvents = remember(adminApplications) {
+        sampleEvents
+            .filter { isEventPublic(it.id, adminApplications) }
+            .plus(publicEventsFromApplications)
+            .distinctBy { it.id }
+    }
 
     Box(
         modifier = Modifier
@@ -11416,7 +11900,7 @@ private fun ProfileScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                val favoriteItems = sampleEvents.filter { favorites.contains(it.id) && isEventPublic(it.id, adminApplications) }
+                val favoriteItems = publicEvents.filter { favorites.contains(it.id) }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -12834,6 +13318,7 @@ private fun CheckoutSuccessScreen(
     amount: Int?,
     method: String?,
     ticketType: String,
+    order: OrderSummary?,
     onViewTickets: () -> Unit,
     onBackHome: () -> Unit,
 ) {
@@ -12847,7 +13332,11 @@ private fun CheckoutSuccessScreen(
         val month = date.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
         "${date.dayOfMonth} $month ${date.year}, ${time.hour}:$minute"
     }
-    val transactionId = remember { "TXN-${sampleOrder.id.takeLast(4)}-${(1000..9999).random()}" }
+    val transactionId = remember(order) {
+        val id = order?.id ?: sampleOrder.id
+        "TXN-${id.takeLast(4)}-${(1000..9999).random()}"
+    }
+    val amountLabel = amount?.let { "$${formatPriceTwoDecimals(it / 100.0)}" } ?: order?.total ?: "Your total"
     val pulse by rememberInfiniteTransition(label = "successPulse").animateFloat(
         initialValue = 0.96f,
         targetValue = 1.04f,
@@ -12861,15 +13350,18 @@ private fun CheckoutSuccessScreen(
     LaunchedEffect(Unit) { confettiVisible = true }
 
     val scrollState = rememberScrollState()
+    val nestedScrollConnection = remember { object : NestedScrollConnection {} }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(GoTickyGradients.CardGlow)
+            .nestedScroll(nestedScrollConnection)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
+                // More breathing room at the bottom so the CTA buttons clear the gesture bar
                 .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
@@ -12924,7 +13416,6 @@ private fun CheckoutSuccessScreen(
                         null -> "Pesepay or card"
                         else -> method.replaceFirstChar { it.uppercase() }
                     }
-                    val amountLabel = amount?.let { "$$it" } ?: "Your total"
                     Text(
                         text = "$amountLabel • $ticketType",
                         style = MaterialTheme.typography.bodyMedium,
@@ -13002,7 +13493,8 @@ private fun CheckoutSuccessScreen(
                             )
                         }
                         Spacer(Modifier.height(4.dp))
-                        sampleOrder.items.forEach { item ->
+                        val invoiceItems = order?.items ?: sampleOrder.items
+                        invoiceItems.forEach { item ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -13019,7 +13511,8 @@ private fun CheckoutSuccessScreen(
                                 )
                             }
                         }
-                        sampleOrder.fees.forEach { fee ->
+                        val invoiceFees = order?.fees ?: sampleOrder.fees
+                        invoiceFees.forEach { fee ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -13072,7 +13565,7 @@ private fun CheckoutSuccessScreen(
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            val invoiceTotal = amount?.let { "$$it" } ?: sampleOrder.total
+                            val invoiceTotal = amount?.let { "$${formatPriceTwoDecimals(it / 100.0)}" } ?: order?.total ?: sampleOrder.total
                             Text(
                                 text = invoiceTotal,
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
@@ -13105,7 +13598,13 @@ private fun CheckoutSuccessScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        NeonTextButton(text = "Open wallet", onClick = onViewTickets)
+                        NeonTextButton(
+                            text = "Open wallet",
+                            onClick = {
+                                confettiVisible = false
+                                onViewTickets()
+                            }
+                        )
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -13122,17 +13621,26 @@ private fun CheckoutSuccessScreen(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    // Extra padding so the CTA bar sits comfortably above the nav bar
+                    .padding(bottom = 40.dp)
+            ) {
                 PrimaryButton(
                     text = "View tickets",
                     modifier = Modifier.weight(1f)
                 ) {
+                    confettiVisible = false
                     onViewTickets()
                 }
                 GhostButton(
                     text = "Back home",
                     modifier = Modifier.weight(1f)
                 ) {
+                    confettiVisible = false
                     onBackHome()
                 }
             }
@@ -13148,7 +13656,6 @@ private fun CheckoutSuccessScreen(
             Canvas(
                 modifier = Modifier
                     .matchParentSize()
-                    .pointerInput(Unit) {}
             ) {
                 val random = Random(42)
                 repeat(40) {
@@ -14253,12 +14760,13 @@ private fun EventDetailScreen(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
-    onProceedToCheckout: (String) -> Unit,
+    onProceedToCheckout: (String, String?) -> Unit,
     onAlert: () -> Unit,
     totalTickets: Int? = null,
     ticketsSold: Int? = null,
     adminApplication: AdminApplication? = null,
     earlyBirdWindow: EarlyBirdWindow? = null,
+    ticketPricing: Map<String, String>? = null,
 ) {
     var showReport by remember { mutableStateOf(false) }
     var priceAlertSelected by remember { mutableStateOf(false) }
@@ -14274,13 +14782,39 @@ private fun EventDetailScreen(
         }
     }
     val now = nowState.value
-    val earlyBirdActive = earlyBirdWindow?.let { now >= it.start && now <= it.end } ?: false
-    val earlyBirdExpired = earlyBirdWindow?.let { now > it.end } ?: false
+    // Fallback Early Bird: if this is a catalog/sample event without an admin application,
+    // auto-open a 72h window from now with a 20% discount to keep the option selectable.
+    val syntheticEarlyBird = remember(event.id) {
+        if (adminApplication == null && earlyBirdWindow == null) {
+            val base = parsePrice(event.priceFrom) ?: 0.0
+            val discount = 20
+            val start = currentInstant()
+            val earlyPrice = (base * (1 - discount / 100.0)).takeIf { it > 0 } ?: 0.0
+            val baseLabel = event.priceFrom.ifBlank { "Base price" }
+            val earlyLabel = if (earlyPrice <= 0.0) {
+                "Promo"
+            } else if (earlyPrice % 1.0 == 0.0) {
+                "$$${earlyPrice.toInt()}"
+            } else {
+                "$$${formatPriceTwoDecimals(earlyPrice)}"
+            }
+            EarlyBirdWindow(
+                start = start,
+                end = start + 72.hours,
+                discountPercent = discount,
+                basePriceLabel = baseLabel,
+                earlyPriceLabel = earlyLabel
+            )
+        } else null
+    }
+    val effectiveEarlyBirdWindow = earlyBirdWindow ?: syntheticEarlyBird
+    val earlyBirdActive = effectiveEarlyBirdWindow?.let { now >= it.start && now <= it.end } ?: false
+    val earlyBirdExpired = effectiveEarlyBirdWindow?.let { now > it.end } ?: false
     val earlyBirdPendingApproval = adminApplication != null && adminApplication.status != "Approved"
-    val earlyBirdRemaining: Duration? = earlyBirdWindow?.let { window ->
+    val earlyBirdRemaining: Duration? = effectiveEarlyBirdWindow?.let { window ->
         (window.end - now).coerceAtLeast(ZERO)
     }
-    val earlyBirdProgressTarget = earlyBirdWindow?.let { window ->
+    val earlyBirdProgressTarget = effectiveEarlyBirdWindow?.let { window ->
         val totalMs = (window.end - window.start).toLong(DurationUnit.MILLISECONDS).coerceAtLeast(1L)
         val elapsedMs = (now - window.start).toLong(DurationUnit.MILLISECONDS).coerceAtLeast(0L)
         (elapsedMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
@@ -14318,6 +14852,71 @@ private fun EventDetailScreen(
         }
     }
     val accent = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
+    val normalizedPricing = remember(ticketPricing) { ticketPricing?.mapKeys { it.key.lowercase() } }
+    fun resolveTicketPrice(option: String): String? {
+        val lower = option.lowercase()
+        fun formatDisplay(value: Double): String {
+            return "$${formatPriceTwoDecimals(value)}"
+        }
+        val keys = when {
+            lower.contains("early") -> listOf("earlybird", "early", "promo")
+            lower.contains("general") || lower.contains("standard") -> listOf("general", "ga", "standard")
+            lower.contains("vip") -> listOf("vip")
+            lower.contains("golden") -> listOf("golden", "goldencircle", "circle")
+            else -> emptyList()
+        }
+        val match = normalizedPricing?.entries?.firstOrNull { (key, _) ->
+            keys.any { key.contains(it) }
+        }?.value
+        val matchedOrFallback = match
+            ?: if (lower.contains("early") && effectiveEarlyBirdWindow != null) {
+                effectiveEarlyBirdWindow.earlyPriceLabel
+            } else if (lower.contains("general") || lower.contains("standard")) {
+                event.priceFrom.ifBlank { null }
+            } else null
+
+        if (matchedOrFallback != null) return matchedOrFallback
+
+        // Heuristic fallbacks when organizer hasn't provided a price for this tier.
+        val knownPrices = normalizedPricing
+            ?.values
+            ?.mapNotNull { parsePrice(it) }
+            .orEmpty()
+
+        val generalPrice = normalizedPricing
+            ?.entries
+            ?.firstOrNull { it.key.contains("general") || it.key.contains("ga") || it.key.contains("standard") }
+            ?.value
+            ?.let { parsePrice(it) }
+        val vipPrice = normalizedPricing
+            ?.entries
+            ?.firstOrNull { it.key.contains("vip") }
+            ?.value
+            ?.let { parsePrice(it) }
+
+        return when {
+            lower.contains("golden") -> {
+                val base = vipPrice ?: generalPrice ?: knownPrices.maxOrNull() ?: parsePrice(event.priceFrom)
+                base?.let { formatDisplay(it * 1.25) }
+            }
+            lower.contains("vip") -> {
+                val base = generalPrice ?: knownPrices.maxOrNull() ?: parsePrice(event.priceFrom)
+                base?.let { formatDisplay(it * 1.2) }
+            }
+            else -> null
+        }
+    }
+    val pricedTicketOptions = remember(ticketPricing, earlyBirdWindow, event.priceFrom) {
+        ticketOptions.mapNotNull { option ->
+            val price = resolveTicketPrice(option)
+            if (price == null) null else option to price
+        }
+    }
+    LaunchedEffect(pricedTicketOptions) {
+        if (selectedTicketType != null && pricedTicketOptions.none { it.first == selectedTicketType }) {
+            selectedTicketType = null
+        }
+    }
     val heroPulse = rememberInfiniteTransition(label = "detailHero").animateFloat(
         initialValue = -120f,
         targetValue = 220f,
@@ -14384,29 +14983,45 @@ private fun EventDetailScreen(
                     .clip(goTickyShapes.extraLarge)
             ) {
                 // Photo layer
-                event.imagePath?.let { key ->
-                    val res = Res.allDrawableResources[key]
-                    if (res != null) {
+                val remotePainter = event.imagePath
+                    ?.takeIf { it.startsWith("http", ignoreCase = true) }
+                    ?.let { rememberUriPainter(it) }
+                val photoRes = event.imagePath?.let { key -> Res.allDrawableResources[key] }
+                    ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
+
+                when {
+                    remotePainter != null -> {
                         Image(
-                            painter = painterResource(res),
+                            painter = remotePainter,
                             contentDescription = null,
                             modifier = Modifier.matchParentSize(),
                             contentScale = ContentScale.Crop
                         )
                     }
-                } ?: Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    accent.copy(alpha = 0.85f),
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
-                                )
-                            )
+                    photoRes != null -> {
+                        Image(
+                            painter = painterResource(photoRes),
+                            contentDescription = null,
+                            modifier = Modifier.matchParentSize(),
+                            contentScale = ContentScale.Crop
                         )
-                )
+                    }
+                    else -> {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            accent.copy(alpha = 0.85f),
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
+                                        )
+                                    )
+                                )
+                        )
+                    }
+                }
 
                 // Grain + sheen overlay and content padding
                 Box(
@@ -14520,7 +15135,11 @@ private fun EventDetailScreen(
                         Text(
                             text = if (fav) "added to your favorites!" else "select this event as a favorite!",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .widthIn(min = 96.dp, max = 164.dp)
+                                .padding(horizontal = 4.dp)
                         )
                     }
                 }
@@ -14657,7 +15276,16 @@ private fun EventDetailScreen(
                             }
                         }
                     }
-                    ticketOptions.forEach { option ->
+                    val hasHiddenTiers = pricedTicketOptions.size < ticketOptions.size
+                    if (hasHiddenTiers) {
+                        Text(
+                            text = "Some ticket types are hidden until pricing is provided.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    }
+                    pricedTicketOptions.forEach { (option, priceLabel) ->
                         val selected = selectedTicketType == option
                         val earlyBirdOption = option == "Early Bird"
                         val disabled = earlyBirdOption && !earlyBirdActive
@@ -14746,11 +15374,23 @@ private fun EventDetailScreen(
                                             )
                                         }
                                     }
-                                    RadioButton(
-                                        selected = selected,
-                                        onClick = { onSelectOption() },
-                                        enabled = !disabled
-                                    )
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        priceLabel?.let {
+                                            Text(
+                                                text = it,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = if (disabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else accent
+                                            )
+                                        }
+                                        RadioButton(
+                                            selected = selected,
+                                            onClick = { onSelectOption() },
+                                            enabled = !disabled
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -14836,7 +15476,8 @@ private fun EventDetailScreen(
                         }
                     }
                     if (type != null) {
-                        onProceedToCheckout(type)
+                        val priceLabel = resolveTicketPrice(type)
+                        onProceedToCheckout(type, priceLabel)
                     }
                 }
                 Column(
@@ -14945,7 +15586,7 @@ private fun CreateEventScreen(
     var ticketCount by remember { mutableStateOf("") }
     var ticketGeneral by remember { mutableStateOf("") }
     var ticketVip by remember { mutableStateOf("") }
-    var ticketStudent by remember { mutableStateOf("") }
+    var ticketGoldenCircle by remember { mutableStateOf("") }
     var ticketEarlyBird by remember { mutableStateOf("") }
     var venue by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }
@@ -15018,7 +15659,7 @@ private fun CreateEventScreen(
         return cleaned.toDoubleOrNull()
     }
     fun resolvedPriceFrom(): String {
-        val candidates = listOf(priceFrom, ticketEarlyBird, ticketGeneral, ticketVip, ticketStudent)
+        val candidates = listOf(priceFrom, ticketEarlyBird, ticketGeneral, ticketVip, ticketGoldenCircle)
             .mapNotNull { parsePrice(it) }
         return (candidates.minOrNull() ?: 0.0).let { if (it == 0.0) "" else it.toString() }
     }
@@ -15032,7 +15673,7 @@ private fun CreateEventScreen(
         city,
         country,
     ).count { it.isNotBlank() } +
-        listOf(ticketGeneral, ticketVip, ticketStudent, ticketEarlyBird).count { it.isNotBlank() } +
+        listOf(ticketGeneral, ticketVip, ticketGoldenCircle, ticketEarlyBird).count { it.isNotBlank() } +
         (if (hasAnyPrice) 1 else 0) +
         if (flyerUploaded || flyerUrl.isNotBlank()) 1 else 0
     val progress = (completedFields / 12f).coerceIn(0f, 1f)
@@ -15404,8 +16045,8 @@ private fun CreateEventScreen(
                     )
                 )
                 OutlinedTextField(
-                    value = ticketStudent,
-                    onValueChange = { ticketStudent = it },
+                    value = ticketGoldenCircle,
+                    onValueChange = { ticketGoldenCircle = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Golden Circle") },
                     placeholder = { Text("120") },
@@ -15653,7 +16294,7 @@ private fun CreateEventScreen(
                                 ticketEarlyBird = ticketEarlyBird,
                                 ticketGeneral = ticketGeneral,
                                 ticketVip = ticketVip,
-                                ticketStudent = ticketStudent,
+                                ticketGoldenCircle = ticketGoldenCircle,
                                 flyerUrl = flyerUrl,
                                 companyName = companyName,
                                 lat = parsedLat,

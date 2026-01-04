@@ -168,6 +168,24 @@ service cloud.firestore {
       return !('uid' in data) || data.uid == userId;
     }
 
+    // Customer ticket payload stored under /users/{uid}/tickets/{ticketId}
+    function validTicket(data, userId) {
+      return
+        (!('ownerId' in data) || data.ownerId == userId) &&
+        ('eventTitle' in data && data.eventTitle is string && data.eventTitle.size() > 0) &&
+        ('venue' in data && data.venue is string && data.venue.size() > 0) &&
+        ('dateLabel' in data && data.dateLabel is string && data.dateLabel.size() > 0) &&
+        ('seat' in data && data.seat is string && data.seat.size() > 0) &&
+        ('status' in data && data.status is string && data.status.size() > 0) &&
+        (!('type' in data) || data.type is string) &&
+        (!('holderName' in data) || data.holderName is string) &&
+        (!('holderInitials' in data) || data.holderInitials is string) &&
+        (!('qrSeed' in data) || data.qrSeed is string) &&
+        (!('orderId' in data) || data.orderId is string) &&
+        (!('createdAt' in data) || data.createdAt is string) &&
+        (!('updatedAt' in data) || data.updatedAt is string);
+    }
+
     // Canonical per-user document keyed by Firebase UID or seeded key.
     // Write is allowed for the owner OR for signed-in seeders writing role=admin (for initial admin import).
     match /users/{userId} {
@@ -189,6 +207,19 @@ service cloud.firestore {
             (('email' in request.auth.token && request.auth.token.email == userId) ||
              ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)));
       }
+
+      // User-owned tickets generated from checkout.
+      // Path option A (current app implementation):
+      match /tickets/{ticketId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && validTicket(request.resource.data, userId);
+      }
+      // Path option B (organizational): /users/{uid}/tickets/{ticketId} already covers storage;
+      // if a shared collection is ever needed, uncomment below and gate by ownerId and auth.
+      // match /tickets_shared/{ticketId} {
+      //   allow read: if request.resource.data.ownerId == request.auth.uid;
+      //   allow write: if request.auth != null && validTicket(request.resource.data, request.auth.uid);
+      // }
     }
 
     // Global app settings. Keep admin_secure readable for backwards compatibility only.

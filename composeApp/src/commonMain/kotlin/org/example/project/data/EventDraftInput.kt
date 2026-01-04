@@ -13,7 +13,7 @@ data class EventDraftInput(
     val ticketEarlyBird: String,
     val ticketGeneral: String,
     val ticketVip: String,
-    val ticketStudent: String,
+    val ticketGoldenCircle: String,
     val flyerUrl: String,
     val companyName: String,
     val lat: Double?,

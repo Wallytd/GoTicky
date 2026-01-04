@@ -104,7 +104,7 @@ class EventRepository(
                 "earlyBird" to input.ticketEarlyBird,
                 "general" to input.ticketGeneral,
                 "vip" to input.ticketVip,
-                "student" to input.ticketStudent,
+                "goldenCircle" to input.ticketGoldenCircle,
             ),
             "flyerUrl" to finalFlyerUrl,
             "companyName" to input.companyName,

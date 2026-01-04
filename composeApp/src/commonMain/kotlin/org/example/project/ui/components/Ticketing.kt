@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import org.example.project.data.OrderSummary
 import org.example.project.data.TicketPass
@@ -327,8 +328,9 @@ fun TicketCard(
                                     }
                                     Text(
                                         text = prettyId,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.Medium,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 8.sp,
                                             letterSpacing = 0.6.sp
                                         ),
                                         color = MaterialTheme.colorScheme.onSurface
@@ -544,7 +546,17 @@ private fun QRPlaceholder() {
     }
 }
 
-private fun parsePrice(raw: String): Int = raw.filter { it.isDigit() }.toIntOrNull() ?: 0
+private fun parsePriceCents(raw: String): Int {
+    val cleaned = raw.filter { it.isDigit() || it == '.' }
+    val asDouble = cleaned.toDoubleOrNull() ?: return 0
+    return (asDouble * 100).roundToInt()
+}
+
+private fun formatCents(cents: Int): String {
+    val dollars = cents / 100
+    val remainder = kotlin.math.abs(cents % 100)
+    return "$$dollars.${remainder.toString().padStart(2, '0')}"
+}
 
 private enum class CheckoutPaymentMethod {
     Pesepay,
@@ -567,10 +579,12 @@ fun CheckoutScreen(
     var ticketQty by remember { mutableStateOf(1) }
     var selectedMethod by remember { mutableStateOf(CheckoutPaymentMethod.Pesepay) }
     var currentStep by remember { mutableStateOf(CheckoutStep.Review) }
-    val baseTicketPrice = order.items.firstOrNull()?.let { parsePrice(it.price) } ?: 0
-    val addOnsTotal = order.items.drop(1).sumOf { parsePrice(it.price) }
-    val feesTotal = order.fees.sumOf { parsePrice(it.price) }
-    val totalAmount = baseTicketPrice * ticketQty + addOnsTotal + feesTotal
+    val baseTicketPriceCents = order.items.firstOrNull()?.let { parsePriceCents(it.price) } ?: 0
+    val addOnsTotalCents = order.items.drop(1).sumOf { parsePriceCents(it.price) }
+    val feesTotalCents = order.fees.sumOf { parsePriceCents(it.price) }
+    val baseTicketTotalCents = baseTicketPriceCents * ticketQty
+    val totalAmountCents = baseTicketTotalCents + addOnsTotalCents + feesTotalCents
+    val totalAmountDisplay = formatCents(totalAmountCents)
 
     Box(
         modifier = Modifier
@@ -697,7 +711,7 @@ fun CheckoutScreen(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f)
                             )
                             Text(
-                                text = item.price,
+                                text = if (index == 0) formatCents(baseTicketTotalCents) else item.price,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.98f)
                             )
@@ -746,7 +760,7 @@ fun CheckoutScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "$${totalAmount}",
+                            text = totalAmountDisplay,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 shadow = Shadow(
@@ -918,7 +932,7 @@ fun CheckoutScreen(
                                         if (currentStep == CheckoutStep.Review) {
                                             currentStep = CheckoutStep.Confirm
                                         } else {
-                                            onPlaceOrder("pesepay", totalAmount)
+                                            onPlaceOrder("pesepay", totalAmountCents)
                                         }
                                     }
                                     .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -981,9 +995,9 @@ fun CheckoutScreen(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 when (selectedMethod) {
-                                    CheckoutPaymentMethod.Card -> onPlaceOrder("card", totalAmount)
-                                    CheckoutPaymentMethod.Wallet -> onPlaceOrder("wallet", totalAmount)
-                                    CheckoutPaymentMethod.Pesepay -> onPlaceOrder("pesepay", totalAmount)
+                                    CheckoutPaymentMethod.Card -> onPlaceOrder("card", totalAmountCents)
+                                    CheckoutPaymentMethod.Wallet -> onPlaceOrder("wallet", totalAmountCents)
+                                    CheckoutPaymentMethod.Pesepay -> onPlaceOrder("pesepay", totalAmountCents)
                                 }
                             }
                             GhostButton(
