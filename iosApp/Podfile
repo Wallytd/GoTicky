@@ -1,0 +1,8 @@
+platform :ios, '15.0'
+use_frameworks!
+inhibit_all_warnings!
+
+target 'iosApp' do
+  # Compose Multiplatform framework produced by :composeApp:syncFramework
+  pod 'ComposeApp', :path => '../composeApp'
+end

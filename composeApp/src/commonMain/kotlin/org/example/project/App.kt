@@ -200,10 +200,12 @@ import org.example.project.data.sampleAlerts
 import org.example.project.data.sampleEvents
 import org.example.project.data.sampleOrder
 import org.example.project.data.sampleRecommendations
-import org.example.project.data.sampleNearbyEvents
 import org.example.project.data.EntertainmentNewsItem
 import org.example.project.data.sampleEntertainmentNews
 import org.example.project.data.toEntertainmentNewsItem
+import org.example.project.location.eventLocationGeoPoint
+import org.example.project.location.rememberNearbyEvents
+import org.example.project.location.rememberDistanceForEvents
 import org.example.project.data.AdminSeed
 import org.example.project.data.adminSeeds
 import org.example.project.data.adminSeedByCredentials
@@ -1792,24 +1794,17 @@ private fun EventMapScreen(
     onOpenEvent: (String) -> Unit,
     loading: Boolean = false,
 ) {
-    val events = remember {
-        sampleNearbyEvents.map { nearby ->
-            // Sample coordinates approximating real cities; replace with backend data when available.
-            val (lat, lng) = when (nearby.event.city) {
-                "Harare" -> -17.8292 to 31.0522
-                "Bulawayo" -> -20.1325 to 28.6265
-                "Gaborone" -> -24.6282 to 25.9231
-                "Victoria Falls" -> -17.9243 to 25.8562
-                "Maun" -> -19.9833 to 23.4167
-                "Francistown" -> -21.1700 to 27.5072
-                else -> -17.8292 to 31.0522
-            }
+    val distanceById = rememberDistanceForEvents(sampleEvents)
+    val events = remember(distanceById) {
+        sampleEvents.mapNotNull { event ->
+            val coords = eventLocationGeoPoint(event) ?: return@mapNotNull null
+            val distanceLabel = distanceById[event.id]?.formatted ?: "Distance unavailable"
             MapEvent(
-                id = nearby.event.id,
-                title = nearby.event.title,
-                city = "${nearby.event.city} • ${nearby.distance.formatted}",
-                lat = lat,
-                lng = lng,
+                id = event.id,
+                title = event.title,
+                city = "${event.city} • $distanceLabel",
+                lat = coords.lat,
+                lng = coords.lng,
             )
         }
     }
@@ -8359,38 +8354,35 @@ private fun HomeScreen(
     val tonightHeatEvent = remember(publicEvents, now.toLocalDateTime(tz).date) {
         pickUpcomingEvent(publicEvents, now, tz)
     }
-    val nearbyByEventId = sampleNearbyEvents.associateBy { it.event.id }
-    val popularNearby = publicEvents.mapNotNull { event ->
-        val nearby = nearbyByEventId[event.id] ?: NearbyEvent(
-            event = event,
-            distance = DistanceSample(
-                eventId = event.id,
-                fromLabel = "Nearby",
-                distanceKm = 2.5
-            )
-        )
+    val nearbyEvents = rememberNearbyEvents(publicEvents)
+    val nearbyByEventId = remember(nearbyEvents) { nearbyEvents.associateBy { it.event.id } }
+    val popularNearby: List<NearbyEvent> = remember(nearbyEvents, publicEvents, searchQuery, filters) {
+        publicEvents.mapNotNull { event ->
+            val nearby = nearbyByEventId[event.id] ?: return@mapNotNull null
+            val base = nearby.event
 
-        val matchesQuery = searchQuery.isBlank() ||
-            event.title.contains(searchQuery, ignoreCase = true) ||
-            event.city.contains(searchQuery, ignoreCase = true)
+            val matchesQuery = searchQuery.isBlank() ||
+                base.title.contains(searchQuery, ignoreCase = true) ||
+                base.city.contains(searchQuery, ignoreCase = true)
 
-        val matchesFilter = if (filters.isEmpty()) {
-            true
-        } else {
-            filters.any { pill ->
-                when (pill) {
-                    "Concerts" -> event.category == IconCategory.Discover ||
-                        (event.tag?.contains("EDM", ignoreCase = true) == true)
-                    "Sports" -> event.category == IconCategory.Calendar ||
-                        (event.tag?.contains("Basketball", ignoreCase = true) == true)
-                    "Family" -> event.badge?.contains("Family", ignoreCase = true) == true ||
-                        event.category == IconCategory.Profile
-                    else -> true
+            val matchesFilter = if (filters.isEmpty()) {
+                true
+            } else {
+                filters.any { pill ->
+                    when (pill) {
+                        "Concerts" -> base.category == IconCategory.Discover ||
+                            (base.tag?.contains("EDM", ignoreCase = true) == true)
+                        "Sports" -> base.category == IconCategory.Calendar ||
+                            (base.tag?.contains("Basketball", ignoreCase = true) == true)
+                        "Family" -> base.badge?.contains("Family", ignoreCase = true) == true ||
+                            base.category == IconCategory.Profile
+                        else -> true
+                    }
                 }
             }
-        }
 
-        if (matchesQuery && matchesFilter) nearby else null
+            if (matchesQuery && matchesFilter) nearby else null
+        }
     }
 
     LaunchedEffect(forceOpenSearchDialog) {

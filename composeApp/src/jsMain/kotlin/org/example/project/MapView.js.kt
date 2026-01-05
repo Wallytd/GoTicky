@@ -20,6 +20,6 @@ actual fun EventMapView(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Text("Interactive map is optimized for the mobile app in this demo.")
+        Text("Map is available on mobile for this demo build.")
     }
 }

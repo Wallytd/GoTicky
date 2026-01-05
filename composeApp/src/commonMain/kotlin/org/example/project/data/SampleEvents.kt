@@ -125,7 +125,7 @@ data class DistanceSample(
     val distanceKm: Double,
 ) {
     val formatted: String
-        get() = "${((distanceKm * 10.0).toInt() / 10.0)} km away"
+        get() = if (distanceKm < 0) "Distance unavailable" else "${((distanceKm * 10.0).toInt() / 10.0)} km away"
 }
 
 data class NearbyEvent(

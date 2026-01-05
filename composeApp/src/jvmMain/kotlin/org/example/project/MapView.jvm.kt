@@ -12,6 +12,9 @@ actual fun EventMapView(
     events: List<MapEvent>,
     modifier: Modifier,
     onEventSelected: (MapEvent) -> Unit,
+    selected: Pair<Double, Double>?,
+    onMapClick: ((Double, Double) -> Unit)?,
+    liveUpdates: Boolean,
 ) {
     Box(
         modifier = modifier.fillMaxSize(),

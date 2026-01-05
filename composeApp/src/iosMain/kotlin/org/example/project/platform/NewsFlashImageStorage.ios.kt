@@ -11,7 +11,8 @@ private class IosNewsFlashImageStorage : NewsFlashImageStorage {
         onProgress: (Float) -> Unit,
     ): NewsFlashImageUploadResult? {
         onProgress(1f)
-        val path = "newsflash/$flashId/local-${System.currentTimeMillis()}.jpg"
+        val suffix = localUri.hashCode().toUInt().toString()
+        val path = "newsflash/$flashId/local-$suffix.jpg"
         return NewsFlashImageUploadResult(downloadUrl = localUri, storagePath = path)
     }
 }

@@ -10,9 +10,25 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
     alias(libs.plugins.googleGmsGoogleServices)
+    kotlin("native.cocoapods")
 }
 
 kotlin {
+    // Ensure shared source sets (iosMain, appleMain, etc.) are wired so expect/actuals resolve.
+    applyDefaultHierarchyTemplate()
+
+    cocoapods {
+        summary = "GoTicky shared Compose module"
+        homepage = "https://goticky.app"
+        ios.deploymentTarget = "15.0"
+        version = "1.0.0"
+        podfile = project.file("../iosApp/Podfile")
+        framework {
+            baseName = "ComposeApp"
+            isStatic = true
+        }
+    }
+
     androidTarget {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
@@ -42,16 +58,12 @@ kotlin {
         val jvmMain by getting
         val jsMain by getting
 
-        val webMain by creating {
-            dependsOn(commonMain)
-            jsMain.dependsOn(this)
-        }
-
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation("com.google.android.gms:play-services-maps:19.2.0")
             implementation("com.google.maps.android:maps-compose:7.0.0")
+            implementation("com.google.android.gms:play-services-location:21.3.0")
             implementation("com.google.zxing:core:3.5.4")
             implementation("com.google.firebase:firebase-auth-ktx:23.2.1")
             implementation("androidx.biometric:biometric:1.1.0")
