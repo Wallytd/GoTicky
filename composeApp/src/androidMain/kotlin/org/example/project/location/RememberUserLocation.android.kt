@@ -12,6 +12,7 @@ import androidx.compose.runtime.State
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 
 @Composable
 actual fun rememberUserLocation(): State<GeoPoint?> {
@@ -19,6 +20,13 @@ actual fun rememberUserLocation(): State<GeoPoint?> {
     val locationState = remember { mutableStateOf<GeoPoint?>(null) }
     val fused = remember { LocationServices.getFusedLocationProviderClient(context) }
     val requested = remember { mutableStateOf(false) }
+
+    fun updateFromLocation(lat: Double, lng: Double) {
+        val isValid = lat in -90.0..90.0 && lng in -180.0..180.0
+        if (isValid) {
+            locationState.value = GeoPoint(lat, lng)
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -28,7 +36,7 @@ actual fun rememberUserLocation(): State<GeoPoint?> {
         if (granted) {
             fused.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null) {
-                    locationState.value = GeoPoint(loc.latitude, loc.longitude)
+                    updateFromLocation(loc.latitude, loc.longitude)
                 }
             }
         }
@@ -58,10 +66,21 @@ actual fun rememberUserLocation(): State<GeoPoint?> {
         }
 
         runCatching {
+            fused.getCurrentLocation(
+                Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                null
+            ).addOnSuccessListener { loc ->
+                if (loc != null && locationState.value == null) {
+                    updateFromLocation(loc.latitude, loc.longitude)
+                }
+            }
+        }
+
+        runCatching {
             fused.lastLocation
                 .addOnSuccessListener { loc ->
-                    if (loc != null) {
-                        locationState.value = GeoPoint(loc.latitude, loc.longitude)
+                    if (loc != null && locationState.value == null) {
+                        updateFromLocation(loc.latitude, loc.longitude)
                     }
                 }
         }

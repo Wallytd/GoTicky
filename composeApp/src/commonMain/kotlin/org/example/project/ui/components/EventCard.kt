@@ -50,6 +50,7 @@ fun EventCard(
     onClick: () -> Unit,
     earlyBirdLabel: String? = null,
     earlyBirdHighlight: Boolean = false,
+    priceLabelOverride: String? = null,
 ) {
     val accent = IconCategoryColors[item.category] ?: MaterialTheme.colorScheme.primary
     val interaction = rememberPressInteractionSource()
@@ -91,7 +92,8 @@ fun EventCard(
             Text("${item.city} • ${item.dateLabel}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(item.priceFrom, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = accent)
+                    val displayPrice = priceLabelOverride ?: item.priceFrom
+                    Text(displayPrice, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = accent)
                     earlyBirdLabel?.let { label ->
                         Text(
                             text = label,
@@ -118,16 +120,15 @@ fun EventCard(
             onClick = onToggleFavorite,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.5f))
-                .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                // Small badge tucked into the top-end corner of the card.
+                .padding(4.dp)
+                .size(18.dp)
         ) {
             Icon(
                 imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                 contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
-                tint = if (isFavorite) Color(0xFFFF4B5C) else Color(0xFF444444)
+                tint = if (isFavorite) Color(0xFFFF4B5C) else Color(0xFF444444),
+                modifier = Modifier.size(11.dp)
             )
         }
     }

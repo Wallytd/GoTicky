@@ -565,11 +565,30 @@ fun AuthScreen(
                             val minDelayJob = launch { delay(400L) }
                             val profile = findProfileByEmail(emailTrimmed)
                             val fallbackPhoto = fallbackAvatarUrl(emailTrimmed)
+                            fun fallbackNameFromEmail(raw: String): String {
+                                val local = raw.substringBefore("@").replace(".", " ").replace("_", " ").trim()
+                                if (local.isBlank()) return "Found profile"
+                                return local.split(" ").filter { it.isNotBlank() }.joinToString(" ") { part ->
+                                    part.lowercase().replaceFirstChar { ch -> ch.titlecase() }
+                                }
+                            }
+                            fun cleanedName(original: String?, emailValue: String): String {
+                                val base = original?.ifBlank { fallbackNameFromEmail(emailValue) }
+                                    ?: fallbackNameFromEmail(emailValue)
+                                return if (base.contains("admin", ignoreCase = true)) {
+                                    fallbackNameFromEmail(emailValue)
+                                } else base
+                            }
                             fetchedProfileForEmail = when {
-                                profile != null && !profile.photoUri.isNullOrBlank() -> profile
-                                profile != null -> profile.copy(photoUri = fallbackPhoto)
+                                profile != null && !profile.photoUri.isNullOrBlank() -> profile.copy(
+                                    fullName = cleanedName(profile.fullName, emailTrimmed)
+                                )
+                                profile != null -> profile.copy(
+                                    fullName = cleanedName(profile.fullName, emailTrimmed),
+                                    photoUri = fallbackPhoto
+                                )
                                 else -> UserProfile(
-                                    fullName = emailTrimmed.substringBefore("@").ifBlank { "Found profile" },
+                                    fullName = cleanedName(null, emailTrimmed),
                                     email = emailTrimmed,
                                     countryName = "Zimbabwe",
                                     countryFlag = "",

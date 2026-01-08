@@ -56,14 +56,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import kotlin.time.ExperimentalTime
 import org.example.project.data.OrderSummary
 import org.example.project.data.TicketPass
 import org.example.project.data.TicketType
 import org.example.project.platform.rememberTicketShareAction
-import org.example.project.data.sampleEvents
 import org.example.project.platform.platformBarcodeBitmap
 import org.example.project.platform.platformQrBitmap
 import org.example.project.ui.components.ProfileAvatar
@@ -254,6 +257,26 @@ fun TicketCard(
                         DetailChip(title = "Type", value = ticket.type.name, accent = metallic.ink)
                     }
 
+                    ticket.purchaseAt?.let { purchaseRaw ->
+                        val purchaseLabel = remember(purchaseRaw) { formatPurchaseLabel(purchaseRaw) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Purchased",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = metallic.ink.copy(alpha = 0.9f)
+                            )
+                            Pill(
+                                text = purchaseLabel,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+                                textColor = metallic.ink
+                            )
+                        }
+                    }
+
                     // Perforation line
                     val backgroundColor = MaterialTheme.colorScheme.background
                     Canvas(
@@ -384,10 +407,15 @@ fun TicketCard(
 
 @Composable
 private fun TicketEventHeaderImage(ticket: TicketPass) {
-    val event = remember(ticket.eventTitle) {
-        sampleEvents.firstOrNull { it.title == ticket.eventTitle }
+    val photoRes = remember(ticket.eventTitle) {
+        val normalizedTitle = ticket.eventTitle.replace(" ", "_").lowercase()
+        Res.allDrawableResources
+            .asSequence()
+            .firstOrNull { (name, _) ->
+                name.contains(normalizedTitle)
+            }
+            ?.value
     }
-    val photoRes = event?.imagePath?.let { key -> Res.allDrawableResources[key] }
 
     if (photoRes != null) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
@@ -1188,29 +1216,30 @@ private fun buildBarcodeNumericId(ticket: TicketPass): String {
     // OOOOO= 5-digit order/sequence per ticket
     // C    = checksum (sum of first 11 digits mod 10)
 
-    val event = sampleEvents.firstOrNull { it.title == ticket.eventTitle }
-
     // Country code by city (01 = Zimbabwe, 02 = Botswana, 00 = unknown)
-    val country = when (event?.city) {
-        "Harare", "Bulawayo", "Victoria Falls" -> "01"
-        "Gaborone", "Maun", "Francistown" -> "02"
+    val country = when {
+        ticket.venue.contains("Harare", ignoreCase = true) -> "01"
+        ticket.venue.contains("Bulawayo", ignoreCase = true) -> "01"
+        ticket.venue.contains("Gaborone", ignoreCase = true) -> "02"
+        ticket.venue.contains("Maun", ignoreCase = true) -> "02"
+        ticket.venue.contains("Francistown", ignoreCase = true) -> "02"
         else -> "00"
     }
 
     // Month to MM, year fixed to demo year 24/25 based on month bucket
-    val month = when (event?.month) {
-        "January" -> "01"
-        "February" -> "02"
-        "March" -> "03"
-        "April" -> "04"
-        "May" -> "05"
-        "June" -> "06"
-        "July" -> "07"
-        "August" -> "08"
-        "September" -> "09"
-        "October" -> "10"
-        "November" -> "11"
-        "December" -> "12"
+    val month = when {
+        ticket.dateLabel.contains("January", ignoreCase = true) -> "01"
+        ticket.dateLabel.contains("February", ignoreCase = true) -> "02"
+        ticket.dateLabel.contains("March", ignoreCase = true) -> "03"
+        ticket.dateLabel.contains("April", ignoreCase = true) -> "04"
+        ticket.dateLabel.contains("May", ignoreCase = true) -> "05"
+        ticket.dateLabel.contains("June", ignoreCase = true) -> "06"
+        ticket.dateLabel.contains("July", ignoreCase = true) -> "07"
+        ticket.dateLabel.contains("August", ignoreCase = true) -> "08"
+        ticket.dateLabel.contains("September", ignoreCase = true) -> "09"
+        ticket.dateLabel.contains("October", ignoreCase = true) -> "10"
+        ticket.dateLabel.contains("November", ignoreCase = true) -> "11"
+        ticket.dateLabel.contains("December", ignoreCase = true) -> "12"
         else -> "00"
     }
     val year = if (month in listOf("01", "02", "03", "04")) "24" else "25"
@@ -1220,17 +1249,22 @@ private fun buildBarcodeNumericId(ticket: TicketPass): String {
     val numericId = ticket.id.filter { it.isDigit() }.toIntOrNull()
     val baseOrder = numericId ?: kotlin.math.abs((ticket.qrSeed + ticket.holderInitials).hashCode())
     val order = (baseOrder % 100_000)
-    val orderBlock = order.toString().padStart(5, '0')
+    val orderStr = order.toString().padStart(5, '0')
+    val checksum = ((country + dateBlock + orderStr).map { it.digitToIntOrNull() ?: 0 }.sum() % 10).toString()
 
-    var first11 = country + dateBlock + orderBlock
-    if (first11.length != 11) {
-        first11 = first11.take(11).padEnd(11, '0')
-    }
+    return country + dateBlock + orderStr + checksum
+}
 
-    val sum = first11.sumOf { it.digitToInt() }
-    val checksum = (sum % 10)
-
-    return first11 + checksum.digitToChar()
+@OptIn(ExperimentalTime::class)
+private fun formatPurchaseLabel(raw: String): String {
+    val instant = runCatching { Instant.parse(raw) }.getOrNull() ?: return raw
+    val local = instant.toLocalDateTime(TimeZone.currentSystemDefault())
+    val hour = local.time.hour
+    val minute = local.time.minute.toString().padStart(2, '0')
+    val amPm = if (hour >= 12) "PM" else "AM"
+    val hour12 = if (hour % 12 == 0) 12 else hour % 12
+    val month = local.date.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
+    return "${month} ${local.date.dayOfMonth}, ${local.date.year} at $hour12:$minute $amPm"
 }
 
 @Composable

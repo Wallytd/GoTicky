@@ -21,4 +21,5 @@ data class TicketPass(
     val holderName: String,
     val holderInitials: String,
     val qrSeed: String,
+    val purchaseAt: String? = null,
 )

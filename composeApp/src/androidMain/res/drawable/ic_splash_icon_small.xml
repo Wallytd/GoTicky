@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Transparent background; sizing via inset to shrink the icon on splash -->
+    <item>
+        <!-- Slightly wider framing on splash: less horizontal inset than vertical -->
+        <inset
+            android:drawable="@drawable/ic_launcher"
+            android:insetLeft="24dp"
+            android:insetRight="24dp"
+            android:insetTop="32dp"
+            android:insetBottom="32dp" />
+    </item>
+</layer-list>

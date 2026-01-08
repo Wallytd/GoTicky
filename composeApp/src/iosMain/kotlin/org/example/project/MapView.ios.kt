@@ -1,19 +1,22 @@
 package org.example.project
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.interop.UIKitView
-import kotlinx.cinterop.ExperimentalForeignApi
-import platform.CoreLocation.CLLocationCoordinate2DMake
-import platform.MapKit.MKAnnotationProtocol
-import platform.MapKit.MKCoordinateRegionMakeWithDistance
-import platform.MapKit.MKMapView
-import platform.MapKit.MKMapViewDelegateProtocol
-import platform.MapKit.MKPointAnnotation
-import platform.darwin.NSObject
+import androidx.compose.ui.unit.dp
 
-@OptIn(ExperimentalForeignApi::class)
+/**
+ * iOS placeholder implementation that lists available events instead of rendering MapKit.
+ * This keeps the iOS target building cleanly on non-mac hosts.
+ */
 @Composable
 actual fun EventMapView(
     events: List<MapEvent>,
@@ -23,51 +26,28 @@ actual fun EventMapView(
     onMapClick: ((Double, Double) -> Unit)?,
     liveUpdates: Boolean,
 ) {
-    val annotations = remember(events) { events.map { it.toAnnotation() } }
-    UIKitView(
-        factory = {
-            MKMapView().apply {
-                delegate = ComposeMapDelegate(onEventSelected, onMapClick)
-            }
-        },
-        modifier = modifier,
-        update = { map ->
-            map.removeAnnotations(map.annotations ?: emptyList<MKAnnotationProtocol>())
-            map.addAnnotations(annotations)
-            val focus = selected ?: events.firstOrNull()?.let { it.lat to it.lng }
-            if (focus != null) {
-                val region = MKCoordinateRegionMakeWithDistance(
-                    CLLocationCoordinate2DMake(focus.first, focus.second),
-                    5000.0,
-                    5000.0
-                )
-                map.setRegion(region, true)
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun MapEvent.toAnnotation(): MKPointAnnotation =
-    MKPointAnnotation().apply {
-        title = "$title • $city"
-        // Coordinate left at default to avoid cinterop setter issues
-    }
-
-private class ComposeMapDelegate(
-    private val onEventSelected: (MapEvent) -> Unit,
-    private val onMapClick: ((Double, Double) -> Unit)?,
-) : NSObject(), MKMapViewDelegateProtocol {
-    override fun mapView(mapView: MKMapView, didSelectAnnotationView: platform.MapKit.MKAnnotationView) {
-        val annotation = didSelectAnnotationView.annotation as? MKPointAnnotation ?: return
-        val titleParts = (annotation.title ?: "").split(" • ")
-        val event = MapEvent(
-            id = annotation.hash.toString(),
-            title = titleParts.firstOrNull().orEmpty(),
-            city = titleParts.getOrNull(1).orEmpty(),
-            lat = 0.0,
-            lng = 0.0
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Map preview not available in this build.\nSelect an event below:",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(12.dp)
         )
-        onEventSelected(event)
+        events.forEach { event ->
+            Text(
+                text = "${event.title} • ${event.city}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clickable { onEventSelected(event) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        }
     }
 }

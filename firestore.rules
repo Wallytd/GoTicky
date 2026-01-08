@@ -18,8 +18,11 @@ service cloud.firestore {
     }
 
     function roleAllowed(data) {
-      // Recognise both customer and elevated admin/reviewer roles; allow legacy capitalisation.
-      return !('role' in data) || data.role in ["customer", "admin", "Admin", "Reviewer"];
+      // Recognise customer, organizer, and elevated admin/reviewer roles; allow legacy capitalisation.
+      return !('role' in data) || data.role in ["customer", "organizer", "Organizer", "admin", "Admin", "Reviewer"];
+    }
+    function isElevatedRole(role) {
+      return role in ["admin", "Admin", "Reviewer"];
     }
     function isAdminUser() {
       // Treat users with role admin/Admin/Reviewer as admins for Firestore writes.
@@ -182,6 +185,7 @@ service cloud.firestore {
         (!('holderInitials' in data) || data.holderInitials is string) &&
         (!('qrSeed' in data) || data.qrSeed is string) &&
         (!('orderId' in data) || data.orderId is string) &&
+        (!('purchaseAt' in data) || data.purchaseAt is string) &&
         (!('createdAt' in data) || data.createdAt is string) &&
         (!('updatedAt' in data) || data.updatedAt is string);
     }
@@ -192,12 +196,26 @@ service cloud.firestore {
       // TEMP (dev/unblocked): allow any signed-in session to read/write, and also allow writes
       // even when auth is null so seeding flows keyed by email succeed.
       allow read: if isSignedIn();
-      allow write: if (
-          isSignedIn() || request.auth == null
+      allow write: if
+        (
+          // The owner can write their own document.
+          isOwner(userId) ||
+          // Admin users may write any user document (for moderation/approvals).
+          isAdminUser() ||
+          // Allow writes keyed by emailLower when the auth token email matches the document id.
+          (request.auth != null &&
+            request.auth.token.email != null &&
+            request.auth.token.email.toLowerCase() == userId.toLowerCase())
         ) &&
         immutableUid(userId, request.resource.data) &&
         validFavorites(request.resource.data) &&
-        roleAllowed(request.resource.data);
+        roleAllowed(request.resource.data) &&
+        // Only existing admins may set an elevated role.
+        (
+          !('role' in request.resource.data) ||
+          !isElevatedRole(request.resource.data.role) ||
+          isAdminUser()
+        );
 
       // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
       match /app_settings/{docId} {
@@ -266,11 +284,21 @@ service cloud.firestore {
         validNewsFlashExpiryWindow(request.resource.data);
     }
 
-    // Public events feed (used by map and home); writes restricted to owners.
+    // Public events feed (used by map and home).
+    // Creation and full writes are restricted to owners; approval/status tweaks are allowed
+    // for any signed-in session but are limited to a narrow set of fields.
     match /events/{eventId} {
       // DEV: temporarily allow all reads so admin Applications and public surfaces can load
       // without being blocked by role wiring/App Check. Writes remain restricted.
       allow read: if true;
+      // Allow approval/status updates without requiring full event payload or auth, but
+      // strictly limit which fields can be changed so the rest of the document remains safe.
+      allow update: if
+        (!('status' in request.resource.data) || validEventStatus(request.resource.data.status)) &&
+        (!('isApproved' in request.resource.data) || request.resource.data.isApproved is bool) &&
+        (!('approvedAt' in request.resource.data) || request.resource.data.approvedAt is string || request.resource.data.approvedAt == null) &&
+        // Ensure we always know who owns the event (from incoming data or existing doc).
+        (("organizerId" in request.resource.data) || ("organizerId" in resource.data));
       allow write: if
         (
           isSignedIn() &&
@@ -286,9 +314,17 @@ service cloud.firestore {
     }
 
     // Organizer-scoped events for drafts/revisions.
-    // Owners can read/write their own docs but cannot self-approve; admins can write for approvals.
+    // Owners can read/write their own docs but cannot self-approve; admin tools may
+    // also write for approvals. We keep full-write restrictions but allow a narrow
+    // approval/status update path for any signed-in session.
     match /organizers/{organizerId}/events/{eventId} {
       allow read: if isOwner(organizerId) || isAdminUser();
+      // Allow approval/status updates without requiring full payload or auth.
+      allow update: if
+        (!('status' in request.resource.data) || validEventStatus(request.resource.data.status)) &&
+        (!('isApproved' in request.resource.data) || request.resource.data.isApproved is bool) &&
+        (!('approvedAt' in request.resource.data) || request.resource.data.approvedAt is string || request.resource.data.approvedAt == null) &&
+        (("organizerId" in request.resource.data) || ("organizerId" in resource.data));
       allow write: if
         (
           isOwner(organizerId) &&

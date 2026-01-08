@@ -97,6 +97,8 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Sort
+import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
@@ -149,6 +151,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -197,7 +200,6 @@ import org.example.project.data.EventDraftInput
 import org.example.project.data.EventRepository
 import org.example.project.data.NewsFlash
 import org.example.project.data.sampleAlerts
-import org.example.project.data.sampleEvents
 import org.example.project.data.sampleOrder
 import org.example.project.data.sampleRecommendations
 import org.example.project.data.EntertainmentNewsItem
@@ -286,6 +288,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalDate
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Duration.Companion.hours
@@ -1792,11 +1795,12 @@ private fun AdminGateScreen(
 private fun EventMapScreen(
     onBack: () -> Unit,
     onOpenEvent: (String) -> Unit,
+    events: List<EventItem>,
     loading: Boolean = false,
 ) {
-    val distanceById = rememberDistanceForEvents(sampleEvents)
-    val events = remember(distanceById) {
-        sampleEvents.mapNotNull { event ->
+    val distanceById = rememberDistanceForEvents(events)
+    val mapEvents = remember(distanceById, events) {
+        events.mapNotNull { event ->
             val coords = eventLocationGeoPoint(event) ?: return@mapNotNull null
             val distanceLabel = distanceById[event.id]?.formatted ?: "Distance unavailable"
             MapEvent(
@@ -1831,7 +1835,7 @@ private fun EventMapScreen(
                 .padding(top = 8.dp)
         ) {
             EventMapView(
-                events = events,
+                events = mapEvents,
                 modifier = Modifier.fillMaxSize(),
                 onEventSelected = { event ->
                     selected = event
@@ -1961,16 +1965,94 @@ private data class AdminApplication(
     val earlyBirdPaused: Boolean = false,
     // Optional flyer image URL for this event (organizer-uploaded poster).
     val flyerUrl: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val createdAt: Instant? = null,
+    val updatedAt: Instant? = null,
 )
 private data class EarlyBirdWindow(
     val start: Instant,
     val end: Instant,
+    // Configured discount off the standard/base price; during the dynamic
+    // phase this decays toward zero as the window closes.
     val discountPercent: Int,
+    val basePrice: Double,
     val basePriceLabel: String,
+    // Intro Early Bird price label used for the first part of the window
+    // (e.g. explicit early-bird tier like $10). Dynamic pricing later
+    // derives from basePrice and discountPercent.
     val earlyPriceLabel: String,
 )
 
 @kotlin.OptIn(kotlin.time.ExperimentalTime::class)
+private data class EarlyBirdPricing(
+    val price: Double,
+    val priceLabel: String,
+    val discountPercent: Double,
+    val progress: Float,
+)
+
+private fun computeEarlyBirdPricing(window: EarlyBirdWindow, now: Instant): EarlyBirdPricing {
+    // Two-phase model:
+    // 1) Intro phase (up to 12h from start): fixed Early Bird price, usually
+    //    the explicit early tier (e.g. $10) parsed from earlyPriceLabel.
+    // 2) Dynamic phase (remainder of the window): discount based on
+    //    discountPercent applied to basePrice, decaying toward zero.
+
+    val totalMs = (window.end - window.start).inWholeMilliseconds.toDouble().coerceAtLeast(1.0)
+    val elapsedMs = (now - window.start).inWholeMilliseconds.toDouble().coerceIn(0.0, totalMs)
+    val introMs = minOf(12.hours.inWholeMilliseconds.toDouble(), totalMs)
+    val dynamicMs = (totalMs - introMs).coerceAtLeast(0.0)
+    val overallProgress = (elapsedMs / totalMs).toFloat().coerceIn(0f, 1f)
+
+    fun labelFor(price: Double): String = if (price % 1.0 == 0.0) {
+        // Single $ followed by the integer value, e.g. $10
+        "$" + price.toInt()
+    } else {
+        // Single $ followed by a two-decimal price, e.g. $12.02
+        "$" + formatPriceTwoDecimals(price)
+    }
+
+    // Intro Early Bird price: prefer explicit early tier (earlyPriceLabel),
+    // otherwise fall back to configured discount off the base.
+    val introPriceRaw = parsePrice(window.earlyPriceLabel)
+        ?: (window.basePrice * (1 - window.discountPercent / 100.0))
+    val introPrice = introPriceRaw.coerceAtLeast(0.0)
+
+    // If we are still inside the intro phase (or there is effectively no
+    // dynamic tail), hold the intro price flat.
+    if (elapsedMs <= introMs || dynamicMs <= 0.0) {
+        val discountPercent = if (window.basePrice > 0.0) {
+            (1 - introPrice / window.basePrice) * 100.0
+        } else {
+            window.discountPercent.toDouble()
+        }.coerceAtLeast(0.0)
+
+        return EarlyBirdPricing(
+            price = introPrice,
+            priceLabel = labelFor(introPrice),
+            discountPercent = discountPercent,
+            progress = overallProgress
+        )
+    }
+
+    // Dynamic phase: apply decaying configured discount off the base price
+    // only across the remaining duration after the intro window.
+    val elapsedDynamicMs = (elapsedMs - introMs).coerceIn(0.0, dynamicMs)
+    val phaseProgress = (elapsedDynamicMs / dynamicMs).toFloat().coerceIn(0f, 1f)
+    val liveDiscount = (window.discountPercent * (1 - phaseProgress))
+        .toDouble()
+        .coerceAtLeast(0.0)
+    val livePrice = (window.basePrice * (1 - liveDiscount / 100.0)).coerceAtLeast(0.0)
+
+    return EarlyBirdPricing(
+        price = livePrice,
+        priceLabel = labelFor(livePrice),
+        discountPercent = liveDiscount,
+        progress = overallProgress
+    )
+}
+
 private fun formatDurationShort(duration: Duration): String {
     if (duration <= ZERO) return "0m"
     var rem = duration
@@ -1984,6 +2066,20 @@ private fun formatDurationShort(duration: Duration): String {
         if (hours > 0) append("${hours}h ")
         append("${minutes}m")
     }.trim()
+}
+
+private fun formatMinutesAgoLabel(minutes: Int): String {
+    if (minutes <= 0) return "Just now"
+    if (minutes < 60) return "${minutes} min ago"
+    val hours = minutes / 60
+    if (hours < 24) return "${hours} h ago"
+    val days = hours / 24
+    val remHours = hours % 24
+    return if (remHours > 0) {
+        "${days} d ${remHours} h ago"
+    } else {
+        "${days} d ago"
+    }
 }
 
 private fun parsePrice(value: String): Double? {
@@ -2041,6 +2137,7 @@ private fun buildTicketPassFromBooking(
     order: OrderSummary?,
     ticketTypeLabel: String,
     user: UserProfile,
+    purchaseAt: String? = null,
 ): TicketPass {
     val ticketId = order?.id ?: "T-${(1000..9999).random()}"
     val eventTitle = event?.title ?: order?.items?.firstOrNull()?.label ?: "Your event"
@@ -2060,7 +2157,8 @@ private fun buildTicketPassFromBooking(
         type = type,
         holderName = user.fullName,
         holderInitials = holderInitials,
-        qrSeed = qrSeed
+        qrSeed = qrSeed,
+        purchaseAt = purchaseAt
     )
 }
 
@@ -2090,6 +2188,7 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
                     "holderName" to pass.holderName,
                     "holderInitials" to pass.holderInitials,
                     "qrSeed" to pass.qrSeed,
+                    "purchaseAt" to (pass.purchaseAt ?: nowIso),
                     "createdAt" to nowIso,
                     "updatedAt" to nowIso,
                 )
@@ -2100,9 +2199,10 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
 private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
     val auth = Firebase.auth
     if (auth.currentUser == null) {
+        // Best-effort session for Firestore rules; avoid surfacing a snackbar if it fails.
         runCatching { auth.signInAnonymously() }
     }
-    val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("No auth session to load tickets"))
+    val uid = auth.currentUser?.uid ?: return Result.success(emptyList())
     val firestore = Firebase.firestore
     return runCatching {
         val snap = firestore
@@ -2121,6 +2221,7 @@ private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
             val holderName = doc.get<String?>("holderName") ?: "Guest"
             val holderInitials = doc.get<String?>("holderInitials") ?: initialsFromName(holderName)
             val qrSeed = doc.get<String?>("qrSeed") ?: doc.id
+            val purchaseAt = doc.get<String?>("purchaseAt")
             TicketPass(
                 id = doc.id,
                 eventTitle = eventTitle,
@@ -2132,6 +2233,7 @@ private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
                 holderName = holderName,
                 holderInitials = holderInitials,
                 qrSeed = qrSeed,
+                purchaseAt = purchaseAt,
             )
         }
     }
@@ -2152,21 +2254,44 @@ private fun buildEarlyBirdWindow(app: AdminApplication?, approvedAt: Instant?): 
     if (app.earlyBirdPaused) return null
     val startAnchor = app.earlyBirdManualStartAt ?: approvedAt ?: currentInstant()
     val durationHours = app.earlyBirdDurationHours.coerceIn(1, 24 * 14)
-    val end = startAnchor + durationHours.hours
+    val rawEnd = startAnchor + durationHours.hours
+    val eventStart = parseInstantOrNull(app.eventDateTime)
+    val end = eventStart?.let { startOfEvent ->
+        if (startOfEvent > startAnchor) {
+            if (startOfEvent < rawEnd) startOfEvent else rawEnd
+        } else {
+            rawEnd
+        }
+    } ?: rawEnd
+    if (end <= startAnchor) return null
     val baseLabel = app.pricingTiers.firstOrNull {
         it.contains("GA", ignoreCase = true) || it.contains("General", ignoreCase = true)
     } ?: app.pricingTiers.firstOrNull().orEmpty()
     val base = parsePrice(baseLabel) ?: 0.0
     val discount = app.earlyBirdDiscountPercent.coerceIn(5, 80)
-    val earlyPrice = (base * (1 - discount / 100.0)).coerceAtLeast(1.0)
-    val earlyLabel = if (earlyPrice % 1.0 == 0.0) "$$${earlyPrice.toInt()}" else "$$${formatPriceTwoDecimals(earlyPrice)}"
+
+    // Prefer an explicit Early Bird tier (e.g. "earlyBird $10") as the
+    // fixed intro Early Bird price. If none exists, fall back to the
+    // configured discount off the base price.
+    val explicitEarlyTier = app.pricingTiers.firstOrNull {
+        it.contains("early", ignoreCase = true)
+    }
+    val explicitEarlyPrice = explicitEarlyTier?.let { parsePrice(it) }
+
+    val introEarlyPrice = (explicitEarlyPrice ?: (base * (1 - discount / 100.0))).coerceAtLeast(1.0)
+    val earlyLabel = if (introEarlyPrice % 1.0 == 0.0) {
+        "$" + introEarlyPrice.toInt()
+    } else {
+        "$" + formatPriceTwoDecimals(introEarlyPrice)
+    }
     val baseDisplay = if (base > 0) {
-        if (base % 1.0 == 0.0) "$$${base.toInt()}" else "$$${formatPriceTwoDecimals(base)}"
+        if (base % 1.0 == 0.0) "$" + base.toInt() else "$" + formatPriceTwoDecimals(base)
     } else baseLabel.ifBlank { "Base price" }
     return EarlyBirdWindow(
         start = startAnchor,
         end = end,
         discountPercent = discount,
+        basePrice = base,
         basePriceLabel = baseDisplay,
         earlyPriceLabel = earlyLabel
     )
@@ -2176,6 +2301,41 @@ private fun isEventPublic(eventId: String, apps: List<AdminApplication>): Boolea
     val app = apps.firstOrNull { it.eventId == eventId } ?: return apps.isEmpty()
     return app.isApproved || app.status == "Approved"
 }
+
+private fun mapAdminApplicationToEvent(app: AdminApplication, apps: List<AdminApplication>): EventItem {
+    val priceLabel = app.pricingTiers.firstOrNull().orEmpty()
+    val parsedInstant = parseInstantOrNull(app.eventDateTime)
+    val category = when (app.category.lowercase()) {
+        "sports" -> IconCategory.Calendar
+        "family" -> IconCategory.Profile
+        "concert", "music" -> IconCategory.Discover
+        else -> IconCategory.Discover
+    }
+    val monthLabel = parsedInstant?.toLocalDateTime(TimeZone.currentSystemDefault())?.let {
+        "${monthNameFromNumber(it.monthNumber)} ${it.year}"
+    } ?: monthNameFromText(app.eventDateTime) ?: "Live"
+    return EventItem(
+        id = app.eventId,
+        title = app.title,
+        city = app.city,
+        dateLabel = parsedInstant?.let { friendlyDateLabel(it) } ?: app.eventDateTime.ifBlank { "Date TBC" },
+        startsAt = parsedInstant,
+        priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
+        category = category,
+        badge = if (app.status == "Approved") "Live" else null,
+        tag = app.category,
+        month = monthLabel,
+        imagePath = app.flyerUrl?.takeIf { it.startsWith("http", ignoreCase = true) }
+            ?: "hero_vic_falls_midnight_lights",
+        lat = app.lat,
+        lng = app.lng,
+    )
+}
+
+private fun publicEventsFrom(apps: List<AdminApplication>): List<EventItem> =
+    apps.filter { isEventPublic(it.eventId, apps) }.map { app ->
+        mapAdminApplicationToEvent(app, apps)
+    }
 
 private fun isEventHappeningToday(
     event: EventItem,
@@ -2217,16 +2377,62 @@ private fun pickUpcomingEvent(
 private fun buildEarlyBirdBadgeForEvent(
     event: EventItem,
     apps: List<AdminApplication>,
+    now: Instant = currentInstant(),
 ): Pair<String?, Boolean> {
     if (!isEventPublic(event.id, apps)) return null to false
     val app = apps.firstOrNull { it.eventId == event.id } ?: return null to false
     val window = buildEarlyBirdWindow(app, app.approvedAt) ?: return null to false
-    val now = currentInstant()
     if (now < window.start || now > window.end) return null to false
-    val remaining = (window.end - now).coerceAtLeast(ZERO)
+    // For the badge, reflect the two-phase behaviour:
+    // - During the first 12h from window.start (static $10 phase), show
+    //   the time remaining until that 12h mark.
+    // - After 12h, show the time remaining until the full Early Bird
+    //   window ends (dynamic discount phase).
+    val total = (window.end - window.start).coerceAtLeast(ZERO)
+    val introDuration = minOf(12.hours, total)
+    val introEnd = window.start + introDuration
+
+    val remaining = if (now < introEnd) {
+        (introEnd - now).coerceAtLeast(ZERO)
+    } else {
+        (window.end - now).coerceAtLeast(ZERO)
+    }
     val highlight = remaining <= 6.hours
-    val label = "Early Bird ${window.earlyPriceLabel} • ${formatDurationShort(remaining)} left"
+    val live = computeEarlyBirdPricing(window, now)
+    val label = "${formatDurationShort(remaining)} left"
     return label to highlight
+}
+
+// Computes a dynamic Early Bird price label for list cards so that the
+// "price from" displayed on event cards stays in sync with the ticket
+// options panel. Returns null if there is no active Early Bird window.
+private fun buildEarlyBirdPriceLabelForEvent(
+    event: EventItem,
+    apps: List<AdminApplication>,
+    now: Instant = currentInstant(),
+): String? {
+    if (!isEventPublic(event.id, apps)) return null
+    val app = apps.firstOrNull { it.eventId == event.id } ?: return null
+    val window = buildEarlyBirdWindow(app, app.approvedAt) ?: return null
+    if (now < window.start || now > window.end) return null
+    val live = computeEarlyBirdPricing(window, now)
+
+    val baseLabel = event.priceFrom
+    val livePrice = live.priceLabel
+
+    if (baseLabel.isBlank()) return livePrice
+
+    // Preserve any textual prefix from the original label (e.g. "EarlyBird",
+    // "From") while swapping in the live price component.
+    val prefix = baseLabel
+        .takeWhile { !it.isDigit() && it != '$' }
+        .trim()
+
+    return if (prefix.isNotEmpty()) {
+        "$prefix $livePrice"
+    } else {
+        livePrice
+    }
 }
 private data class AdminReport(
     val id: String,
@@ -2506,6 +2712,58 @@ private fun parseInstantOrNull(raw: String?): Instant? {
     return null
 }
 
+private fun friendlyDateLabel(instant: Instant, tz: TimeZone = TimeZone.currentSystemDefault()): String {
+    val dateTime = instant.toLocalDateTime(tz)
+    val monthName = monthNameFromNumber(dateTime.monthNumber)
+    val hour = dateTime.hour % 12
+    val displayHour = if (hour == 0) 12 else hour
+    val amPm = if (dateTime.hour < 12) "AM" else "PM"
+    val minute = dateTime.minute.toString().padStart(2, '0')
+    return "$monthName ${dateTime.dayOfMonth}, ${dateTime.year} at $displayHour:$minute $amPm"
+}
+
+private fun daysInMonth(monthNumber: Int, year: Int): Int {
+    val monthLengths = intArrayOf(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    val isLeap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    return when (monthNumber) {
+        2 -> if (isLeap) 29 else 28
+        in 1..12 -> monthLengths[monthNumber - 1]
+        else -> 30
+    }
+}
+
+private fun monthNameFromNumber(monthNumber: Int): String =
+    listOf(
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ).getOrElse(monthNumber - 1) { "Month" }
+
+private fun monthNameFromText(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    val regex = Regex("""([A-Za-z]+)\s+\d{1,2}""")
+    val name = regex.find(raw)?.groupValues?.getOrNull(1)?.lowercase() ?: return null
+    val monthNames = listOf(
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december"
+    )
+    val idx = monthNames.indexOf(name)
+    return if (idx >= 0) monthNames[idx].replaceFirstChar { it.uppercase() } else null
+}
+
+private fun eventLocalDate(event: EventItem, tz: TimeZone = TimeZone.currentSystemDefault()): LocalDate? {
+    event.startsAt?.let { return it.toLocalDateTime(tz).date }
+    val regex = Regex("""([A-Za-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?""")
+    val match = regex.find(event.dateLabel)
+    if (match != null) {
+        val monthName = match.groupValues[1].lowercase()
+        val day = match.groupValues[2].toIntOrNull() ?: return null
+        val year = match.groupValues.getOrNull(3)?.toIntOrNull() ?: currentInstant().toLocalDateTime(tz).year
+        val monthNumber = monthNameToNumber(monthName) ?: return null
+        return runCatching { LocalDate(year, monthNumber, day) }.getOrNull()
+    }
+    return null
+}
+
 private fun monthNameToNumber(name: String): Int? {
     val months = listOf(
         "january", "february", "march", "april", "may", "june",
@@ -2745,7 +3003,8 @@ private val SearchHistorySaver = listSaver<SnapshotStateList<String>, String>(
 private suspend fun ensureSettingsSession() {
     val auth = Firebase.auth
     if (auth.currentUser == null) {
-        runCatching { auth.signInAnonymously() }
+        // Avoid auto anonymous sign-in here; it can wipe a persisted user session and break remember-me.
+        return
     }
 }
 
@@ -3165,6 +3424,7 @@ private fun GoTickyRoot() {
     var checkoutSuccess by remember { mutableStateOf(false) }
     var lastCheckoutMethod by remember { mutableStateOf<String?>(null) }
     var lastCheckoutAmount by remember { mutableStateOf<Int?>(null) }
+    var lastCheckoutPurchaseAt by remember { mutableStateOf<Instant?>(null) }
     var checkoutOrder by remember { mutableStateOf<OrderSummary?>(null) }
     var lastCheckoutOrder by remember { mutableStateOf<OrderSummary?>(null) }
     val userTickets = remember { mutableStateListOf<TicketPass>() }
@@ -3544,7 +3804,34 @@ private fun GoTickyRoot() {
                     // For admins with remember-me enabled, keep isAuthenticated=false so the
                     // app still flows through Intro -> Sign-in -> Secure admin click.
                 } else {
-                    syncFavoritesFromBackend()
+                    // If the profile doc is missing but Firebase auth still has a session,
+                    // fall back to the auth user to restore the session instead of forcing re-login.
+                    val authUser = authRepo.currentUser()
+                    if (authUser != null) {
+                        val fallbackProfile = UserProfile(
+                            fullName = authUser.displayName.orEmpty().ifBlank { authUser.email.orEmpty() },
+                            email = authUser.email.orEmpty(),
+                            countryName = "Zimbabwe",
+                            countryFlag = "",
+                            phoneCode = "+263",
+                            phoneNumber = "",
+                            birthday = "",
+                            gender = "",
+                            photoResKey = null,
+                            photoUri = null,
+                            favorites = emptyList(),
+                            role = "customer",
+                        )
+                        userProfile = fallbackProfile
+                        currentUserRole = "customer"
+                        syncFavoritesFromBackend()
+                        isAuthenticated = true
+                        isGuestMode = false
+                        currentScreen = MainScreen.Home
+                        isSignInWarmupActive = true
+                    } else {
+                        syncFavoritesFromBackend()
+                    }
                 }
             } else {
                 syncFavoritesFromBackend()
@@ -3563,23 +3850,181 @@ private fun GoTickyRoot() {
 
     // Map of organizerId -> AdminOrganizer, populated from real user profiles when admin applications load.
     val adminOrganizers = remember { mutableStateListOf<AdminOrganizer>() }
+    val adminReports = remember { mutableStateListOf<AdminReport>() }
+    val adminFlags = remember { mutableStateListOf<AdminFeatureFlag>() }
+    val adminRoles = remember { mutableStateListOf<AdminRoleEntry>() }
+    // Admin accents used across dashboard + seeded activity; defined early so helper functions compile.
+    val adminPrimaryAccent = MaterialTheme.colorScheme.primary
+    val adminSecondaryAccent = MaterialTheme.colorScheme.secondary
+    val adminAlertsAccent = IconCategoryColors[IconCategory.Alerts] ?: adminPrimaryAccent
+    val adminWarningAccent = Color(0xFFFFC94A)
+    val adminActivity = remember { mutableStateListOf<AdminActivity>() }
+    fun addAdminActivity(text: String, accent: Color) {
+        adminActivity.add(0, AdminActivity(text, "Just now", accent))
+        if (adminActivity.size > 30) adminActivity.removeLast()
+    }
+    // Derived KPIs and attention based on real applications.
+    val adminKpis by remember(adminApplications, adminAlertsAccent, adminPrimaryAccent, adminWarningAccent) {
+        derivedStateOf {
+            val pending = adminApplications.count { !it.status.equals("Approved", true) }
+            val approvalsToday = adminApplications.count { app ->
+                val approvedAt = app.approvedAt ?: return@count false
+                (currentInstant() - approvedAt).inWholeHours < 24
+            }
+            val slaRisk = adminApplications.count { !it.isApproved && it.ageHours >= 24 }
+            val docsMissing = adminApplications.count { !it.attachmentsReady || it.completeness < 70 }
+            listOf(
+                AdminKpi("Pending apps", pending.toString(), if (pending == 0) "All clear" else "Awaiting review", adminAlertsAccent),
+                AdminKpi("Approvals today", approvalsToday.toString(), "Last 24h", adminPrimaryAccent),
+                AdminKpi("SLA risk", slaRisk.toString(), "Over 24h old", adminWarningAccent),
+                AdminKpi("Docs missing", docsMissing.toString(), "Need assets", Color(0xFFFF6B6B)),
+            )
+        }
+    }
+    val adminAttention by remember(adminApplications) {
+        derivedStateOf {
+            adminApplications
+                .filter { !it.isApproved }
+                .sortedWith(
+                    compareByDescending<AdminApplication> {
+                        when (it.risk.lowercase()) {
+                            "high" -> 2
+                            "medium" -> 1
+                            else -> 0
+                        }
+                    }.thenByDescending { it.ageHours }
+                )
+                .take(4)
+                .map { app ->
+                    val subtitle = listOfNotNull(
+                        app.city.takeIf { it.isNotBlank() },
+                        "${app.ageHours}h old",
+                        app.status
+                    ).joinToString(" • ")
+                    AdminAttention(app.title, subtitle, app.risk)
+                }
+        }
+    }
+    LaunchedEffect(Unit) {
+        if (adminFlags.isEmpty()) {
+            adminFlags.addAll(
+                listOf(
+                    AdminFeatureFlag("ff-admin", "Admin access", GoTickyFeatures.EnableAdmin, "admin"),
+                    AdminFeatureFlag("ff-seat-map", "Seat map (real)", GoTickyFeatures.EnableRealSeatMap, "all"),
+                    AdminFeatureFlag("ff-payments", "Payments (real)", GoTickyFeatures.EnableRealPayments, "all"),
+                )
+            )
+        }
+    }
+
+    fun rebuildAdminReportsFrom(apps: List<AdminApplication>) {
+        val issues = apps.flatMap { app ->
+            val findings = mutableListOf<AdminReport>()
+            if (!app.attachmentsReady) {
+                findings += AdminReport(
+                    id = "rep-${app.id}-attachments",
+                    target = app.title,
+                    reason = "Attachments missing",
+                    severity = "High",
+                    ageHours = app.ageHours,
+                    state = "Open"
+                )
+            }
+            if (!app.isApproved && app.completeness < 70) {
+                findings += AdminReport(
+                    id = "rep-${app.id}-completeness",
+                    target = app.title,
+                    reason = "Profile incomplete",
+                    severity = if (app.completeness < 50) "High" else "Medium",
+                    ageHours = app.ageHours,
+                    state = "Open"
+                )
+            }
+            if (!app.isApproved && app.ageHours >= 24) {
+                findings += AdminReport(
+                    id = "rep-${app.id}-sla",
+                    target = app.title,
+                    reason = "Pending over 24h",
+                    severity = "Medium",
+                    ageHours = app.ageHours,
+                    state = "Open"
+                )
+            }
+            findings
+        }
+        adminReports.clear()
+        adminReports.addAll(issues.distinctBy { it.id })
+    }
+
+    fun seedAdminActivityFromApps(apps: List<AdminApplication>) {
+        if (adminActivity.isNotEmpty()) return
+        val seeded = apps
+            .sortedByDescending { it.createdAt ?: currentInstant().minus(apps.indexOf(it).hours) }
+            .take(10)
+            .map { app ->
+                val accent = when {
+                    app.isApproved -> adminPrimaryAccent
+                    app.risk.equals("High", true) -> Color(0xFFFF6B6B)
+                    else -> adminSecondaryAccent
+                }
+                val label = if (app.isApproved) "approved" else "submitted"
+                AdminActivity("${app.title} $label", "${app.ageHours}h ago", accent)
+            }
+        adminActivity.addAll(seeded)
+    }
+
+    fun refreshAdminProfiles() {
+        scope.launch {
+            runCatching {
+                val snap = Firebase.firestore.collection("adminProfiles").get()
+                val mapped = snap.documents.mapNotNull { doc ->
+                    val name = doc.get<String?>("fullName") ?: return@mapNotNull null
+                    val email = doc.get<String?>("email") ?: ""
+                    val role = doc.get<String?>("role") ?: "Admin"
+                    val id = doc.get<String?>("id") ?: doc.id
+                    AdminRoleEntry(id = id, name = name, role = role, email = email)
+                }
+                adminRoles.clear()
+                adminRoles.addAll(mapped)
+            }
+        }
+    }
 
     suspend fun ensureAdminAuthForApplications() {
+        // Never elevate a non-admin/customer session. Only proceed when this client is in an
+        // admin-capable state (feature-flag + role gate).
+        if (!hasAdminAccess) return
         if (adminAuthEnsured) return
         val auth = Firebase.auth
         if (auth.currentUser == null) {
             runCatching { auth.signInAnonymously() }
         }
-        // We only need a signed-in session so Firestore rules allow reads; do not mutate user profiles here.
+        // Ensure the session is recognized as an admin in Firestore rules.
+        auth.currentUser?.uid?.let { uid ->
+            runCatching {
+                Firebase.firestore.collection("users").document(uid).set(
+                    mapOf(
+                        "uid" to uid,
+                        "displayName" to "Admin Session",
+                        "role" to "Admin",
+                        "countryName" to "Zimbabwe",
+                    ),
+                    merge = true
+                )
+            }
+        }
         adminAuthEnsured = true
     }
 
     fun refreshAdminApplications() {
+        // Fetch public events for feed visibility; admin-only actions remain gated elsewhere.
         scope.launch {
             adminApplicationsLoading = true
             adminApplicationsError = null
             runCatching {
-                ensureAdminAuthForApplications()
+                if (hasAdminAccess) {
+                    ensureAdminAuthForApplications()
+                }
                 val snap = Firebase.firestore.collection("events").get()
                 val now = currentInstant()
                 val items = snap.documents.mapNotNull { doc ->
@@ -3605,6 +4050,12 @@ private fun GoTickyRoot() {
                         "$tier $$formatted"
                     }
                     val flyerUrl = doc.get<String?>("flyerUrl")
+                    val lat = doc.get<Double?>("lat") ?: doc.get<Long?>("lat")?.toDouble()
+                    val lng = doc.get<Double?>("lng") ?: doc.get<Long?>("lng")?.toDouble()
+                    val createdAtIso = doc.get<String?>("createdAt")
+                    val updatedAtIso = doc.get<String?>("updatedAt")
+                    val createdAtInstant = createdAtIso?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                    val updatedAtInstant = updatedAtIso?.let { runCatching { Instant.parse(it) }.getOrNull() }
                     val risk = when {
                         isApproved -> "Low"
                         status.equals("Rejected", ignoreCase = true) -> "High"
@@ -3629,10 +4080,16 @@ private fun GoTickyRoot() {
                         pricingTiers = if (pricingTiers.isNotEmpty()) pricingTiers else listOf(doc.get<String?>("priceFrom") ?: "Tier pending"),
                         approvedAt = doc.get<String?>("approvedAt")?.let { runCatching { Instant.parse(it) }.getOrNull() },
                         flyerUrl = flyerUrl,
+                        lat = lat,
+                        lng = lng,
+                        createdAt = createdAtInstant,
+                        updatedAt = updatedAtInstant,
                     )
                 }
                 adminApplications.clear()
                 adminApplications.addAll(items)
+                rebuildAdminReportsFrom(items)
+                seedAdminActivityFromApps(items)
 
                 // Build organizer profiles from /users for any organizerIds present on the applications.
                 val organizerIds = items.mapNotNull { it.organizerId.takeIf { id -> id.isNotBlank() } }.distinct()
@@ -3642,19 +4099,32 @@ private fun GoTickyRoot() {
                     organizerIds.forEach { id ->
                         runCatching {
                             val userDoc = firestore.collection("users").document(id).get()
-                            if (userDoc.exists) {
-                                val displayName = userDoc.get<String?>("displayName") ?: "Organizer"
-                                val role = userDoc.get<String?>("role") ?: "organizer"
-                                val kycStatus = if (role.equals("organizer", ignoreCase = true)) "Verified" else "Pending"
-                                val trust = (userDoc.get<Long?>("trustScore") ?: 70L).toInt().coerceIn(0, 100)
-                                val strikes = (userDoc.get<Long?>("strikes") ?: 0L).toInt().coerceAtLeast(0)
-                                val frozen = userDoc.get<Boolean?>("frozen") ?: false
-                                val notes = userDoc.get<String?>("notes") ?: "Profile imported from user record."
-                                val photoUri = userDoc.get<String?>("photoUri")
-                                val email = userDoc.get<String?>("email") ?: ""
-                                val countryName = userDoc.get<String?>("countryName") ?: ""
-                                val phoneCode = userDoc.get<String?>("phoneCode") ?: ""
-                                val phoneNumber = userDoc.get<String?>("phoneNumber") ?: ""
+                            val organizerDoc = if (userDoc.exists) null else firestore.collection("organizers").document(id).get()
+                            val sourceDoc = when {
+                                userDoc.exists -> userDoc
+                                organizerDoc?.exists == true -> organizerDoc
+                                else -> null
+                            }
+                            val appSource = items.firstOrNull { it.organizerId == id }
+
+                            if (sourceDoc != null) {
+                                val displayName = sourceDoc.get<String?>("displayName")
+                                    ?: sourceDoc.get<String?>("companyName")
+                                    ?: sourceDoc.get<String?>("name")
+                                    ?: appSource?.organizer
+                                    ?: "Organizer"
+                                val role = sourceDoc.get<String?>("role") ?: "organizer"
+                                val storedKyc = sourceDoc.get<String?>("kycStatus")
+                                val kycStatus = storedKyc ?: if (role.equals("organizer", ignoreCase = true)) "Verified" else "Pending"
+                                val trust = (sourceDoc.get<Long?>("trustScore") ?: 70L).toInt().coerceIn(0, 100)
+                                val strikes = (sourceDoc.get<Long?>("strikes") ?: 0L).toInt().coerceAtLeast(0)
+                                val frozen = sourceDoc.get<Boolean?>("frozen") ?: false
+                                val notes = sourceDoc.get<String?>("notes") ?: "Profile imported from organizer record."
+                                val photoUri = sourceDoc.get<String?>("photoUri")
+                                val email = sourceDoc.get<String?>("email") ?: ""
+                                val countryName = sourceDoc.get<String?>("countryName") ?: ""
+                                val phoneCode = sourceDoc.get<String?>("phoneCode") ?: ""
+                                val phoneNumber = sourceDoc.get<String?>("phoneNumber") ?: ""
                                 fetchedOrganizers += AdminOrganizer(
                                     id = id,
                                     name = displayName,
@@ -3669,6 +4139,23 @@ private fun GoTickyRoot() {
                                     phoneCode = phoneCode,
                                     phoneNumber = phoneNumber,
                                     role = role,
+                                )
+                            } else if (appSource != null) {
+                                // Fallback when no user/organizer document exists yet; keep detail panel populated.
+                                fetchedOrganizers += AdminOrganizer(
+                                    id = id,
+                                    name = appSource.organizer.ifBlank { "Organizer" },
+                                    kycStatus = "Pending",
+                                    trustScore = 70,
+                                    strikes = 0,
+                                    frozen = false,
+                                    notes = "Imported from application form.",
+                                    photoUri = null,
+                                    email = "",
+                                    countryName = appSource.city,
+                                    phoneCode = "",
+                                    phoneNumber = "",
+                                    role = "organizer",
                                 )
                             }
                         }
@@ -3701,12 +4188,18 @@ private fun GoTickyRoot() {
     suspend fun startAdminSessionFromSeed(seed: AdminSeed, rememberMe: Boolean): AuthResult {
         // Ensure we have some Firebase auth session for Firestore rules when possible.
         val auth = Firebase.auth
+        val seedEmailLower = seed.email.trim().lowercase()
+
+        // Prevent clobbering an existing customer profile by switching to a dedicated admin session.
+        val existing = auth.currentUser
+        if (existing != null && (existing.email?.trim()?.lowercase() != seedEmailLower)) {
+            runCatching { auth.signOut() }
+        }
         if (auth.currentUser == null) {
             runCatching { auth.signInAnonymously() }
         }
 
         val currentUser = auth.currentUser
-        val seedEmailLower = seed.email.trim().lowercase()
         val adminUid = currentUser?.uid ?: seedEmailLower
 
         // Build a local admin profile shell from the seed.
@@ -3803,7 +4296,7 @@ private fun GoTickyRoot() {
     }
 
     fun openEventById(id: String) {
-        val event = sampleEvents.firstOrNull { it.id == id }
+        val event = publicEventsFrom(adminApplications).firstOrNull { it.id == id }
         if (event != null && isEventPublic(event.id, adminApplications)) {
             detailEvent = event
         }
@@ -3839,37 +4332,6 @@ private fun GoTickyRoot() {
         return base.filter { isEventPublic(it.eventId, adminApplications) }
     }
 
-    val adminPrimaryAccent = MaterialTheme.colorScheme.primary
-    val adminSecondaryAccent = MaterialTheme.colorScheme.secondary
-    val adminAlertsAccent = IconCategoryColors[IconCategory.Alerts] ?: adminPrimaryAccent
-    val adminWarningAccent = Color(0xFFFFC94A)
-
-    val adminKpis = remember(adminAlertsAccent, adminPrimaryAccent) {
-        listOf(
-            AdminKpi("Pending apps", "18", "+4 vs. avg", adminAlertsAccent),
-            AdminKpi("Approvals today", "12", "+8%", adminPrimaryAccent),
-            AdminKpi("SLA risk", "3", "under 6h", Color(0xFFFFC94A)),
-            AdminKpi("Flagged orgs", "2", "review now", Color(0xFFFF6B6B)),
-        )
-    }
-    val adminAttention = remember {
-        listOf(
-            AdminAttention("Bulawayo Street Fest", "Missing permit • 14h old", "High"),
-            AdminAttention("Savanna Sky Sessions", "Pricing mismatch vs. last run", "Medium"),
-            AdminAttention("New Organizer: VibeCo", "KYC pending • needs ID upload", "Medium"),
-        )
-    }
-    val adminActivity = remember(adminPrimaryAccent, adminSecondaryAccent) {
-        mutableStateListOf(
-            AdminActivity("Tari approved “Midnight Neon Fest”", "2m ago", adminPrimaryAccent),
-            AdminActivity("Rudo requested info on “Family Lights Parade”", "18m ago", Color(0xFFFFC94A)),
-            AdminActivity("Kuda verified organizer “Courtside Group”", "45m ago", adminSecondaryAccent),
-        )
-    }
-    fun addAdminActivity(text: String, accent: Color) {
-        adminActivity.add(0, AdminActivity(text, "Just now", accent))
-        if (adminActivity.size > 30) adminActivity.removeLast()
-    }
     var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
 
     LaunchedEffect(adminSurface, hasAdminAccess, adminApplicationsInitialized) {
@@ -3877,32 +4339,9 @@ private fun GoTickyRoot() {
             refreshAdminApplications()
         }
     }
-    val adminReports = remember {
-        mutableStateListOf(
-            AdminReport("rep-1", "Courtside Classics", "Image inappropriate", "High", 3, "Open"),
-            AdminReport("rep-2", "Laugh Lab Live", "Misleading price", "Medium", 9, "Open"),
-            AdminReport("rep-3", "Family Lights Parade", "Copy plagiarism", "Low", 22, "Open"),
-        )
-    }
-    val adminFlags = remember {
-        mutableStateListOf(
-            AdminFeatureFlag("ff-alerts-beta", "Alerts beta", true, "organizer+admin"),
-            AdminFeatureFlag("ff-social-share", "Social share", true, "all"),
-            AdminFeatureFlag("ff-map-live", "Live map", false, "all"),
-            AdminFeatureFlag("ff-seat-stub", "Seat map stub", true, "all"),
-        )
-    }
     val adminReviewers = remember { listOf("Tari", "Rudo", "Kuda", "Amina") }
     val reviewerByApp = remember { mutableStateMapOf<String, String>() }
     val commentsByApp = remember { mutableStateMapOf<String, SnapshotStateList<String>>() }
-    val adminRoles = remember {
-        mutableStateListOf<AdminRoleEntry>(
-            AdminRoleEntry("user-1", "Tari D.", "Admin", "tari@goticky.com"),
-            AdminRoleEntry("user-2", "Rudo M.", "Admin", "rudo@goticky.com"),
-            AdminRoleEntry("user-3", "Kuda P.", "Organizer", "kuda@goticky.com"),
-            AdminRoleEntry("user-4", "Amina S.", "Support", "amina@goticky.com"),
-        )
-    }
     val featuredSlots = remember { mutableStateListOf<String>().apply { addAll(defaultHeroSlides.take(2).map { it.id }) } }
     LaunchedEffect(Unit) {
         loadingHeroBanners = true
@@ -4011,6 +4450,7 @@ private fun GoTickyRoot() {
             val newApprovedAt = if (approvedFlag && app.approvedAt == null) now else app.approvedAt
             val updatedApp = app.copy(status = status, isApproved = approvedFlag, approvedAt = newApprovedAt)
             adminApplications[idx] = updatedApp
+            rebuildAdminReportsFrom(adminApplications)
 
             // Reflect approval toggle in organizer view so cards update immediately.
             val organizerIdx = organizerEvents.indexOfFirst { it.eventId == app.eventId }
@@ -4025,7 +4465,16 @@ private fun GoTickyRoot() {
             // Persist status + approval to Firestore so public surfaces and organizer dashboard stay in sync.
             scope.launch {
                 runCatching {
+                    ensureAdminAuthForApplications()
                     val firestore = Firebase.firestore
+                    // Best-effort fetch of organizerId if the cached application is missing it, to satisfy rules.
+                    val organizerIdForRule = if (app.organizerId.isNotBlank()) {
+                        app.organizerId
+                    } else {
+                        runCatching {
+                            firestore.collection("events").document(app.eventId).get().get<String?>("organizerId")
+                        }.getOrNull().orEmpty()
+                    }
                     val approvedAtIso = updatedApp.approvedAt?.toString()
 
                     // Update public events collection used by map / public surfaces.
@@ -4033,6 +4482,7 @@ private fun GoTickyRoot() {
                         "status" to status,
                         "isApproved" to approvedFlag,
                         "updatedAt" to currentInstant().toString(),
+                        "organizerId" to organizerIdForRule,
                     )
                     if (approvedAtIso != null) {
                         publicPayload["approvedAt"] = approvedAtIso
@@ -4040,15 +4490,16 @@ private fun GoTickyRoot() {
                     firestore.collection("events").document(app.eventId).set(publicPayload, merge = true)
 
                     // Mirror approval to organizer's private events collection when we know the organizerId.
-                    if (app.organizerId.isNotBlank()) {
+                    if (organizerIdForRule.isNotBlank()) {
                         val organizerPayload = mapOf(
                             "isApproved" to approvedFlag,
                             "status" to status,
                             "updatedAt" to currentInstant().toString(),
+                            "organizerId" to organizerIdForRule,
                         )
                         firestore
                             .collection("organizers")
-                            .document(app.organizerId)
+                            .document(organizerIdForRule)
                             .collection("events")
                             .document(app.eventId)
                             .set(organizerPayload, merge = true)
@@ -4134,8 +4585,29 @@ private fun GoTickyRoot() {
     fun verifyOrganizer(id: String, verified: Boolean, log: (String, Color) -> Unit) {
         val idx = adminOrganizers.indexOfFirst { it.id == id }
         if (idx != -1) {
-            adminOrganizers[idx] = adminOrganizers[idx].copy(kycStatus = if (verified) "Verified" else "Pending")
+            val newStatus = if (verified) "Verified" else "Pending"
+            adminOrganizers[idx] = adminOrganizers[idx].copy(kycStatus = newStatus)
             log("${adminOrganizers[idx].name}: ${if (verified) "Verified" else "Set to pending"}", adminPrimaryAccent)
+
+            // Persist organizer verification status so it survives reloads.
+            scope.launch {
+                runCatching {
+                    val firestore = Firebase.firestore
+                    val payload = mutableMapOf<String, Any?>(
+                        "kycStatus" to newStatus,
+                        "updatedAt" to currentInstant().toString(),
+                    )
+                    if (verified) {
+                        // Ensure organizer role is stored for downstream checks while keeping compatibility
+                        // with rules that require a role value.
+                        payload["role"] = "organizer"
+                        payload["verifiedAt"] = currentInstant().toString()
+                    }
+                    firestore.collection("users").document(id).set(payload, merge = true)
+                }.onFailure { t ->
+                    snackbarHostState.showSnackbar(t.message ?: "Verification saved locally; sync will retry on refresh.")
+                }
+            }
         }
     }
     fun freezeOrganizer(id: String, frozen: Boolean, log: (String, Color) -> Unit) {
@@ -4143,6 +4615,21 @@ private fun GoTickyRoot() {
         if (idx != -1) {
             adminOrganizers[idx] = adminOrganizers[idx].copy(frozen = frozen)
             log("${adminOrganizers[idx].name}: ${if (frozen) "Frozen publishing" else "Unfrozen"}", adminWarningAccent)
+
+            // Persist frozen state to Firestore for consistency across sessions.
+            scope.launch {
+                runCatching {
+                    Firebase.firestore.collection("users").document(id).set(
+                        mapOf(
+                            "frozen" to frozen,
+                            "updatedAt" to currentInstant().toString(),
+                        ),
+                        merge = true
+                    )
+                }.onFailure { t ->
+                    snackbarHostState.showSnackbar(t.message ?: "Freeze saved locally; sync will retry on refresh.")
+                }
+            }
         }
     }
     fun requestReKyc(id: String, log: (String, Color) -> Unit) {
@@ -4796,6 +5283,7 @@ private fun GoTickyRoot() {
                                                                 )
                                                             )
                                                         )
+                                                        val purchaseInstant = currentInstant()
                                                         showCheckout = false
                                                         val purchasedEvent = checkoutReturnEvent ?: lastCheckoutEvent
                                                         val purchasedOrder = checkoutOrder
@@ -4804,12 +5292,14 @@ private fun GoTickyRoot() {
                                                         lastCheckoutMethod = paymentMethod
                                                         lastCheckoutAmount = totalAmountCents
                                                         lastCheckoutOrder = purchasedOrder
+                                                        lastCheckoutPurchaseAt = purchaseInstant
                                                         if (purchasedEvent != null && purchasedOrder != null) {
                                                             val newTicket = buildTicketPassFromBooking(
                                                                 event = purchasedEvent,
                                                                 order = purchasedOrder,
                                                                 ticketTypeLabel = selectedTicketType,
-                                                                user = userProfile
+                                                                user = userProfile,
+                                                                purchaseAt = purchaseInstant.toString()
                                                             )
                                                             // Avoid duplicates by ID
                                                             userTickets.removeAll { it.id == newTicket.id }
@@ -4834,6 +5324,7 @@ private fun GoTickyRoot() {
                                                     method = lastCheckoutMethod,
                                                     ticketType = selectedTicketType,
                                                     order = lastCheckoutOrder,
+                                                    purchaseAt = lastCheckoutPurchaseAt,
                                                     onViewTickets = {
                                                         checkoutSuccess = false
                                                         requireAuth(
@@ -5160,9 +5651,13 @@ private fun GoTickyRoot() {
                                                         FaqScreen(onBack = { currentScreen = MainScreen.Settings })
                                                     }
                                                     MainScreen.Map -> {
+                                                        val mapEvents = remember(adminApplications) {
+                                                            publicEventsFrom(adminApplications).distinctBy { it.id }
+                                                        }
                                                         EventMapScreen(
                                                             onBack = { currentScreen = MainScreen.Home },
-                                                            onOpenEvent = { eventId -> openEventById(eventId) }
+                                                            onOpenEvent = { eventId -> openEventById(eventId) },
+                                                            events = mapEvents
                                                         )
                                                     }
                                                 }
@@ -5699,25 +6194,58 @@ private fun ApplicationsSection(
                         .pressAnimated()
                         .clickable { showFilterSheet = !showFilterSheet }
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Outlined.FilterList, contentDescription = "Filters", tint = MaterialTheme.colorScheme.primary)
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
-                            Text("Filters", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
-                            val summary = buildString {
-                                if (hasFilterActive) append("Active • ")
-                                append(statusFilter.ifBlank { "All" })
-                                if (riskFilter != "All") append(" • Risk $riskFilter")
-                                if (cityFilter != "All") append(" • $cityFilter")
-                            }
-                            Text(summary, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = "Filters",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                Icons.Outlined.FilterList,
+                                contentDescription = "Filters",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Pill(
+                                text = if (hasFilterActive) "On" else "All",
+                                modifier = Modifier
+                                    .pressAnimated()
+                                    .clickable { showFilterSheet = !showFilterSheet }
+                            )
                         }
-                        Pill(text = if (hasFilterActive) "On" else "All", modifier = Modifier)
+                        val summary = buildString {
+                            if (hasFilterActive) append("Active • ")
+                            append(statusFilter.ifBlank { "All" })
+                            if (riskFilter != "All") append(" • Risk $riskFilter")
+                            if (cityFilter != "All") append(" • $cityFilter")
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = summary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
                 GlowCard(
@@ -5726,43 +6254,60 @@ private fun ApplicationsSection(
                         .pressAnimated()
                         .clickable { showSortSheet = !showSortSheet }
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            Icons.Outlined.Sort,
-                            contentDescription = "Sort",
-                            tint = MaterialTheme.colorScheme.secondary
+                        Text(
+                            text = "Sort mode",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                Icons.Outlined.Sort,
+                                contentDescription = "Sort",
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                            Pill(
+                                text = "Change",
+                                modifier = Modifier
+                                    .pressAnimated()
+                                    .clickable { showSortSheet = !showSortSheet }
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
-                                text = "Sort mode",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                text = "Current",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 text = sortMode,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        Pill(
-                            text = "Change",
-                            modifier = Modifier
-                                .pressAnimated()
-                                .clickable { showSortSheet = !showSortSheet }
-                        )
                     }
                 }
             }
@@ -7183,7 +7728,7 @@ private fun ModerationSection(
                         )
                     )
                 }
-            }
+            },
         )
     }
 }
@@ -8313,35 +8858,7 @@ private fun HomeScreen(
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
 
-    val publicEventsFromApplications = adminApplications
-        .filter { isEventPublic(it.eventId, adminApplications) }
-        .filter { app -> sampleEvents.none { it.id == app.eventId } }
-        .map { app ->
-            val priceLabel = app.pricingTiers.firstOrNull().orEmpty()
-            val category = when (app.category.lowercase()) {
-                "sports" -> IconCategory.Calendar
-                "family" -> IconCategory.Profile
-                "concert", "music" -> IconCategory.Discover
-                else -> IconCategory.Discover
-            }
-            EventItem(
-                id = app.eventId,
-                title = app.title,
-                city = app.city,
-                dateLabel = app.eventDateTime.ifBlank { "Date TBC" },
-                startsAt = parseInstantOrNull(app.eventDateTime),
-                priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
-                category = category,
-                badge = if (app.status == "Approved") "Live" else null,
-                tag = app.category,
-                month = "Live",
-                // Prefer organizer flyer URL; otherwise fall back to a bundled hero so cards always show artwork.
-                imagePath = app.flyerUrl?.takeIf { it.startsWith("http", ignoreCase = true) }
-                    ?: "hero_vic_falls_midnight_lights",
-            )
-        }
-
-    val publicEvents = publicEventsFromApplications.distinctBy { it.id }
+    val publicEvents = remember(adminApplications) { publicEventsFrom(adminApplications).distinctBy { it.id } }
     val tz = remember { TimeZone.currentSystemDefault() }
     val nowState = remember { mutableStateOf(currentInstant()) }
     LaunchedEffect(Unit) {
@@ -8622,7 +9139,9 @@ private fun HomeScreen(
             nearby = popularNearby,
             favoriteEvents = favoriteEvents,
             onToggleFavorite = onToggleFavorite,
-            onOpen = { event -> onEventSelected(event) }
+            onOpen = { event -> onEventSelected(event) },
+            adminApplications = adminApplications,
+            now = now
         )
 
         SectionHeader(
@@ -8664,7 +9183,9 @@ private fun HomeScreen(
                         imagePath = rec.imageKey
                     )
                 onEventSelected(event)
-            }
+            },
+            adminApplications = adminApplications,
+            now = now
         )
 
         SectionHeader("Progress preview", action = null)
@@ -8911,9 +9432,9 @@ private fun HomeScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(item.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
                                 Text(item.summary, style = MaterialTheme.typography.bodySmall)
-                                Text("${item.tag} • ${item.minutesAgo} min ago", style = MaterialTheme.typography.labelSmall)
+                                Text("${item.tag} • ${formatMinutesAgoLabel(item.minutesAgo)}", style = MaterialTheme.typography.labelSmall)
                                 Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                    Text("${item.minutesAgo} min ago • ${item.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${formatMinutesAgoLabel(item.minutesAgo)} • ${item.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     NeonTextButton(text = "Read more", onClick = { newsDetail = item })
                                 }
                             }
@@ -8934,7 +9455,7 @@ private fun HomeScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(detail.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                    Text("${detail.minutesAgo} min ago • ${detail.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${formatMinutesAgoLabel(detail.minutesAgo)} • ${detail.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Tag: ${detail.tag}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
@@ -9031,7 +9552,27 @@ private fun HomeScreen(
     }
 
     if (showLocationDialog) {
+        val distanceById = rememberDistanceForEvents(publicEvents)
+        val mapEntries = remember(distanceById, publicEvents) {
+            publicEvents.mapNotNull { event ->
+                val coords = eventLocationGeoPoint(event) ?: return@mapNotNull null
+                val distanceLabel = distanceById[event.id]?.formatted ?: "Tap pin to explore"
+                val mapEvent = MapEvent(
+                    id = event.id,
+                    title = event.title,
+                    city = "${event.city} • $distanceLabel",
+                    lat = coords.lat,
+                    lng = coords.lng,
+                )
+                mapEvent to event
+            }
+        }
+        var selectedMapEventId by remember { mutableStateOf(mapEntries.firstOrNull()?.first?.id) }
+        var selectedLatLng by remember { mutableStateOf(mapEntries.firstOrNull()?.first?.let { it.lat to it.lng }) }
+        val selectedEntry = remember(selectedMapEventId, mapEntries) { mapEntries.firstOrNull { it.first.id == selectedMapEventId } }
+
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.96f),
             onDismissRequest = { showLocationDialog = false },
             title = { Text("Pick location or venue") },
             text = {
@@ -9043,49 +9584,179 @@ private fun HomeScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GlowCard(
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(190.dp)
+                            .height(240.dp)
                             .graphicsLayer(scaleX = scale, scaleY = scale)
+                            .shadow(6.dp, goTickyShapes.extraLarge)
+                            .clip(goTickyShapes.extraLarge)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.08f))
+                            .border(0.6.dp, GoTickyGradients.EdgeHalo, goTickyShapes.extraLarge)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(GoTickyGradients.CardGlow)
-                                .drawBehind { drawRect(GoTickyTextures.GrainTint) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "Map preview • Zimbabwe",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
+                        if (mapEntries.isNotEmpty()) {
+                            EventMapView(
+                                events = mapEntries.map { it.first },
+                                modifier = Modifier.fillMaxSize(),
+                                selected = selectedLatLng,
+                                onEventSelected = { mapEvent ->
+                                    selectedMapEventId = mapEvent.id
+                                    selectedLatLng = mapEvent.lat to mapEvent.lng
+                                },
+                                onMapClick = { lat, lng ->
+                                    selectedLatLng = lat to lng
+                                },
+                                liveUpdates = true
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                                                Color.Transparent
+                                            )
+                                        )
+                                    )
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = "Live pins • Zimbabwe",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Tap pins or cards to jump into events.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Outlined.Place,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                AnimatedProgressBar(progress = 0.62f, modifier = Modifier.fillMaxWidth())
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Map,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                AnimatedProgressBar(progress = 0.4f, modifier = Modifier.fillMaxWidth(0.86f))
                                 Text(
-                                    text = "Tap pins in future versions to jump straight into events.",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = "No pinned events yet. Try refreshing.",
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                     }
                     Text(
-                        text = "Events in your country",
+                        text = "Events around you",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.heightIn(max = 300.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.heightIn(max = 320.dp)
                     ) {
-                        items(publicEvents) { event ->
-                            GlowCard {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(event.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("${event.city} • ${event.dateLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        items(mapEntries, key = { it.first.id }) { (mapEvent, event) ->
+                            val isSelected = mapEvent.id == selectedMapEventId
+                            val tint = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
+                            val haloBrush = Brush.linearGradient(
+                                colors = listOf(
+                                    tint.copy(alpha = 0.45f),
+                                    tint.copy(alpha = 0.12f)
+                                )
+                            )
+                            GlowCard(
+                                modifier = Modifier
+                                    .pressAnimated()
+                                    .graphicsLayer {
+                                        scaleX = if (isSelected) 1.02f else 1f
+                                        scaleY = if (isSelected) 1.02f else 1f
+                                    }
+                                    .then(
+                                        if (isSelected) Modifier.border(1.3.dp, haloBrush, goTickyShapes.extraLarge)
+                                        else Modifier
+                                    )
+                                    .clickable {
+                                        selectedMapEventId = mapEvent.id
+                                        selectedLatLng = mapEvent.lat to mapEvent.lng
+                                    }
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(CircleShape)
+                                                .background(tint.copy(alpha = 0.16f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Place,
+                                                contentDescription = null,
+                                                tint = tint
+                                            )
+                                        }
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                event.title,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                mapEvent.city,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                event.dateLabel,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        NeonTextButton(
+                                            text = "View details",
+                                            onClick = {
+                                                showLocationDialog = false
+                                                onEventSelected(event)
+                                            }
+                                        )
+                                        Spacer(Modifier.weight(1f))
+                                        Icon(
+                                            imageVector = Icons.Outlined.Navigation,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -9093,7 +9764,13 @@ private fun HomeScreen(
                 }
             },
             confirmButton = {
-                NeonTextButton(text = "Close", onClick = { showLocationDialog = false })
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PrimaryButton(text = "Full map", onClick = {
+                        showLocationDialog = false
+                        onOpenMap()
+                    })
+                    NeonTextButton(text = "Close", onClick = { showLocationDialog = false })
+                }
             }
         )
     }
@@ -9112,30 +9789,42 @@ private fun HomeScreen(
                 LaunchedEffect(Unit) { visible = true }
 
                 val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+                val nowDate = remember(now) { now.toLocalDateTime(tz).date }
+                val defaultMonth = remember(publicEvents, nowDate) {
+                    publicEvents.mapNotNull { eventLocalDate(it, tz) }
+                        .sorted()
+                        .firstOrNull() ?: nowDate
+                }
+                var activeYear by remember { mutableStateOf(defaultMonth.year) }
                 val activeMonthIndex = remember(selectedMonth) {
-                    val initial = selectedMonth ?: months.first()
+                    val initial = selectedMonth ?: monthNameFromNumber(defaultMonth.monthNumber)
                     months.indexOf(initial).coerceAtLeast(0)
                 }
                 var monthIndex by remember { mutableStateOf(activeMonthIndex) }
                 val activeMonth = months[monthIndex]
-                val daysInMonth = 30
+                val daysInThisMonth = remember(monthIndex, activeYear) { daysInMonth(monthIndex + 1, activeYear) }
 
-                val monthEvents = publicEvents.filter { it.month.equals(activeMonth, ignoreCase = true) }
-
-                // Map sample events to pinned days in the month (purely for demo since SampleEvents has no concrete dates)
-                val pinnedByDay = remember(activeMonth) {
-                    if (monthEvents.isEmpty()) emptyMap() else {
-                        val baseDays = listOf(3, 7, 12, 18, 22, 26)
-                        monthEvents.mapIndexed { index, event ->
-                            val day = baseDays[index % baseDays.size].coerceIn(1, daysInMonth)
-                            day to event
-                        }.groupBy({ it.first }, { it.second })
+                val monthEvents = remember(publicEvents, monthIndex, activeYear) {
+                    publicEvents.mapNotNull { event ->
+                        val localDate = eventLocalDate(event, tz) ?: return@mapNotNull null
+                        if (localDate.monthNumber == monthIndex + 1 && localDate.year == activeYear) {
+                            event to localDate.dayOfMonth
+                        } else null
                     }
                 }
 
-                var selectedDay by remember(activeMonth) {
-                    mutableStateOf(pinnedByDay.keys.minOrNull())
+                // Map events to pinned days in the month using real event dates
+                val pinnedByDay = remember(monthEvents) {
+                    monthEvents.groupBy({ it.second }, { it.first })
                 }
+
+                var selectedDay by remember(activeMonth, activeYear, pinnedByDay) {
+                    mutableStateOf(
+                        pinnedByDay.keys.minOrNull()
+                            ?: if (nowDate.monthNumber == monthIndex + 1 && nowDate.year == activeYear) nowDate.dayOfMonth else null
+                    )
+                }
+                var remindMe by remember(activeMonth, activeYear) { mutableStateOf(false) }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -9152,11 +9841,12 @@ private fun HomeScreen(
                             onClick = {
                                 monthIndex = if (monthIndex == 0) months.lastIndex else monthIndex - 1
                                 selectedMonth = months[monthIndex]
+                                if (monthIndex == months.lastIndex) activeYear -= 1
                             }
                         )
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = activeMonth,
+                                text = "$activeMonth $activeYear",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -9171,6 +9861,7 @@ private fun HomeScreen(
                             onClick = {
                                 monthIndex = if (monthIndex == months.lastIndex) 0 else monthIndex + 1
                                 selectedMonth = months[monthIndex]
+                                if (monthIndex == 0) activeYear += 1
                             }
                         )
                     }
@@ -9196,31 +9887,76 @@ private fun HomeScreen(
                     val cellModifier = Modifier
                         .weight(1f)
                         .aspectRatio(1f)
+                    // Single pulse driver reused for all selected days to avoid recreating transitions
+                    val selectionPulse = rememberInfiniteTransition(label = "calendarSelectedPulse")
+                    val pulseScale by selectionPulse.animateFloat(
+                        initialValue = 0.96f,
+                        targetValue = 1.06f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "calendarSelectedPulseScale"
+                    )
 
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         var day = 1
-                        repeat(5) { // up to 5 weeks for 30 days
+                        repeat(5) { // up to 35 cells; covers up to 31 days
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 repeat(7) {
-                                    if (day <= daysInMonth) {
+                                    if (day <= daysInThisMonth) {
                                         val thisDay = day
                                         val hasEvents = pinnedByDay.containsKey(thisDay)
                                         val isSelected = selectedDay == thisDay
-                                        val bgColor = when {
-                                            isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                                            hasEvents -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
-                                        }
+                                        val bgColor by animateColorAsState(
+                                            targetValue = when {
+                                                isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                                                hasEvents -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
+                                            },
+                                            animationSpec = tween(durationMillis = GoTickyMotion.Quick),
+                                            label = "calendarDayBg"
+                                        )
+                                        val textColor by animateColorAsState(
+                                            targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                            animationSpec = tween(durationMillis = GoTickyMotion.Quick),
+                                            label = "calendarDayText"
+                                        )
                                         val border = if (isSelected) GoTickyGradients.EdgeHalo else GoTickyGradients.CardGlow
+                                        val scale by animateFloatAsState(
+                                            targetValue = if (isSelected) pulseScale else 1f,
+                                            animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                                            label = "calendarDayScale"
+                                        )
+                                        val glowAlpha by animateFloatAsState(
+                                            targetValue = if (isSelected) 1f else 0f,
+                                            animationSpec = tween(durationMillis = GoTickyMotion.Quick),
+                                            label = "calendarDayGlow"
+                                        )
+                                        val glowBaseColor = MaterialTheme.colorScheme.primary
 
                                         Column(
                                             modifier = cellModifier
+                                                .graphicsLayer(
+                                                    scaleX = scale,
+                                                    scaleY = scale
+                                                )
                                                 .clip(goTickyShapes.small)
                                                 .background(bgColor)
                                                 .border(1.dp, border, goTickyShapes.small)
+                                                .drawBehind {
+                                                    if (glowAlpha > 0f) {
+                                                        val strokeWidth = 3.dp.toPx()
+                                                        drawRoundRect(
+                                                            color = glowBaseColor.copy(alpha = 0.35f * glowAlpha),
+                                                            cornerRadius = CornerRadius(size.minDimension * 0.18f, size.minDimension * 0.18f),
+                                                            style = Stroke(width = strokeWidth)
+                                                        )
+                                                    }
+                                                }
                                                 .pressAnimated(scaleDown = 0.9f)
                                                 .clickable {
                                                     selectedDay = thisDay
@@ -9230,16 +9966,23 @@ private fun HomeScreen(
                                         ) {
                                             Text(
                                                 text = thisDay.toString(),
-                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = textColor
                                             )
                                             if (hasEvents) {
+                                                val selectedDotColor = Color(0xFF2EE570)
+                                                val unselectedDotColor = Color(0xFF0B0B0B)
+                                                val dotColor by animateColorAsState(
+                                                    targetValue = if (isSelected) selectedDotColor else unselectedDotColor,
+                                                    animationSpec = tween(durationMillis = GoTickyMotion.Quick),
+                                                    label = "calendarDotColor"
+                                                )
                                                 Box(
                                                     modifier = Modifier
                                                         .padding(top = 4.dp)
-                                                        .size(5.dp)
+                                                        .size(6.dp)
                                                         .clip(CircleShape)
-                                                        .background(MaterialTheme.colorScheme.primary)
+                                                        .background(dotColor)
                                                 )
                                             }
                                         }
@@ -9255,11 +9998,37 @@ private fun HomeScreen(
                     // Events for selected day
                     val eventsForDay = selectedDay?.let { pinnedByDay[it] }.orEmpty()
                     if (eventsForDay.isEmpty()) {
-                        Text(
-                            text = "No pinned events for this date in the sample data.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        GlowCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "No live events pinned for this date yet.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    NeonTextButton(
+                                        text = if (remindMe) "Reminder set" else "Ping me when something drops",
+                                        onClick = { remindMe = !remindMe }
+                                    )
+                                    AnimatedProgressBar(
+                                        progress = if (remindMe) 0.8f else 0.35f,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
@@ -9362,6 +10131,7 @@ private fun HomeScreen(
                             ) {
                                 items(filtered) { event ->
                                     val (earlyLabel, earlyHighlight) = buildEarlyBirdBadgeForEvent(event, adminApplications)
+                                    val earlyPriceLabel = buildEarlyBirdPriceLabelForEvent(event, adminApplications)
                                     EventCard(
                                         item = event,
                                         modifier = Modifier.pressAnimated(scaleDown = 0.96f),
@@ -9372,7 +10142,8 @@ private fun HomeScreen(
                                             showQueryDialog = false
                                         },
                                         earlyBirdLabel = earlyLabel,
-                                        earlyBirdHighlight = earlyHighlight
+                                        earlyBirdHighlight = earlyHighlight,
+                                        priceLabelOverride = earlyPriceLabel
                                     )
                                 }
                             }
@@ -10738,7 +11509,7 @@ private fun EntertainmentNewsCard(
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
-                        text = "${item.minutesAgo} min ago",
+                        text = formatMinutesAgoLabel(item.minutesAgo),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -10838,6 +11609,8 @@ private fun PopularNearbySwingDeck(
     onOpen: (EventItem) -> Unit,
     modifier: Modifier = Modifier,
     swingIntensity: Float = 1f,
+    adminApplications: List<AdminApplication>,
+    now: Instant,
 ) {
     if (nearby.isEmpty()) {
         GlowCard(
@@ -10975,15 +11748,21 @@ private fun PopularNearbySwingDeck(
                         .zIndex(if (isCenter) 3f else 1f - depth * 0.3f),
                     contentAlignment = Alignment.Center
                 ) {
+                    val event = item.event
+                    val (earlyLabel, earlyHighlight) = buildEarlyBirdBadgeForEvent(event, adminApplications, now)
+                    val earlyPriceLabel = buildEarlyBirdPriceLabelForEvent(event, adminApplications, now)
                     NearbySwingCard(
-                        event = item.event,
+                        event = event,
                         distanceLabel = item.distance.formatted,
                         fromLabel = item.distance.fromLabel,
                         isPrimary = isCenter,
-                        isFavorite = favoriteEvents.contains(item.event.id),
-                        onToggleFavorite = { onToggleFavorite(item.event.id) },
+                        isFavorite = favoriteEvents.contains(event.id),
+                        onToggleFavorite = { onToggleFavorite(event.id) },
                         modifier = Modifier.fillMaxWidth(0.9f),
-                        onOpen = { onOpen(item.event) }
+                        onOpen = { onOpen(event) },
+                        earlyBirdLabel = earlyLabel,
+                        earlyBirdHighlight = earlyHighlight,
+                        priceLabelOverride = earlyPriceLabel
                     )
                 }
             }
@@ -11072,6 +11851,9 @@ private fun NearbySwingCard(
     onToggleFavorite: () -> Unit,
     modifier: Modifier = Modifier,
     onOpen: () -> Unit,
+    earlyBirdLabel: String? = null,
+    earlyBirdHighlight: Boolean = false,
+    priceLabelOverride: String? = null,
 ) {
     val accent = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
     val favoriteScale by animateFloatAsState(
@@ -11183,17 +11965,39 @@ private fun NearbySwingCard(
                 onClick = { onToggleFavorite() },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(14.dp)
-                    .size(34.dp)
+                    .padding(top = 10.dp, end = 10.dp)
+                    .size(32.dp)
                     .graphicsLayer(scaleX = favoriteScale, scaleY = favoriteScale)
+                    .drawBehind {
+                        if (isFavorite) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFFFF4B5C).copy(alpha = 0.42f),
+                                        Color(0xFFFF4B5C).copy(alpha = 0f)
+                                    ),
+                                    center = center,
+                                    radius = size.minDimension * 0.85f
+                                ),
+                                radius = size.minDimension * 0.85f,
+                                center = center
+                            )
+                        }
+                    }
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape)
+                    .background(Color.Black.copy(alpha = 0.48f))
+                    .border(
+                        width = 0.9.dp,
+                        color = if (isFavorite) Color(0xFFFF4B5C) else Color.White.copy(alpha = 0.5f),
+                        shape = CircleShape
+                    )
+                    .shadow(elevation = 6.dp, shape = CircleShape)
             ) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                     contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
-                    tint = favoriteTint
+                    tint = favoriteTint,
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
@@ -11274,18 +12078,46 @@ private fun NearbySwingCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = event.priceFrom,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                shadow = Shadow(
-                                    color = Color.Black.copy(alpha = 0.75f),
-                                    offset = Offset(0f, 2f),
-                                    blurRadius = 6f
-                                )
-                            ),
-                            color = accent
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val displayPrice = priceLabelOverride ?: event.priceFrom
+                            Text(
+                                text = displayPrice,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = Shadow(
+                                        color = Color.Black.copy(alpha = 0.75f),
+                                        offset = Offset(0f, 2f),
+                                        blurRadius = 6f
+                                    )
+                                ),
+                                color = accent
+                            )
+                            earlyBirdLabel?.let { label ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(goTickyShapes.small)
+                                        .background(Color.Transparent)
+                                        .drawBehind {
+                                            val haloBrush = Brush.radialGradient(
+                                                colors = listOf(
+                                                    Color(0xFFFF4B5C).copy(alpha = 0.55f),
+                                                    Color.Transparent
+                                                ),
+                                                center = center,
+                                                radius = size.minDimension
+                                            )
+                                            drawCircle(brush = haloBrush, radius = size.minDimension / 1.6f)
+                                        }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFFF4B5C)
+                                    )
+                                }
+                            }
+                        }
                         event.tag?.let { tag ->
                             Text(
                                 text = tag,
@@ -11536,39 +12368,7 @@ private fun ProfileScreen(
     var showProfileDetails by remember { mutableStateOf(false) }
     var showSearchHistory by remember { mutableStateOf(false) }
     var showFavorites by remember { mutableStateOf(false) }
-    val publicEventsFromApplications = remember(adminApplications) {
-        adminApplications
-            .filter { isEventPublic(it.eventId, adminApplications) }
-            .map { app ->
-                val priceLabel = app.pricingTiers.firstOrNull().orEmpty()
-                val category = when (app.category.lowercase()) {
-                    "sports" -> IconCategory.Calendar
-                    "family" -> IconCategory.Profile
-                    "concert", "music" -> IconCategory.Discover
-                    else -> IconCategory.Discover
-                }
-                EventItem(
-                    id = app.eventId,
-                    title = app.title,
-                    city = app.city,
-                    dateLabel = app.eventDateTime.ifBlank { "Date TBC" },
-                    startsAt = parseInstantOrNull(app.eventDateTime),
-                    priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
-                    category = category,
-                    badge = if (app.status == "Approved") "Live" else null,
-                    tag = app.category,
-                    month = "Live",
-                    imagePath = app.flyerUrl?.takeIf { it.startsWith("http", ignoreCase = true) }
-                        ?: "hero_vic_falls_midnight_lights",
-                )
-            }
-    }
-    val publicEvents = remember(adminApplications) {
-        sampleEvents
-            .filter { isEventPublic(it.id, adminApplications) }
-            .plus(publicEventsFromApplications)
-            .distinctBy { it.id }
-    }
+    val publicEvents = remember(adminApplications) { publicEventsFrom(adminApplications).distinctBy { it.id } }
 
     Box(
         modifier = Modifier
@@ -11611,7 +12411,8 @@ private fun ProfileScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 180.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Box(
@@ -11938,6 +12739,7 @@ private fun ProfileScreen(
                         ) {
                             items(favoriteItems) { event ->
                                 val (earlyLabel, earlyHighlight) = buildEarlyBirdBadgeForEvent(event, adminApplications)
+                                val earlyPriceLabel = buildEarlyBirdPriceLabelForEvent(event, adminApplications)
                                 EventCard(
                                     item = event,
                                     modifier = Modifier
@@ -11950,7 +12752,8 @@ private fun ProfileScreen(
                                         showFavorites = false
                                     },
                                     earlyBirdLabel = earlyLabel,
-                                    earlyBirdHighlight = earlyHighlight
+                                    earlyBirdHighlight = earlyHighlight,
+                                    priceLabelOverride = earlyPriceLabel
                                 )
                             }
                         }
@@ -12848,10 +13651,7 @@ private fun OrganizerEventDetailScreen(
     onBack: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
-    val baseEvent = remember(event.eventId) {
-        sampleEvents.firstOrNull { it.id == event.eventId }
-    }
-    val accent = IconCategoryColors[baseEvent?.category ?: IconCategory.Discover]
+    val accent = IconCategoryColors[IconCategory.Discover]
         ?: MaterialTheme.colorScheme.primary
     val statusColor = when (event.status) {
         "Live" -> MaterialTheme.colorScheme.primary
@@ -12870,18 +13670,6 @@ private fun OrganizerEventDetailScreen(
             .fillMaxSize()
             .background(GoTickyGradients.CardGlow)
     ) {
-        baseEvent?.imagePath?.let { key ->
-            val photoRes = Res.allDrawableResources[key]
-            if (photoRes != null) {
-                Image(
-                    painter = painterResource(photoRes),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-        }
-
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -13333,11 +14121,12 @@ private fun CheckoutSuccessScreen(
     method: String?,
     ticketType: String,
     order: OrderSummary?,
+    purchaseAt: Instant?,
     onViewTickets: () -> Unit,
     onBackHome: () -> Unit,
 ) {
     var confettiVisible by remember { mutableStateOf(false) }
-    val paidAtInstant: Instant = remember { currentInstant() }
+    val paidAtInstant: Instant = remember(purchaseAt) { purchaseAt ?: currentInstant() }
     val paidAt = remember(paidAtInstant) { paidAtInstant.toLocalDateTime(TimeZone.currentSystemDefault()) }
     val paidAtLabel = remember(paidAt) {
         val date = paidAt.date
@@ -13481,7 +14270,7 @@ private fun CheckoutSuccessScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Paid at",
+                                text = "Invoice generated",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -13693,7 +14482,9 @@ private fun ForYouRecommendationsRow(
     recommendations: List<Recommendation>,
     favoriteEvents: List<String>,
     onToggleFavorite: (String) -> Unit,
-    onOpen: (Recommendation) -> Unit
+    onOpen: (Recommendation) -> Unit,
+    adminApplications: List<AdminApplication>,
+    now: Instant,
 ) {
     var loading by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
@@ -13736,9 +14527,8 @@ private fun ForYouRecommendationsRow(
                             .padding(1.5.dp)
                             .clip(goTickyShapes.large)
                     ) {
-                        // Resolve image key: explicit on rec, otherwise fall back to event photo
+                        // Resolve image key: explicit on rec; otherwise fall back to a bundled hero image
                         val imageKey = rec.imageKey
-                            ?: sampleEvents.firstOrNull { it.id == rec.eventId }?.imagePath
                         val photoRes = imageKey?.let { key -> Res.allDrawableResources[key] }
                         val remotePainter = rec.imageUrl
                             ?.takeIf { it.isNotBlank() }
@@ -13792,17 +14582,38 @@ private fun ForYouRecommendationsRow(
                             onClick = { onToggleFavorite(rec.eventId) },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(12.dp)
-                                .size(24.dp)
+                                .padding(6.dp)
+                                .size(15.dp)
                                 .graphicsLayer(scaleX = favoriteScale, scaleY = favoriteScale)
+                                .drawBehind {
+                                    if (isFavorite) {
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                colors = listOf(
+                                                    Color(0xFFFF4B5C).copy(alpha = 0.42f),
+                                                    Color(0xFFFF4B5C).copy(alpha = 0f)
+                                                ),
+                                                center = center,
+                                                radius = size.minDimension * 0.85f
+                                            ),
+                                            radius = size.minDimension * 0.85f,
+                                            center = center
+                                        )
+                                    }
+                                }
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.25f))
-                                .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                                .border(
+                                    1.dp,
+                                    if (isFavorite) Color(0xFFFF4B5C) else Color.White.copy(alpha = 0.10f),
+                                    CircleShape
+                                )
                         ) {
                             Icon(
                                 imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                                 contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
-                                tint = favoriteTint
+                                tint = favoriteTint,
+                                modifier = Modifier.size(11.dp)
                             )
                         }
 
@@ -13851,11 +14662,45 @@ private fun ForYouRecommendationsRow(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    rec.priceFrom,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                val mappedEvent = publicEventsFrom(adminApplications).firstOrNull { it.id == rec.eventId }
+                                val (earlyLabel, earlyHighlight) = mappedEvent?.let { evt ->
+                                    buildEarlyBirdBadgeForEvent(evt, adminApplications, now)
+                                } ?: (null to false)
+                                val dynamicPrice = mappedEvent?.let { evt ->
+                                    buildEarlyBirdPriceLabelForEvent(evt, adminApplications, now)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = dynamicPrice ?: rec.priceFrom,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    earlyLabel?.let { label ->
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(goTickyShapes.small)
+                                                .background(Color.Transparent)
+                                                .drawBehind {
+                                                    val haloBrush = Brush.radialGradient(
+                                                        colors = listOf(
+                                                            Color(0xFFFF4B5C).copy(alpha = 0.55f),
+                                                            Color.Transparent
+                                                        ),
+                                                        center = center,
+                                                        radius = size.minDimension
+                                                    )
+                                                    drawCircle(brush = haloBrush, radius = size.minDimension / 1.6f)
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFFFF4B5C)
+                                            )
+                                        }
+                                    }
+                                }
                                 NeonTextButton(text = "Open", onClick = { onOpen(rec) })
                             }
                         }
@@ -13900,9 +14745,8 @@ private fun RecommendationsRow(
                             .padding(1.5.dp)
                             .clip(goTickyShapes.large)
                     ) {
-                        // Resolve image key: explicit on rec, otherwise fall back to event photo
+                        // Resolve image key: explicit on rec; otherwise use bundled hero art
                         val imageKey = rec.imageKey
-                            ?: sampleEvents.firstOrNull { it.id == rec.eventId }?.imagePath
                         val photoRes = imageKey?.let { key -> Res.allDrawableResources[key] }
 
                         if (photoRes != null) {
@@ -14796,6 +15640,14 @@ private fun EventDetailScreen(
         }
     }
     val now = nowState.value
+    val eventStart = event.startsAt
+    val ticketSalesCutoff: Instant? = eventStart?.let { start ->
+        start + 30.toDuration(DurationUnit.MINUTES)
+    }
+    val ticketSalesFrozen: Boolean = ticketSalesCutoff?.let { cutoff -> now >= cutoff } ?: false
+    val ticketSalesRemaining: Duration? = ticketSalesCutoff?.let { cutoff ->
+        if (now < cutoff) (cutoff - now) else null
+    }
     // Fallback Early Bird: if this is a catalog/sample event without an admin application,
     // auto-open a 72h window from now with a 20% discount to keep the option selectable.
     val syntheticEarlyBird = remember(event.id) {
@@ -14803,19 +15655,30 @@ private fun EventDetailScreen(
             val base = parsePrice(event.priceFrom) ?: 0.0
             val discount = 20
             val start = currentInstant()
+            val rawEnd = start + 72.hours
+            val eventStart = event.startsAt
+            val end = eventStart?.let { startOfEvent ->
+                if (startOfEvent > start) {
+                    if (startOfEvent < rawEnd) startOfEvent else rawEnd
+                } else {
+                    rawEnd
+                }
+            } ?: rawEnd
+            if (end <= start) return@remember null
             val earlyPrice = (base * (1 - discount / 100.0)).takeIf { it > 0 } ?: 0.0
             val baseLabel = event.priceFrom.ifBlank { "Base price" }
             val earlyLabel = if (earlyPrice <= 0.0) {
                 "Promo"
             } else if (earlyPrice % 1.0 == 0.0) {
-                "$$${earlyPrice.toInt()}"
+                "$${earlyPrice.toInt()}"
             } else {
-                "$$${formatPriceTwoDecimals(earlyPrice)}"
+                "$${formatPriceTwoDecimals(earlyPrice)}"
             }
             EarlyBirdWindow(
                 start = start,
-                end = start + 72.hours,
+                end = end,
                 discountPercent = discount,
+                basePrice = base,
                 basePriceLabel = baseLabel,
                 earlyPriceLabel = earlyLabel
             )
@@ -14826,9 +15689,22 @@ private fun EventDetailScreen(
     val earlyBirdExpired = effectiveEarlyBirdWindow?.let { now > it.end } ?: false
     val earlyBirdPendingApproval = adminApplication != null && adminApplication.status != "Approved"
     val earlyBirdRemaining: Duration? = effectiveEarlyBirdWindow?.let { window ->
-        (window.end - now).coerceAtLeast(ZERO)
+        // Mirror the card badge semantics:
+        // - During the first 12h from window.start, "remaining" is time
+        //   until the 12h mark (end of static intro price).
+        // - After 12h, "remaining" is time until the full Early Bird
+        //   window ends (dynamic discount phase).
+        val total = (window.end - window.start).coerceAtLeast(ZERO)
+        val introDuration = minOf(12.hours, total)
+        val introEnd = window.start + introDuration
+        if (now < introEnd) {
+            (introEnd - now).coerceAtLeast(ZERO)
+        } else {
+            (window.end - now).coerceAtLeast(ZERO)
+        }
     }
-    val earlyBirdProgressTarget = effectiveEarlyBirdWindow?.let { window ->
+    val earlyBirdPricing = effectiveEarlyBirdWindow?.let { computeEarlyBirdPricing(it, now) }
+    val earlyBirdProgressTarget = earlyBirdPricing?.progress ?: effectiveEarlyBirdWindow?.let { window ->
         val totalMs = (window.end - window.start).toLong(DurationUnit.MILLISECONDS).coerceAtLeast(1L)
         val elapsedMs = (now - window.start).toLong(DurationUnit.MILLISECONDS).coerceAtLeast(0L)
         (elapsedMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
@@ -14865,6 +15741,12 @@ private fun EventDetailScreen(
             selectedTicketType = null
         }
     }
+    LaunchedEffect(ticketSalesFrozen) {
+        if (ticketSalesFrozen) {
+            selectedTicketType = null
+            checkoutNotice = "Ticket sales have closed for this event. Sales freeze 30 minutes after start."
+        }
+    }
     val accent = IconCategoryColors[event.category] ?: MaterialTheme.colorScheme.primary
     val normalizedPricing = remember(ticketPricing) { ticketPricing?.mapKeys { it.key.lowercase() } }
     fun resolveTicketPrice(option: String): String? {
@@ -14879,12 +15761,19 @@ private fun EventDetailScreen(
             lower.contains("golden") -> listOf("golden", "goldencircle", "circle")
             else -> emptyList()
         }
+        // For Early Bird, prefer the live dynamic price when the window is active,
+        // even if organizers provided a static tier price.
+        val liveEarlyBird = if (lower.contains("early") && earlyBirdActive) {
+            earlyBirdPricing?.priceLabel
+        } else null
         val match = normalizedPricing?.entries?.firstOrNull { (key, _) ->
             keys.any { key.contains(it) }
         }?.value
-        val matchedOrFallback = match
+        val matchedOrFallback = liveEarlyBird
+            ?: match
             ?: if (lower.contains("early") && effectiveEarlyBirdWindow != null) {
-                effectiveEarlyBirdWindow.earlyPriceLabel
+                // Use live, decaying Early Bird price as the authoritative label.
+                earlyBirdPricing?.priceLabel ?: effectiveEarlyBirdWindow.earlyPriceLabel
             } else if (lower.contains("general") || lower.contains("standard")) {
                 event.priceFrom.ifBlank { null }
             } else null
@@ -14920,7 +15809,7 @@ private fun EventDetailScreen(
             else -> null
         }
     }
-    val pricedTicketOptions = remember(ticketPricing, earlyBirdWindow, event.priceFrom) {
+    val pricedTicketOptions = remember(ticketPricing, earlyBirdWindow, earlyBirdPricing?.priceLabel, event.priceFrom) {
         ticketOptions.mapNotNull { option ->
             val price = resolveTicketPrice(option)
             if (price == null) null else option to price
@@ -15205,6 +16094,23 @@ private fun EventDetailScreen(
                         }
                     }
                 }
+                AnimatedVisibility(
+                    visible = !ticketSalesFrozen && ticketSalesRemaining != null,
+                    enter = fadeIn() + slideInVertically { it / 8 },
+                    exit = fadeOut() + slideOutVertically { it / 8 }
+                ) {
+                    val label = ticketSalesRemaining?.let { remaining ->
+                        "Sales close in ${formatDurationShort(remaining)}"
+                    } ?: ""
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFFFC94A),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp)
+                    )
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     AnimatedVisibility(
                         visible = earlyBirdWindow != null,
@@ -15254,14 +16160,21 @@ private fun EventDetailScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
+                                    val liveDiscount = earlyBirdPricing?.discountPercent ?: earlyBirdWindow?.discountPercent?.toDouble()
                                     val headline = when {
-                                        earlyBirdActive -> "Early Bird live • ${earlyBirdWindow?.discountPercent ?: 20}% off"
+                                        earlyBirdActive -> {
+                                            val prettyDiscount = liveDiscount?.let { "${formatPriceTwoDecimals(it).trimEnd('0').trimEnd('.')}" } ?: "0"
+                                            "Early Bird live • $prettyDiscount% off now"
+                                        }
                                         earlyBirdPendingApproval -> "Early Bird coming soon"
                                         earlyBirdExpired -> "Early Bird ended"
                                         else -> "Early Bird inactive"
                                     }
                                     val caption = when {
-                                        earlyBirdActive && earlyBirdRemaining != null -> "Ends in ${formatDurationShort(earlyBirdRemaining)} • ${earlyBirdWindow?.basePriceLabel} → ${earlyBirdWindow?.earlyPriceLabel}"
+                                        earlyBirdActive && earlyBirdRemaining != null -> {
+                                            val dynamicEarly = earlyBirdPricing?.priceLabel ?: earlyBirdWindow?.earlyPriceLabel
+                                            "Ends in ${formatDurationShort(earlyBirdRemaining)} • ${earlyBirdWindow?.basePriceLabel} → $dynamicEarly"
+                                        }
                                         earlyBirdPendingApproval -> "Early Bird will be available once this event is fully set up."
                                         earlyBirdExpired -> "Window closed. Switching to General."
                                         else -> "Early Bird is not available for this event."
@@ -15302,9 +16215,12 @@ private fun EventDetailScreen(
                     pricedTicketOptions.forEach { (option, priceLabel) ->
                         val selected = selectedTicketType == option
                         val earlyBirdOption = option == "Early Bird"
-                        val disabled = earlyBirdOption && !earlyBirdActive
+                        val disabledForEarlyBird = earlyBirdOption && !earlyBirdActive
+                        val disabled = ticketSalesFrozen || disabledForEarlyBird
                         val disabledReason = when {
-                            earlyBirdExpired -> "Ended"
+                            ticketSalesFrozen && eventStart != null -> "Ended"
+                            ticketSalesFrozen && eventStart == null -> "Sales closed"
+                            earlyBirdExpired && earlyBirdOption -> "Ended"
                             earlyBirdPendingApproval && earlyBirdOption -> "Not available yet"
                             earlyBirdOption && earlyBirdWindow == null -> "Not available"
                             else -> ""
@@ -15336,6 +16252,18 @@ private fun EventDetailScreen(
                                             )
                                         )
                                     }
+                                } else if (ticketSalesFrozen) {
+                                    checkoutNotice = "Ticket sales have closed for this event. Sales freeze 30 minutes after start."
+                                    Analytics.log(
+                                        AnalyticsEvent(
+                                            name = "ticket_sales_closed_click",
+                                            params = mapOf(
+                                                "event_id" to event.id,
+                                                "title" to event.title,
+                                                "option" to option
+                                            )
+                                        )
+                                    )
                                 } else if (earlyBirdPendingApproval) {
                                     Analytics.log(
                                         AnalyticsEvent(
@@ -15372,7 +16300,10 @@ private fun EventDetailScreen(
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         val subtitle = when {
-                                            earlyBirdOption && earlyBirdWindow != null -> "${earlyBirdWindow.earlyPriceLabel} (base ${earlyBirdWindow.basePriceLabel})"
+                                            earlyBirdOption && earlyBirdWindow != null -> {
+                                                val dynamicEarly = earlyBirdPricing?.priceLabel ?: earlyBirdWindow.earlyPriceLabel
+                                                "$dynamicEarly (base ${earlyBirdWindow.basePriceLabel})"
+                                            }
                                             else -> "Perks: instant QR, transfers, price locks"
                                         }
                                         Text(
@@ -15456,7 +16387,7 @@ private fun EventDetailScreen(
         GlowCard(
             modifier = Modifier.fillMaxWidth()
         ) {
-            val canCheckout = selectedTicketType != null
+            val canCheckout = selectedTicketType != null && !ticketSalesFrozen
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -15468,8 +16399,22 @@ private fun EventDetailScreen(
                     text = "Checkout",
                     modifier = Modifier
                         .weight(1f)
-                        .graphicsLayer(alpha = if (canCheckout) 1f else 0.45f)
+                        .graphicsLayer(alpha = if (canCheckout) 1f else 0.45f),
+                    enabled = canCheckout
                 ) {
+                    if (ticketSalesFrozen) {
+                        checkoutNotice = "Ticket sales have closed for this event. Sales freeze 30 minutes after start."
+                        Analytics.log(
+                            AnalyticsEvent(
+                                name = "checkout_after_sales_closed_attempt",
+                                params = mapOf(
+                                    "event_id" to event.id,
+                                    "title" to event.title
+                                )
+                            )
+                        )
+                        return@PrimaryButton
+                    }
                     var type = selectedTicketType
                     if (type == "Early Bird") {
                         // Guardrail: if Early Bird is no longer active, gracefully fall back.

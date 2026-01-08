@@ -1,3 +1,5 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
+
 package org.example.project
 
 import kotlinx.datetime.Instant

@@ -1,8 +1,8 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Add inset padding so the full logo sits comfortably within the adaptive icon mask -->
+    <!-- Add inset padding so the full logo is visible inside the adaptive mask -->
     <item>
         <inset
-            android:drawable="@drawable/goticky_launcher"
-            android:inset="16dp" />
+            android:drawable="@drawable/ic_launcher"
+            android:inset="20dp" />
     </item>
 </layer-list>

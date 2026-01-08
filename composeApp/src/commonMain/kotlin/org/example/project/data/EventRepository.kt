@@ -66,6 +66,7 @@ class EventRepository(
     ): Result<SavedEvent> {
         val uid = ensureAuthUid() ?: return Result.failure(IllegalStateException("No auth session"))
         val firestore = Firebase.firestore
+        val authUser = Firebase.auth.currentUser
         val organizerCollection = firestore.collection("organizers").document(uid).collection("events")
         val eventId = generateEventId()
         val newDoc = organizerCollection.document(eventId)
@@ -124,6 +125,25 @@ class EventRepository(
                 this["status"] = if (input.isApproved) "Approved" else "In Review"
             }
             firestore.collection("events").document(eventId).set(publicPayload)
+
+            // Ensure organizer profile exists for admin dashboard linkage.
+            val userDoc = firestore.collection("users").document(uid)
+            val existingRole = runCatching { userDoc.get().get<String?>("role") }.getOrNull()
+            val roleToSet = existingRole ?: "organizer"
+            val displayName = authUser?.displayName ?: input.companyName.ifBlank { "Organizer" }
+            val email = authUser?.email
+            val organizerProfile = mutableMapOf<String, Any?>(
+                "uid" to uid,
+                "displayName" to displayName,
+                "companyName" to input.companyName,
+                "role" to roleToSet,
+                "updatedAt" to nowIso,
+            )
+            if (!email.isNullOrBlank()) {
+                organizerProfile["email"] = email
+            }
+            userDoc.set(organizerProfile, merge = true)
+
             val organizerEvent = OrganizerEvent(
                 id = "org-$eventId",
                 eventId = eventId,

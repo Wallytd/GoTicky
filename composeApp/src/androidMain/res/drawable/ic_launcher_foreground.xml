@@ -1,8 +1,12 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Add inset padding so the full logo is visible inside the adaptive mask -->
     <item>
+        <!-- Slightly wider on home launcher: reduce horizontal inset -->
         <inset
-            android:drawable="@drawable/goticky_launcher"
-            android:inset="16dp" />
+            android:drawable="@drawable/ic_launcher"
+            android:insetLeft="16dp"
+            android:insetRight="16dp"
+            android:insetTop="20dp"
+            android:insetBottom="20dp" />
     </item>
 </layer-list>
