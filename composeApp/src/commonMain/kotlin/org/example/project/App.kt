@@ -22,6 +22,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -94,6 +95,10 @@ import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Sort
@@ -199,12 +204,11 @@ import org.example.project.data.OrganizerEvent
 import org.example.project.data.EventDraftInput
 import org.example.project.data.EventRepository
 import org.example.project.data.NewsFlash
-import org.example.project.data.sampleAlerts
 import org.example.project.data.sampleOrder
-import org.example.project.data.sampleRecommendations
 import org.example.project.data.EntertainmentNewsItem
 import org.example.project.data.sampleEntertainmentNews
 import org.example.project.data.toEntertainmentNewsItem
+import org.example.project.data.NotificationItem
 import org.example.project.location.eventLocationGeoPoint
 import org.example.project.location.rememberNearbyEvents
 import org.example.project.location.rememberDistanceForEvents
@@ -257,6 +261,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
 import org.example.project.GoTickyFeatures
 import androidx.compose.runtime.mutableStateMapOf
@@ -289,6 +294,8 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.atTime
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Duration.Companion.hours
@@ -297,8 +304,12 @@ import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 import dev.gitlive.firebase.Firebase
 import dev.gitlive.firebase.auth.auth
+import dev.gitlive.firebase.firestore.Direction
+import dev.gitlive.firebase.firestore.DocumentSnapshot
 import dev.gitlive.firebase.firestore.firestore
-import org.example.project.data.adminSeeds
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 private enum class MainScreen {
     Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
@@ -1392,6 +1403,158 @@ private fun NewsFlashSection(
     }
 }
 
+@Composable
+private fun NotificationCard(
+    item: NotificationItem,
+    fresh: Boolean,
+    onOpen: () -> Unit,
+    onMarkRead: () -> Unit,
+    now: Instant,
+) {
+    val iconColor = when (item.type.lowercase()) {
+        "approved" -> Color(0xFF63FFA6)
+        "rejected", "error" -> Color(0xFFFF7B7B)
+        "reminder" -> Color(0xFFFFC94A)
+        "offer" -> Color(0xFF7BD7FF)
+        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+    }
+    val backgroundGlow = if (fresh) iconColor.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val pulse by rememberInfiniteTransition(label = "notifPulse").animateFloat(
+        initialValue = if (fresh) 0.97f else 1f,
+        targetValue = if (fresh) 1.03f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = EaseOutBack),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "notifPulseAnim"
+    )
+    val createdInstant = remember(item.createdAt) {
+        runCatching { Instant.parse(item.createdAt) }.getOrNull()
+    }
+    val relativeTime = remember(now, item.createdAt) {
+        createdInstant?.let { formatRelativeTime(now, it) } ?: "Just now"
+    }
+
+    GlowCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(scaleX = pulse, scaleY = pulse)
+            .pressAnimated()
+            .clickable { onOpen() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(backgroundGlow)
+                    .border(1.dp, iconColor.copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = when (item.type.lowercase()) {
+                        "approved" -> Icons.Outlined.CheckCircle
+                        "rejected", "error" -> Icons.Outlined.Cancel
+                        "reminder" -> Icons.Outlined.Schedule
+                        "offer" -> Icons.Outlined.LocalOffer
+                        else -> Icons.Outlined.Notifications
+                    },
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                Text(item.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                Text(item.body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(relativeTime, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (item.status.lowercase() != "read") {
+                        Pill(text = "New", color = iconColor.copy(alpha = 0.18f), textColor = iconColor)
+                    }
+                }
+            }
+            if (item.status.lowercase() != "read") {
+                NeonTextButton(text = "Mark read", onClick = onMarkRead, modifier = Modifier.pressAnimated())
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationSkeleton() {
+    val shimmer by rememberInfiniteTransition(label = "notifShimmer").animateFloat(
+        initialValue = -200f,
+        targetValue = 400f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
+        label = "notifShimmerAnim"
+    )
+    GlowCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                SkeletonBar(shimmer, widthFraction = 0.6f)
+                SkeletonBar(shimmer, widthFraction = 0.9f)
+                SkeletonBar(shimmer, widthFraction = 0.4f)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkeletonBar(shimmer: Float, widthFraction: Float) {
+    val gradient = Brush.linearGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        start = Offset(shimmer, shimmer),
+        end = Offset(shimmer + 200f, shimmer + 200f)
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth(widthFraction)
+            .height(10.dp)
+            .clip(goTickyShapes.small)
+            .background(gradient)
+    )
+}
+
+private fun formatRelativeTime(now: Instant, created: Instant): String {
+    val delta = now - created
+    val minutes = delta.inWholeMinutes
+    val hours = delta.inWholeHours
+    val days = delta.inWholeDays
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days < 7 -> "${days}d ago"
+        else -> "${days / 7}w ago"
+    }
+}
+
 private suspend fun fetchRecommendationsFromFirestore(): List<Recommendation> {
     return try {
         ensureSettingsSession()
@@ -1430,6 +1593,218 @@ private suspend fun fetchRecommendationsFromFirestore(): List<Recommendation> {
             .sortedBy { it.order }
     } catch (_: Throwable) {
         emptyList()
+    }
+}
+
+private suspend fun fetchNotificationsFromFirestore(userId: String): List<NotificationItem> {
+    val authUser = Firebase.auth.currentUser ?: throw IllegalStateException("Sign in to load notifications.")
+    if (authUser.uid != userId) throw IllegalStateException("Session mismatch. Please sign in again.")
+
+    val snap = Firebase.firestore
+        .collection("notifications")
+        .where { "userId" equalTo userId }
+        .orderBy("createdAt", Direction.DESCENDING)
+        .get()
+
+    return snap.documents.take(50).mapNotNull { doc ->
+        val id = doc.id
+        val title = doc.get<String?>("title") ?: return@mapNotNull null
+        val body = doc.get<String?>("body") ?: ""
+        val type = doc.get<String?>("type") ?: "general"
+        val createdAt = doc.get<String?>("createdAt") ?: return@mapNotNull null
+        val user = doc.get<String?>("userId") ?: return@mapNotNull null
+        NotificationItem(
+            id = id,
+            userId = user,
+            title = title,
+            body = body,
+            type = type,
+            eventId = doc.get<String?>("eventId"),
+            createdAt = createdAt,
+            readAt = doc.get<String?>("readAt"),
+            status = doc.get<String?>("status") ?: "unread",
+            actionUrl = doc.get<String?>("actionUrl"),
+            icon = doc.get<String?>("icon"),
+        )
+    }
+}
+
+private fun notificationErrorMessage(t: Throwable): String {
+    val raw = t.message ?: return "Unable to load notifications."
+    return if (raw.contains("requires an index", ignoreCase = true)) {
+        "Notifications need a Firestore index on userId + createdAt. Create it in Firebase console then retry."
+    } else raw
+}
+
+private suspend fun addNotificationForUser(
+    userId: String,
+    title: String,
+    body: String,
+    type: String,
+    eventId: String? = null,
+    actionUrl: String? = null,
+    icon: String? = null,
+): Result<NotificationItem> {
+    val auth = Firebase.auth
+    if (auth.currentUser == null) {
+        // Best-effort session so Firestore rules allow the write (covers admin + anon sessions).
+        runCatching { auth.signInAnonymously() }
+    }
+    val session = auth.currentUser ?: return Result.failure(IllegalStateException("No auth session for notification write"))
+    val nowIso = currentInstant().toString()
+    val notificationId = "ntf-${currentInstant().toEpochMilliseconds()}-${Random.nextInt(1000, 9999)}"
+    val payload = mapOf(
+        "id" to notificationId,
+        "userId" to userId,
+        "title" to title,
+        "body" to body,
+        "type" to type,
+        "eventId" to eventId,
+        "createdAt" to nowIso,
+        "readAt" to null,
+        "status" to "unread",
+        "actionUrl" to actionUrl,
+        "icon" to icon,
+    )
+    return runCatching {
+        Firebase.firestore.collection("notifications").document(notificationId).set(payload)
+        NotificationItem(
+            id = notificationId,
+            userId = userId,
+            title = title,
+            body = body,
+            type = type,
+            eventId = eventId,
+            createdAt = nowIso,
+            readAt = null,
+            status = "unread",
+            actionUrl = actionUrl,
+            icon = icon,
+        )
+    }
+}
+
+private suspend fun markNotificationReadOnFirestore(notificationId: String) {
+    val nowIso = currentInstant().toString()
+    runCatching {
+        Firebase.firestore
+            .collection("notifications")
+            .document(notificationId)
+            .update(
+                mapOf(
+                    "readAt" to nowIso,
+                    "status" to "read"
+                )
+            )
+    }
+}
+
+private suspend fun runProactiveAlerts(
+    publicEvents: List<EventItem>,
+    adminApplications: List<AdminApplication>,
+    favoriteEvents: List<String>,
+    userTickets: List<TicketPass>,
+    priceAlertEventIds: List<String>,
+    lastSeenPrices: MutableMap<String, Double>,
+    remindersSent: MutableMap<String, MutableSet<String>>,
+    markReminderSent: (String, String) -> Unit,
+) {
+    val uid = Firebase.auth.currentUser?.uid ?: return
+    if (publicEvents.isEmpty()) return
+    val now = currentInstant()
+
+    // Price-drop sweep for events the user set alerts on.
+    publicEvents.forEach { event ->
+        val price = parsePrice(event.priceFrom) ?: return@forEach
+        val previous = lastSeenPrices[event.id]
+        lastSeenPrices[event.id] = price
+        val alertSet = priceAlertEventIds.contains(event.id)
+        if (alertSet && previous != null && price < previous) {
+            val delta = previous - price
+            val body = if (delta >= 1.0) {
+                "Price dropped by $${formatPriceTwoDecimals(delta)} to $${formatPriceTwoDecimals(price)} for ${event.title}."
+            } else {
+                "Price just dropped for ${event.title}. New from $${formatPriceTwoDecimals(price)}."
+            }
+            addNotificationForUser(
+                userId = uid,
+                title = "Price drop on ${event.title}",
+                body = body,
+                type = "price_drop",
+                eventId = event.id,
+                actionUrl = "goticky://events/${event.id}",
+                icon = "price"
+            )
+        }
+    }
+
+    // Early Bird ending soon for favorited/alerted events.
+    publicEvents.forEach { event ->
+        val app = adminApplications.firstOrNull { it.eventId == event.id } ?: return@forEach
+        val window = buildEarlyBirdWindow(app, app.approvedAt) ?: return@forEach
+        if (now < window.start || now > window.end) return@forEach
+        val remaining = (window.end - now)
+        val interested = favoriteEvents.contains(event.id) || priceAlertEventIds.contains(event.id)
+        val minutesRemaining = remaining.inWholeMinutes
+        val bucket = when {
+            minutesRemaining <= 60 -> "eb_1h"
+            minutesRemaining <= 6 * 60 -> "eb_6h"
+            else -> null
+        } ?: return@forEach
+        val already = remindersSent[event.id]?.contains(bucket) == true
+        if (interested && !already) {
+            val body = if (bucket == "eb_1h") {
+                "Early Bird for ${event.title} ends in under an hour. Lock in the lower price."
+            } else {
+                "Early Bird pricing for ${event.title} ends soon. Grab tickets while the discount lasts."
+            }
+            addNotificationForUser(
+                userId = uid,
+                title = "Early Bird ending soon",
+                body = body,
+                type = "early_bird",
+                eventId = event.id,
+                actionUrl = "goticky://events/${event.id}",
+                icon = "ticket"
+            )
+            markReminderSent(event.id, bucket)
+        }
+    }
+
+    // Reminder sweep for owned tickets (by title match).
+    if (userTickets.isEmpty()) return
+    publicEvents.forEach { event ->
+        val start = event.startsAt ?: return@forEach
+        val minutesToStart = (start - now).inWholeMinutes
+        val hasTicket = userTickets.any { it.eventTitle.equals(event.title, ignoreCase = true) }
+        if (!hasTicket) return@forEach
+
+        val buckets = listOf(
+            "24h" to 24 * 60,
+            "6h" to 6 * 60,
+            "1h" to 60,
+        )
+        buckets.forEach { (bucket, minutes) ->
+            val already = remindersSent[event.id]?.contains(bucket) == true
+            val withinWindow = minutesToStart in (minutes - 20)..(minutes + 20)
+            if (withinWindow && !already) {
+                val body = when (bucket) {
+                    "24h" -> "24h to go — ${event.title} is tomorrow. Check your tickets and plan arrival."
+                    "6h" -> "Later today: ${event.title}. Remember your ticket and ID."
+                    else -> "Starting soon: ${event.title}. Show your ticket QR on entry."
+                }
+                addNotificationForUser(
+                    userId = uid,
+                    title = "Reminder: ${event.title}",
+                    body = body,
+                    type = "reminder",
+                    eventId = event.id,
+                    actionUrl = "goticky://events/${event.id}",
+                    icon = "reminder"
+                )
+                markReminderSent(event.id, bucket)
+            }
+        }
     }
 }
 
@@ -2337,6 +2712,67 @@ private fun publicEventsFrom(apps: List<AdminApplication>): List<EventItem> =
         mapAdminApplicationToEvent(app, apps)
     }
 
+private fun mapEventDocToAdminApplication(doc: DocumentSnapshot, now: Instant): AdminApplication? {
+    val title = doc.get<String?>("title") ?: return null
+    val organizerId = doc.get<String?>("organizerId") ?: ""
+    val isApproved = doc.get<Boolean?>("isApproved") ?: false
+    val status = when {
+        isApproved -> "Approved"
+        else -> doc.get<String?>("status") ?: "In Review"
+    }
+    val createdAt = doc.get<String?>("createdAt")
+    val ageHours = createdAt?.let {
+        runCatching { (now - Instant.parse(it)).inWholeHours.toInt().coerceAtLeast(0) }.getOrNull()
+    } ?: 0
+    val ticketsMapDouble = runCatching { doc.get<Map<String, Double>?>("tickets") }.getOrNull()
+    val ticketsMapLong = if (ticketsMapDouble == null) {
+        runCatching { doc.get<Map<String, Long>?>("tickets") }.getOrNull()
+    } else null
+    val ticketsMap: Map<String, Number> = (ticketsMapDouble ?: ticketsMapLong) ?: emptyMap()
+    val pricingTiers = ticketsMap.entries.mapNotNull { (tier, price) ->
+        val numeric = price.toDouble()
+        val formatted = formatPriceTwoDecimals(numeric)
+        "$tier $$formatted"
+    }
+    val flyerUrl = doc.get<String?>("flyerUrl")
+    val lat = doc.get<Double?>("lat") ?: doc.get<Long?>("lat")?.toDouble()
+    val lng = doc.get<Double?>("lng") ?: doc.get<Long?>("lng")?.toDouble()
+    val createdAtIso = doc.get<String?>("createdAt")
+    val updatedAtIso = doc.get<String?>("updatedAt")
+    val createdAtInstant = createdAtIso?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    val updatedAtInstant = updatedAtIso?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    val risk = when {
+        isApproved -> "Low"
+        status.equals("Rejected", ignoreCase = true) -> "High"
+        else -> "Medium"
+    }
+
+    return AdminApplication(
+        id = doc.id,
+        eventId = doc.id,
+        organizerId = organizerId,
+        title = title,
+        organizer = doc.get<String?>("companyName") ?: doc.get<String?>("organizerName") ?: "Organizer",
+        city = doc.get<String?>("city") ?: "",
+        category = doc.get<String?>("category") ?: "General",
+        status = status,
+        isApproved = isApproved,
+        risk = risk,
+        ageHours = ageHours,
+        completeness = (doc.get<Long?>("completeness") ?: 70L).toInt().coerceIn(0, 100),
+        attachmentsReady = doc.get<Boolean?>("attachmentsReady") ?: false,
+        notes = doc.get<String?>("notes") ?: "",
+        eventDateTime = doc.get<String?>("dateLabel") ?: "",
+        pricingTiers = if (pricingTiers.isNotEmpty()) pricingTiers else listOf(doc.get<String?>("priceFrom") ?: "Tier pending"),
+        approvedAt = doc.get<String?>("approvedAt")?.let { runCatching { Instant.parse(it) }.getOrNull() },
+        flyerUrl = flyerUrl,
+        lat = lat,
+        lng = lng,
+        createdAt = createdAtInstant,
+        updatedAt = updatedAtInstant,
+    )
+}
+
 private fun isEventHappeningToday(
     event: EventItem,
     now: Instant,
@@ -2356,13 +2792,25 @@ private fun pickUpcomingEvent(
     now: Instant,
     tz: TimeZone,
 ): EventItem? {
-    // Prefer events with parsed start times, soonest after "now".
-    val withStart = events.filter { it.startsAt != null }.sortedBy { it.startsAt }
-    val upcomingWithStart = withStart.filter { it.startsAt!! >= now }
-    if (upcomingWithStart.isNotEmpty()) return upcomingWithStart.first()
+    // Build candidate list with the best-known start instant per event
+    val noon = LocalTime(hour = 12, minute = 0)
+    val candidates = events.mapNotNull { event ->
+        val startInstant = event.startsAt
+            ?: eventLocalDate(event, tz)
+                ?.atTime(noon)
+                ?.toInstant(tz)
+        startInstant?.let { it to event }
+    }
 
-    // If all start times are in the past, surface the most recent (still better than empty).
-    if (withStart.isNotEmpty()) return withStart.last()
+    // Prefer the nearest future event (closest to "now" but not before)
+    val upcoming = candidates
+        .filter { (instant, _) -> instant >= now }
+        .minByOrNull { (instant, _) -> instant }
+    if (upcoming != null) return upcoming.second
+
+    // Otherwise, fall back to the most recent past event (still better than empty)
+    val recentPast = candidates.maxByOrNull { (instant, _) -> instant }
+    if (recentPast != null) return recentPast.second
 
     // Fallback: use label hints for soonish events.
     val hintToday = events.firstOrNull { isEventHappeningToday(it, now, tz) }
@@ -3432,7 +3880,7 @@ private fun GoTickyRoot() {
     var selectedTicketType by remember { mutableStateOf("General / Standard") }
     var userProfile by rememberSaveable(stateSaver = UserProfileSaver) { mutableStateOf(defaultUserProfile()) }
     var currentUserRole by rememberSaveable { mutableStateOf("customer") } // Admin shell gate: Admin only
-    val adminAccessRoles = remember { setOf("Admin") }
+    val adminAccessRoles = remember { setOf("Admin", "admin", "Reviewer") }
     val adminFeatureFlagEnabled = GoTickyFeatures.EnableAdmin
     val hasAdminAccess by remember(adminFeatureFlagEnabled, currentUserRole) {
         derivedStateOf { adminFeatureFlagEnabled && adminAccessRoles.contains(currentUserRole) }
@@ -3442,7 +3890,17 @@ private fun GoTickyRoot() {
     var showGuestGateDialog by remember { mutableStateOf(false) }
     var guestGateTarget by remember { mutableStateOf<GuestGateTarget?>(null) }
     var guestGateMessage by remember { mutableStateOf("Sign up to unlock this action.") }
-    val alerts = remember { mutableStateListOf<PriceAlert>(*sampleAlerts.toTypedArray()) }
+    val notifications = remember { mutableStateListOf<NotificationItem>() }
+    var notificationsLoading by remember { mutableStateOf(false) }
+    var notificationsError by remember { mutableStateOf<String?>(null) }
+    val priceAlertEventIds = rememberSaveable { mutableStateListOf<String>() }
+    val lastSeenPrices = remember { mutableStateMapOf<String, Double>() }
+    val remindersSent = remember { mutableStateMapOf<String, MutableSet<String>>() }
+    fun markReminderSent(eventId: String, bucket: String) {
+        val set = remindersSent[eventId] ?: mutableSetOf()
+        set.add(bucket)
+        remindersSent[eventId] = set
+    }
     val recommendations = remember { mutableStateListOf<Recommendation>() }
     var adminApplications = remember { mutableStateListOf<AdminApplication>() }
     var adminApplicationsLoading by remember { mutableStateOf(false) }
@@ -3575,9 +4033,76 @@ private fun GoTickyRoot() {
                     recommendations.clear()
                     recommendations.addAll(mapped)
                 }
-            }.onFailure { t ->
-                snackbarHostState.showSnackbar(t.message ?: "Unable to load For You events.")
             }
+        }
+    }
+
+    fun refreshNotifications() {
+        val uid = Firebase.auth.currentUser?.uid
+        if (uid == null) {
+            notifications.clear()
+            notificationsError = "Sign in to see notifications tailored to you."
+            return
+        }
+        scope.launch {
+            notificationsLoading = true
+            notificationsError = null
+            runCatching {
+                fetchNotificationsFromFirestore(uid)
+            }.onSuccess { remote ->
+                notifications.clear()
+                notifications.addAll(remote)
+                priceAlertEventIds.clear()
+                priceAlertEventIds.addAll(
+                    remote.filter { it.type == "price_alert" }
+                        .mapNotNull { it.eventId }
+                        .distinct()
+                )
+            }.onFailure { t ->
+                notificationsError = notificationErrorMessage(t)
+            }
+            notificationsLoading = false
+        }
+    }
+
+    fun requestPriceAlert(event: org.example.project.data.EventItem) {
+        val uid = Firebase.auth.currentUser?.uid
+        if (uid == null) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Sign in to set a price alert.")
+            }
+            return
+        }
+        scope.launch {
+            addNotificationForUser(
+                userId = uid,
+                title = "Price alert set",
+                body = "We’ll notify you if ${event.title} changes price.",
+                type = "price_alert",
+                eventId = event.id,
+                actionUrl = "goticky://events/${event.id}",
+                icon = "price"
+            ).onSuccess { created ->
+                notifications.removeAll { it.id == created.id }
+                notifications.add(0, created)
+                if (!priceAlertEventIds.contains(event.id)) {
+                    priceAlertEventIds.add(event.id)
+                }
+                snackbarHostState.showSnackbar("Price alert created for ${event.title}")
+            }.onFailure { t ->
+                snackbarHostState.showSnackbar(notificationErrorMessage(t))
+            }
+        }
+    }
+
+    fun markNotificationReadLocal(item: NotificationItem) {
+        val idx = notifications.indexOfFirst { it.id == item.id }
+        val nowIso = currentInstant().toString()
+        if (idx >= 0) {
+            notifications[idx] = notifications[idx].copy(status = "read", readAt = nowIso)
+        }
+        scope.launch {
+            markNotificationReadOnFirestore(item.id)
         }
     }
 
@@ -3592,6 +4117,35 @@ private fun GoTickyRoot() {
         }
     }
 
+    val favoriteEvents = rememberSaveable { mutableStateListOf<String>() }
+    fun loadFavoritesFromProfile(profile: UserProfile) {
+        favoriteEvents.clear()
+        favoriteEvents.addAll(profile.favorites)
+    }
+    suspend fun syncFavoritesFromBackend(profile: UserProfile? = null) {
+        val remoteFavorites = profile?.favorites ?: authRepo.fetchFavorites()
+        favoriteEvents.clear()
+        favoriteEvents.addAll(remoteFavorites)
+        userProfile = (profile ?: userProfile).copy(favorites = remoteFavorites)
+    }
+    suspend fun persistFavorites() {
+        val updatedFavorites = favoriteEvents.toList().distinct()
+        userProfile = userProfile.copy(favorites = updatedFavorites)
+        when (val result = authRepo.updateFavorites(updatedFavorites)) {
+            is AuthResult.Error -> snackbarHostState.showSnackbar(result.message)
+            else -> Unit
+        }
+    }
+    fun toggleFavorite(eventId: String) {
+        val signedInUser = authRepo.currentUser()
+        if (!isAuthenticated || signedInUser == null) {
+            scope.launch { snackbarHostState.showSnackbar("Sign in to save favorites") }
+            return
+        }
+        if (favoriteEvents.contains(eventId)) favoriteEvents.remove(eventId) else favoriteEvents.add(eventId)
+        scope.launch { persistFavorites() }
+    }
+
     LaunchedEffect(isAuthenticated) {
         if (isAuthenticated) {
             scope.launch {
@@ -3604,12 +4158,40 @@ private fun GoTickyRoot() {
                         snackbarHostState.showSnackbar(t.message ?: "Unable to load your tickets.")
                     }
             }
+            refreshNotifications()
+        } else {
+            notifications.clear()
+            notificationsError = null
+            notificationsLoading = false
         }
     }
 
     LaunchedEffect(currentScreen) {
         if (currentScreen == MainScreen.Organizer) {
             refreshOrganizerEvents()
+        }
+        if (currentScreen == MainScreen.Alerts && isAuthenticated) {
+            refreshNotifications()
+        }
+    }
+
+    // Periodic proactive alerts: price drops, reminders, early-bird ending soon.
+    LaunchedEffect(isAuthenticated) {
+        while (isAuthenticated) {
+            val eventsSnapshot = publicEventsFrom(adminApplications.toList()).distinctBy { it.id }
+            runCatching {
+                runProactiveAlerts(
+                    publicEvents = eventsSnapshot,
+                    adminApplications = adminApplications.toList(),
+                    favoriteEvents = favoriteEvents.toList(),
+                    userTickets = userTickets.toList(),
+                    priceAlertEventIds = priceAlertEventIds.toList(),
+                    lastSeenPrices = lastSeenPrices,
+                    remindersSent = remindersSent,
+                    markReminderSent = ::markReminderSent,
+                )
+            }
+            delay(60_000)
         }
     }
 
@@ -3689,34 +4271,6 @@ private fun GoTickyRoot() {
     }
 
     var postSignUpMessage by remember { mutableStateOf<String?>(null) }
-    val favoriteEvents = rememberSaveable { mutableStateListOf<String>() }
-    fun loadFavoritesFromProfile(profile: UserProfile) {
-        favoriteEvents.clear()
-        favoriteEvents.addAll(profile.favorites)
-    }
-    suspend fun syncFavoritesFromBackend(profile: UserProfile? = null) {
-        val remoteFavorites = profile?.favorites ?: authRepo.fetchFavorites()
-        favoriteEvents.clear()
-        favoriteEvents.addAll(remoteFavorites)
-        userProfile = (profile ?: userProfile).copy(favorites = remoteFavorites)
-    }
-    suspend fun persistFavorites() {
-        val updatedFavorites = favoriteEvents.toList().distinct()
-        userProfile = userProfile.copy(favorites = updatedFavorites)
-        when (val result = authRepo.updateFavorites(updatedFavorites)) {
-            is AuthResult.Error -> snackbarHostState.showSnackbar(result.message)
-            else -> Unit
-        }
-    }
-    fun toggleFavorite(eventId: String) {
-        val signedInUser = authRepo.currentUser()
-        if (!isAuthenticated || signedInUser == null) {
-            scope.launch { snackbarHostState.showSnackbar("Sign in to save favorites") }
-            return
-        }
-        if (favoriteEvents.contains(eventId)) favoriteEvents.remove(eventId) else favoriteEvents.add(eventId)
-        scope.launch { persistFavorites() }
-    }
     val checklistState = remember {
         mutableStateMapOf<String, Boolean>().apply {
             launchChecklist.forEach { put(it.id, false) }
@@ -4027,105 +4581,47 @@ private fun GoTickyRoot() {
                 }
                 val snap = Firebase.firestore.collection("events").get()
                 val now = currentInstant()
-                val items = snap.documents.mapNotNull { doc ->
-                    val title = doc.get<String?>("title") ?: return@mapNotNull null
-                    val organizerId = doc.get<String?>("organizerId") ?: ""
-                    val isApproved = doc.get<Boolean?>("isApproved") ?: false
-                    val status = when {
-                        isApproved -> "Approved"
-                        else -> doc.get<String?>("status") ?: "In Review"
-                    }
-                    val createdAt = doc.get<String?>("createdAt")
-                    val ageHours = createdAt?.let {
-                        runCatching { (now - Instant.parse(it)).inWholeHours.toInt().coerceAtLeast(0) }.getOrNull()
-                    } ?: 0
-                    val ticketsMapDouble = runCatching { doc.get<Map<String, Double>?>("tickets") }.getOrNull()
-                    val ticketsMapLong = if (ticketsMapDouble == null) {
-                        runCatching { doc.get<Map<String, Long>?>("tickets") }.getOrNull()
-                    } else null
-                    val ticketsMap: Map<String, Number> = (ticketsMapDouble ?: ticketsMapLong) ?: emptyMap()
-                    val pricingTiers = ticketsMap.entries.mapNotNull { (tier, price) ->
-                        val numeric = price.toDouble()
-                        val formatted = formatPriceTwoDecimals(numeric)
-                        "$tier $$formatted"
-                    }
-                    val flyerUrl = doc.get<String?>("flyerUrl")
-                    val lat = doc.get<Double?>("lat") ?: doc.get<Long?>("lat")?.toDouble()
-                    val lng = doc.get<Double?>("lng") ?: doc.get<Long?>("lng")?.toDouble()
-                    val createdAtIso = doc.get<String?>("createdAt")
-                    val updatedAtIso = doc.get<String?>("updatedAt")
-                    val createdAtInstant = createdAtIso?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                    val updatedAtInstant = updatedAtIso?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                    val risk = when {
-                        isApproved -> "Low"
-                        status.equals("Rejected", ignoreCase = true) -> "High"
-                        else -> "Medium"
-                    }
-                    AdminApplication(
-                        id = doc.id,
-                        eventId = doc.id,
-                        organizerId = organizerId,
-                        title = title,
-                        organizer = doc.get<String?>("companyName") ?: doc.get<String?>("organizerName") ?: "Organizer",
-                        city = doc.get<String?>("city") ?: "",
-                        category = doc.get<String?>("category") ?: "General",
-                        status = status,
-                        isApproved = isApproved,
-                        risk = risk,
-                        ageHours = ageHours,
-                        completeness = (doc.get<Long?>("completeness") ?: 70L).toInt().coerceIn(0, 100),
-                        attachmentsReady = doc.get<Boolean?>("attachmentsReady") ?: false,
-                        notes = doc.get<String?>("notes") ?: "",
-                        eventDateTime = doc.get<String?>("dateLabel") ?: "",
-                        pricingTiers = if (pricingTiers.isNotEmpty()) pricingTiers else listOf(doc.get<String?>("priceFrom") ?: "Tier pending"),
-                        approvedAt = doc.get<String?>("approvedAt")?.let { runCatching { Instant.parse(it) }.getOrNull() },
-                        flyerUrl = flyerUrl,
-                        lat = lat,
-                        lng = lng,
-                        createdAt = createdAtInstant,
-                        updatedAt = updatedAtInstant,
-                    )
-                }
+                val items = snap.documents.mapNotNull { doc -> mapEventDocToAdminApplication(doc, now) }
                 adminApplications.clear()
                 adminApplications.addAll(items)
                 rebuildAdminReportsFrom(items)
                 seedAdminActivityFromApps(items)
 
-                // Build organizer profiles from /users for any organizerIds present on the applications.
-                val organizerIds = items.mapNotNull { it.organizerId.takeIf { id -> id.isNotBlank() } }.distinct()
+                // Build organizer profiles keyed by organizerId. Prefer /organizers/{id} docs; fall back to application data.
+                val organizerIds = items
+                    .mapNotNull { it.organizerId.takeIf { id -> id.isNotBlank() } }
+                    .distinct()
+
                 if (organizerIds.isNotEmpty()) {
                     val firestore = Firebase.firestore
                     val fetchedOrganizers = mutableListOf<AdminOrganizer>()
-                    organizerIds.forEach { id ->
-                        runCatching {
-                            val userDoc = firestore.collection("users").document(id).get()
-                            val organizerDoc = if (userDoc.exists) null else firestore.collection("organizers").document(id).get()
-                            val sourceDoc = when {
-                                userDoc.exists -> userDoc
-                                organizerDoc?.exists == true -> organizerDoc
-                                else -> null
-                            }
-                            val appSource = items.firstOrNull { it.organizerId == id }
 
-                            if (sourceDoc != null) {
-                                val displayName = sourceDoc.get<String?>("displayName")
-                                    ?: sourceDoc.get<String?>("companyName")
-                                    ?: sourceDoc.get<String?>("name")
+                    organizerIds.forEach { id ->
+                        val appSource = items.firstOrNull { it.organizerId == id }
+
+                        // Enrich from /organizers/{id}; any failure falls back to app data.
+                        val organizerFromDoc: AdminOrganizer? = runCatching {
+                            val orgDoc = firestore.collection("organizers").document(id).get()
+                            if (!orgDoc.exists) {
+                                null
+                            } else {
+                                val displayName = orgDoc.get<String?>("name")
+                                    ?: orgDoc.get<String?>("companyName")
                                     ?: appSource?.organizer
                                     ?: "Organizer"
-                                val role = sourceDoc.get<String?>("role") ?: "organizer"
-                                val storedKyc = sourceDoc.get<String?>("kycStatus")
-                                val kycStatus = storedKyc ?: if (role.equals("organizer", ignoreCase = true)) "Verified" else "Pending"
-                                val trust = (sourceDoc.get<Long?>("trustScore") ?: 70L).toInt().coerceIn(0, 100)
-                                val strikes = (sourceDoc.get<Long?>("strikes") ?: 0L).toInt().coerceAtLeast(0)
-                                val frozen = sourceDoc.get<Boolean?>("frozen") ?: false
-                                val notes = sourceDoc.get<String?>("notes") ?: "Profile imported from organizer record."
-                                val photoUri = sourceDoc.get<String?>("photoUri")
-                                val email = sourceDoc.get<String?>("email") ?: ""
-                                val countryName = sourceDoc.get<String?>("countryName") ?: ""
-                                val phoneCode = sourceDoc.get<String?>("phoneCode") ?: ""
-                                val phoneNumber = sourceDoc.get<String?>("phoneNumber") ?: ""
-                                fetchedOrganizers += AdminOrganizer(
+                                val kycStatus = orgDoc.get<String?>("kycStatus") ?: "Pending"
+                                val trust = (orgDoc.get<Long?>("trustScore") ?: 70L).toInt().coerceIn(0, 100)
+                                val strikes = (orgDoc.get<Long?>("strikes") ?: 0L).toInt().coerceAtLeast(0)
+                                val frozen = orgDoc.get<Boolean?>("frozen") ?: false
+                                val notes = orgDoc.get<String?>("notes") ?: "Imported from organizer profile."
+                                val photoUri = orgDoc.get<String?>("photoUri")
+                                val email = orgDoc.get<String?>("email") ?: ""
+                                val countryName = orgDoc.get<String?>("countryName") ?: (appSource?.city ?: "")
+                                val phoneCode = orgDoc.get<String?>("phoneCode") ?: ""
+                                val phoneNumber = orgDoc.get<String?>("phoneNumber") ?: ""
+                                val role = orgDoc.get<String?>("role") ?: "organizer"
+
+                                AdminOrganizer(
                                     id = id,
                                     name = displayName,
                                     kycStatus = kycStatus,
@@ -4140,11 +4636,15 @@ private fun GoTickyRoot() {
                                     phoneNumber = phoneNumber,
                                     role = role,
                                 )
-                            } else if (appSource != null) {
-                                // Fallback when no user/organizer document exists yet; keep detail panel populated.
-                                fetchedOrganizers += AdminOrganizer(
+                            }
+                        }.getOrNull()
+
+                        val organizer = organizerFromDoc
+                            ?: appSource?.let { src ->
+                                // Fallback when no organizer document exists yet; keeps detail panel & list populated.
+                                AdminOrganizer(
                                     id = id,
-                                    name = appSource.organizer.ifBlank { "Organizer" },
+                                    name = src.organizer.ifBlank { "Organizer" },
                                     kycStatus = "Pending",
                                     trustScore = 70,
                                     strikes = 0,
@@ -4152,14 +4652,18 @@ private fun GoTickyRoot() {
                                     notes = "Imported from application form.",
                                     photoUri = null,
                                     email = "",
-                                    countryName = appSource.city,
+                                    countryName = src.city,
                                     phoneCode = "",
                                     phoneNumber = "",
                                     role = "organizer",
                                 )
                             }
+
+                        if (organizer != null) {
+                            fetchedOrganizers += organizer
                         }
                     }
+
                     adminOrganizers.clear()
                     adminOrganizers.addAll(fetchedOrganizers)
                 } else {
@@ -4173,6 +4677,22 @@ private fun GoTickyRoot() {
                 adminApplicationsError = null
                 adminApplicationsInitialized = true
             }
+            adminApplicationsLoading = false
+        }
+    }
+
+    // Live Firestore listener so newly approved events appear on home without app relaunch.
+    LaunchedEffect(Unit) {
+        adminApplicationsLoading = true
+        adminApplicationsError = null
+        Firebase.firestore.collection("events").snapshots.collect { snap ->
+            val now = currentInstant()
+            val items = snap.documents.mapNotNull { doc -> mapEventDocToAdminApplication(doc, now) }
+            adminApplications.clear()
+            adminApplications.addAll(items)
+            rebuildAdminReportsFrom(items)
+            seedAdminActivityFromApps(items)
+            adminApplicationsInitialized = true
             adminApplicationsLoading = false
         }
     }
@@ -4334,8 +4854,12 @@ private fun GoTickyRoot() {
 
     var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
 
-    LaunchedEffect(adminSurface, hasAdminAccess, adminApplicationsInitialized) {
-        if (adminSurface == AdminSurface.Applications && !adminApplicationsInitialized && hasAdminAccess) {
+    LaunchedEffect(adminSurface, hasAdminAccess, adminApplicationsInitialized, adminOrganizers.size) {
+        val needsAdminData = !adminApplicationsInitialized || adminOrganizers.isEmpty()
+        if ((adminSurface == AdminSurface.Applications || adminSurface == AdminSurface.Organizer) &&
+            hasAdminAccess &&
+            needsAdminData
+        ) {
             refreshAdminApplications()
         }
     }
@@ -4503,6 +5027,40 @@ private fun GoTickyRoot() {
                             .collection("events")
                             .document(app.eventId)
                             .set(organizerPayload, merge = true)
+                    }
+
+                    // Fire organizer notification for status changes so they see real-time updates in Alerts.
+                    if (organizerIdForRule.isNotBlank()) {
+                        val template = when (status) {
+                            "Approved" -> Triple(
+                                "Your event was approved",
+                                "Great news! ${updatedApp.title} is live. Early Bird opens for 72h.",
+                                "approved"
+                            )
+                            "Rejected" -> Triple(
+                                "Update on ${updatedApp.title}",
+                                "We couldn’t approve this event. Please review requirements and resubmit.",
+                                "rejected"
+                            )
+                            "Needs Info" -> Triple(
+                                "More details needed",
+                                "We need a quick clarification for ${updatedApp.title}. Check your dashboard to respond.",
+                                "reminder"
+                            )
+                            else -> null
+                        }
+
+                        template?.let { (title, body, type) ->
+                            addNotificationForUser(
+                                userId = organizerIdForRule,
+                                title = title,
+                                body = body,
+                                type = type,
+                                eventId = app.eventId,
+                                actionUrl = "goticky://organizer/events/${app.eventId}",
+                                icon = "status-$type"
+                            )
+                        }
                     }
                 }.onFailure { t ->
                     // Do not block the local UI on sync failures; surface a soft warning.
@@ -5002,6 +5560,7 @@ private fun GoTickyRoot() {
                                         navItems = navItems,
                                         current = currentScreen,
                                         chromeAlpha = fabAlpha,
+                                        alertsUnreadCount = notifications.count { it.status.lowercase() != "read" },
                                     ) { tapped ->
                                         when (tapped) {
                                             MainScreen.Admin -> {
@@ -5254,7 +5813,7 @@ private fun GoTickyRoot() {
                                                             showCheckout = true
                                                         }
                                                     },
-                                                    onAlert = { currentScreen = MainScreen.Alerts },
+                                                    onAlert = { requestPriceAlert(event) },
                                                     adminApplication = adminApp,
                                                     earlyBirdWindow = detailEarlyBird,
                                                     ticketPricing = detailTicketPricing,
@@ -5312,6 +5871,20 @@ private fun GoTickyRoot() {
                                                                         )
                                                                     }
                                                             }
+                                                            // Fire a purchase confirmation notification for the buyer.
+                                                            Firebase.auth.currentUser?.uid?.let { uid ->
+                                                                scope.launch {
+                                                                    addNotificationForUser(
+                                                                        userId = uid,
+                                                                        title = "Order confirmed",
+                                                                        body = "You’re in for ${purchasedEvent.title} on ${purchasedEvent.dateLabel}. Your tickets are ready.",
+                                                                        type = "purchase",
+                                                                        eventId = purchasedEvent.id,
+                                                                        actionUrl = "goticky://tickets",
+                                                                        icon = "purchase"
+                                                                    )
+                                                                }
+                                                            }
                                                         }
                                                         checkoutOrder = null
                                                         checkoutSuccess = true
@@ -5365,7 +5938,8 @@ private fun GoTickyRoot() {
                                                         HomeScreen(
                                                             userProfile = userProfile,
                                                             isGuest = isGuestMode,
-                                                            onOpenAlerts = { currentScreen = MainScreen.Profile },
+                                                            onOpenAlerts = { currentScreen = MainScreen.Alerts },
+                                                            onOpenTickets = { currentScreen = MainScreen.Tickets },
                                                             onEventSelected = { event ->
                                                                 detailEvent = event
                                                             },
@@ -5410,13 +5984,15 @@ private fun GoTickyRoot() {
                                                     }
                                                     MainScreen.Alerts -> {
                                                         AlertsScreen(
-                                                            alerts = alerts,
+                                                            notifications = notifications,
+                                                            notificationsLoading = notificationsLoading,
+                                                            notificationsError = notificationsError,
                                                             recommendations = personalize(recommendations),
                                                             personalizationPrefs = personalizationPrefs,
                                                             onBack = { currentScreen = MainScreen.Home },
                                                             onOpenEvent = { eventId -> openEventById(eventId) },
-                                                            onCreateAlert = { },
-                                                            onAdjustAlert = { },
+                                                            onRefreshNotifications = { refreshNotifications() },
+                                                            onMarkRead = { markNotificationReadLocal(it) },
                                                             onUpdatePersonalization = { newPrefs ->
                                                                 personalizationPrefs = newPrefs
                                                             },
@@ -8821,6 +9397,7 @@ private fun HomeScreen(
     userProfile: UserProfile,
     isGuest: Boolean,
     onOpenAlerts: () -> Unit,
+    onOpenTickets: () -> Unit,
     onEventSelected: (org.example.project.data.EventItem) -> Unit,
     heroSlides: List<HeroSlide>,
     simulatedHeroBannerId: String?,
@@ -8858,7 +9435,10 @@ private fun HomeScreen(
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val scrollState = rememberScrollState()
 
-    val publicEvents = remember(adminApplications) { publicEventsFrom(adminApplications).distinctBy { it.id } }
+    // Recompute public events whenever the adminApplications state list mutates (approvals, edits).
+    val publicEvents by remember {
+        derivedStateOf { publicEventsFrom(adminApplications.toList()).distinctBy { it.id } }
+    }
     val tz = remember { TimeZone.currentSystemDefault() }
     val nowState = remember { mutableStateOf(currentInstant()) }
     LaunchedEffect(Unit) {
@@ -9083,7 +9663,7 @@ private fun HomeScreen(
                 when (category) {
                     IconCategory.Discover -> showDiscoverDialog = true
                     IconCategory.Map -> onOpenMap()
-                    IconCategory.Ticket -> publicEvents.firstOrNull()?.let { onEventSelected(it) }
+                    IconCategory.Ticket -> onOpenTickets()
                     IconCategory.Calendar -> showDateDialog = true
                     IconCategory.Alerts -> onOpenAlerts()
                     else -> {}
@@ -9125,7 +9705,7 @@ private fun HomeScreen(
         ) {
             NeonBanner(
                 title = "VIP Drop",
-                subtitle = "Exclusive pre-sale seats with transparent fees.",
+                subtitle = "Sip signature cocktails from plush private seats with white-glove VIP service.",
                 modifier = Modifier
             )
         }
@@ -10269,31 +10849,66 @@ private fun HomeScreen(
                 }
                 val tiers = remember(upcomingAdminApp, tonightHeatEvent) {
                     val allowedOrder = listOf("early", "general", "vip", "golden")
-                    upcomingAdminApp
+                    val parsedMap = upcomingAdminApp
                         ?.pricingTiers
                         ?.mapNotNull { tier ->
                             val parts = tier.split(" ", limit = 2)
                             if (parts.isEmpty()) return@mapNotNull null
-                            val rawLabel = parts.first().ifBlank { "Ticket" }
-                            val priceRaw = parts.getOrNull(1) ?: parts.first()
-                            val numeric = parsePrice(priceRaw) ?: return@mapNotNull null
-                            val type = when {
-                                rawLabel.contains("gold", ignoreCase = true) -> "golden"
-                                rawLabel.contains("vip", ignoreCase = true) -> "vip"
-                                rawLabel.contains("early", ignoreCase = true) -> "early"
-                                rawLabel.contains("gen", ignoreCase = true) -> "general"
-                                else -> return@mapNotNull null
-                            }
-                            val displayLabel = when (type) {
-                                "golden" -> "Golden Circle"
-                                "vip" -> "VIP"
-                                "early" -> "Early Bird"
-                                else -> "General"
-                            }
-                            Triple(displayLabel, "$${formatPriceTwoDecimals(numeric)}", type)
+                            val key = parts.first().lowercase()
+                            val priceLabel = parts.getOrNull(1)?.ifBlank { parts.first() } ?: parts.first()
+                            key to priceLabel
                         }
-                        ?.sortedBy { allowedOrder.indexOf(it.third).let { idx -> if (idx >= 0) idx else Int.MAX_VALUE } }
-                        ?: emptyList()
+                        ?.toMap()
+                    val normalized = parsedMap?.mapKeys { it.key.lowercase() }
+                    fun priceFor(type: String): String? {
+                        val keys = when (type) {
+                            "golden" -> listOf("gold", "golden", "circle", "goldencircle")
+                            "vip" -> listOf("vip")
+                            "early" -> listOf("early", "earlybird", "promo")
+                            else -> listOf("general", "ga", "standard")
+                        }
+                        val match = normalized?.entries?.firstOrNull { (k, _) ->
+                            keys.any { k.contains(it) }
+                        }?.value
+                        val numeric = match?.let { parsePrice(it) }
+                        if (numeric != null) return "$${formatPriceTwoDecimals(numeric)}"
+                        if (!match.isNullOrBlank()) return match
+                        val generalPrice = normalized
+                            ?.entries
+                            ?.firstOrNull { it.key.contains("general") || it.key.contains("ga") || it.key.contains("standard") }
+                            ?.value
+                            ?.let { parsePrice(it) }
+                        val vipPrice = normalized
+                            ?.entries
+                            ?.firstOrNull { it.key.contains("vip") }
+                            ?.value
+                            ?.let { parsePrice(it) }
+                        val priceFromNumeric = tonightHeatEvent?.priceFrom?.let { parsePrice(it) }
+                        val base = when (type) {
+                            "golden" -> vipPrice ?: generalPrice ?: priceFromNumeric
+                            "vip" -> generalPrice ?: priceFromNumeric
+                            "early" -> generalPrice ?: priceFromNumeric
+                            else -> generalPrice ?: priceFromNumeric
+                        }
+                        return base?.let {
+                            val adjusted = when (type) {
+                                "golden" -> it * 1.25
+                                "vip" -> it * 1.2
+                                "early" -> it * 0.8
+                                else -> it
+                            }
+                            "$${formatPriceTwoDecimals(adjusted)}"
+                        } ?: tonightHeatEvent?.priceFrom?.ifBlank { "TBA" } ?: "TBA"
+                    }
+                    allowedOrder.map { type ->
+                        val label = when (type) {
+                            "golden" -> "Golden Circle"
+                            "vip" -> "VIP"
+                            "early" -> "Early Bird"
+                            else -> "General"
+                        }
+                        Triple(label, priceFor(type) ?: "TBA", type)
+                    }
                 }
 
                 Column(
@@ -11201,6 +11816,37 @@ private fun HighlightCard(
     onSelectSeats: () -> Unit,
     onPriceAlerts: () -> Unit,
 ) {
+    val nowState = remember { mutableStateOf(currentInstant()) }
+    LaunchedEffect(event?.id) {
+        while (true) {
+            nowState.value = currentInstant()
+            delay(60_000)
+        }
+    }
+    val timeUntil = event?.startsAt?.let { start -> start - nowState.value }
+    val daysUntil = timeUntil?.inWholeDays?.coerceAtLeast(0)
+    val badgeLabel = when {
+        timeUntil == null -> "New"
+        timeUntil.inWholeHours <= 0 -> "Live"
+        timeUntil.inWholeHours < 24 -> "${timeUntil.inWholeHours}h"
+        else -> "D-${daysUntil}"
+    }
+    val badgeColors = when {
+        timeUntil == null -> listOf(Color(0xFFB2B8FF), Color(0xFF6CE3FF))
+        timeUntil.inWholeHours <= 0 -> listOf(Color(0xFFFF6B6B), Color(0xFFFFC94A))
+        daysUntil != null && daysUntil <= 2 -> listOf(Color(0xFFFFC94A), Color(0xFFFF9F1C))
+        else -> listOf(Color(0xFF6CE3FF), Color(0xFF7CF7C8))
+    }
+    val pulse by rememberInfiniteTransition(label = "highlightPulse").animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "highlightPulseScale"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -11269,10 +11915,37 @@ private fun HighlightCard(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
-                            .background(GoTickyGradients.Cta)
-                    )
+                            .background(Brush.linearGradient(badgeColors))
+                            .border(1.2.dp, Color.White.copy(alpha = 0.28f), CircleShape)
+                            .graphicsLayer(scaleX = pulse, scaleY = pulse)
+                            .pressAnimated(scaleDown = 0.9f)
+                            .clickable { onPriceAlerts() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Icon(
+                                imageVector = Icons.Outlined.NotificationsActive,
+                                contentDescription = "Set price alert",
+                                tint = Color(0xFF0F1114).copy(alpha = 0.82f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            AnimatedContent(
+                                targetState = badgeLabel,
+                                transitionSpec = { fadeIn() + scaleIn() togetherWith fadeOut() },
+                                label = "badgeLabel"
+                            ) { label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color(0xFF0F1114),
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                )
+                            }
+                        }
+                    }
                     Column {
                         Text(
                             event?.title ?: "Tonight's heat",
@@ -14902,21 +15575,26 @@ private fun SocialShareRow(onInvite: () -> Unit, onShare: () -> Unit) {
 
 @Composable
 private fun AlertsScreen(
-    alerts: List<PriceAlert>,
+    notifications: List<NotificationItem>,
+    notificationsLoading: Boolean,
+    notificationsError: String?,
     recommendations: List<Recommendation>,
     personalizationPrefs: PersonalizationPrefs,
     onBack: () -> Unit,
     onOpenEvent: (String) -> Unit,
-    onCreateAlert: () -> Unit,
-    onAdjustAlert: (PriceAlert) -> Unit,
+    onRefreshNotifications: () -> Unit,
+    onMarkRead: (NotificationItem) -> Unit,
     onUpdatePersonalization: (PersonalizationPrefs) -> Unit,
 ) {
-    var alertToShare by remember { mutableStateOf<PriceAlert?>(null) }
-    var alertToAdjust by remember { mutableStateOf<PriceAlert?>(null) }
     var showPersonalize by remember { mutableStateOf(false) }
-    var copiedLink by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
     val uriHandler = LocalUriHandler.current
+    val now = remember { currentInstant() }
+    val (unread, read) = remember(notifications) {
+        notifications.partition { it.status.lowercase() != "read" }
+    }
+    val groupedRead = remember(read, now) {
+        groupNotificationsByDate(now, read)
+    }
 
     Column(
         modifier = Modifier
@@ -14928,114 +15606,178 @@ private fun AlertsScreen(
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
             TopBar(
-                title = "Alerts & drops",
+                title = "Notifications",
                 onBack = onBack,
-                actions = { NeonTextButton(text = "Create", onClick = { onCreateAlert() }) },
+                actions = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val unreadCount = unread.size
+                        if (unreadCount > 0) {
+                            Pill(
+                                text = unreadCount.coerceAtMost(99).toString(),
+                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
+                                textColor = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        NeonTextButton(
+                            text = "Refresh",
+                            onClick = onRefreshNotifications,
+                            modifier = Modifier.pressAnimated()
+                        )
+                    }
+                },
                 backgroundColor = Color.Transparent
             )
         }
-        SectionHeader(title = "Price alerts", action = { NeonTextButton(text = "Manage", onClick = { alertToAdjust = alerts.firstOrNull() }) })
-        alerts.forEach {
-            AlertCard(
-                alert = it,
-                onOpen = { alert -> onOpenEvent(alert.eventId) },
-                onShare = { alertToShare = it },
-                onAdjust = { alert -> alertToAdjust = alert }
+        notificationsError?.let { err ->
+            GlowCard {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Outlined.NotificationsActive, contentDescription = null, tint = Color(0xFFFF6B6B))
+                    Column {
+                        Text("Notifications unavailable", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                        Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    NeonTextButton(text = "Retry", onClick = onRefreshNotifications)
+                }
+            }
+        }
+        SectionHeader(
+            title = "New",
+            action = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (unread.isNotEmpty()) {
+                        Pill(
+                            text = "${unread.size} new",
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            textColor = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (notificationsLoading) {
+                        Text(
+                            "Syncing…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (unread.isNotEmpty()) {
+                        NeonTextButton(
+                            text = "Mark all read",
+                            onClick = { unread.forEach { onMarkRead(it) } },
+                            modifier = Modifier.pressAnimated()
+                        )
+                    }
+                }
+            }
+        )
+        if (notificationsLoading && notifications.isEmpty()) {
+            repeat(3) {
+                NotificationSkeleton()
+            }
+        }
+        if (!notificationsLoading && unread.isEmpty()) {
+            GlowCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("You’re all caught up", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                    Text("We’ll notify you when something important happens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        unread.forEach { item ->
+            NotificationCard(
+                item = item,
+                fresh = true,
+                onOpen = {
+                    if (!item.eventId.isNullOrBlank()) {
+                        onOpenEvent(item.eventId)
+                    } else if (!item.actionUrl.isNullOrBlank()) {
+                        uriHandler.openUri(item.actionUrl!!)
+                    }
+                    onMarkRead(item)
+                },
+                onMarkRead = { onMarkRead(item) },
+                now = now
             )
         }
+
+        if (groupedRead.today.isNotEmpty()) {
+            SectionHeader(title = "Today", action = null)
+            groupedRead.today.forEach { item ->
+                NotificationCard(
+                    item = item,
+                    fresh = false,
+                    onOpen = {
+                        if (!item.eventId.isNullOrBlank()) {
+                            onOpenEvent(item.eventId)
+                        } else if (!item.actionUrl.isNullOrBlank()) {
+                            uriHandler.openUri(item.actionUrl!!)
+                        }
+                    },
+                    onMarkRead = { /* already read */ },
+                    now = now
+                )
+            }
+        }
+
+        if (groupedRead.thisWeek.isNotEmpty()) {
+            SectionHeader(title = "This week", action = null)
+            groupedRead.thisWeek.forEach { item ->
+                NotificationCard(
+                    item = item,
+                    fresh = false,
+                    onOpen = {
+                        if (!item.eventId.isNullOrBlank()) {
+                            onOpenEvent(item.eventId)
+                        } else if (!item.actionUrl.isNullOrBlank()) {
+                            uriHandler.openUri(item.actionUrl!!)
+                        }
+                    },
+                    onMarkRead = { /* already read */ },
+                    now = now
+                )
+            }
+        }
+
+        if (groupedRead.earlier.isNotEmpty()) {
+            SectionHeader(title = "Earlier", action = null)
+            groupedRead.earlier.forEach { item ->
+                NotificationCard(
+                    item = item,
+                    fresh = false,
+                    onOpen = {
+                        if (!item.eventId.isNullOrBlank()) {
+                            onOpenEvent(item.eventId)
+                        } else if (!item.actionUrl.isNullOrBlank()) {
+                            uriHandler.openUri(item.actionUrl!!)
+                        }
+                    },
+                    onMarkRead = { /* already read */ },
+                    now = now
+                )
+            }
+        }
+
         SectionHeader(title = "Recommendations", action = { NeonTextButton(text = "Improve", onClick = { showPersonalize = true }) })
         RecommendationsRow(recommendations = recommendations, onOpen = { onOpenEvent(it.eventId) })
         SocialShareRow(
             onInvite = { uriHandler.openUri("https://goticky.app/group/invite") },
             onShare = { uriHandler.openUri("https://goticky.app/share/app") }
-        )
-    }
-
-    alertToShare?.let { alert ->
-        val shareLink = "https://goticky.app/alerts/${alert.id}"
-        val schemeLink = "goticky://alert/${alert.id}"
-        AlertDialog(
-            onDismissRequest = {
-                alertToShare = null
-                copiedLink = false
-            },
-            title = { Text("Share alert") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Send this deep link to friends or yourself:")
-                    GlowCard {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(shareLink, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
-                            Text(schemeLink, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (copiedLink) {
-                                Text("Copied!", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PrimaryButton(text = "Copy web link") {
-                        clipboard.setText(AnnotatedString(shareLink))
-                        copiedLink = true
-                    }
-                    GhostButton(text = "Copy app link") {
-                        clipboard.setText(AnnotatedString(schemeLink))
-                        copiedLink = true
-                    }
-                    NeonTextButton(text = "Open", onClick = { uriHandler.openUri(shareLink) })
-                    GhostButton(text = "Done") { alertToShare = null; copiedLink = false }
-                }
-            }
-        )
-    }
-
-    alertToAdjust?.let { alert ->
-        var target by remember(alert) { mutableStateOf(alert.targetPrice.toFloat()) }
-        var pushEnabled by remember(alert) { mutableStateOf(true) }
-        var emailEnabled by remember(alert) { mutableStateOf(true) }
-        AlertDialog(
-            onDismissRequest = { alertToAdjust = null },
-            title = { Text("Adjust alert") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(alert.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
-                    Text(alert.section, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                        Text("Target \$${target.toInt()}", style = MaterialTheme.typography.bodySmall)
-                        Text("Current \$${alert.currentPrice}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Slider(
-                        value = target,
-                        onValueChange = { target = it },
-                        valueRange = 20f..(alert.currentPrice + 200).toFloat()
-                    )
-                    Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text("Push notifications")
-                        Switch(checked = pushEnabled, onCheckedChange = { pushEnabled = it })
-                    }
-                    Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text("Email updates")
-                        Switch(checked = emailEnabled, onCheckedChange = { emailEnabled = it })
-                    }
-                }
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GhostButton(text = "Cancel") { alertToAdjust = null }
-                    PrimaryButton(text = "Save") {
-                        val delivery = when {
-                            pushEnabled && emailEnabled -> "Push + Email"
-                            pushEnabled -> "Push only"
-                            emailEnabled -> "Email only"
-                            else -> "Muted"
-                        }
-                        onAdjustAlert(alert.copy(targetPrice = target.toInt(), delivery = delivery))
-                        alertToAdjust = null
-                    }
-                }
-            }
         )
     }
 
@@ -15086,6 +15828,42 @@ private fun AlertsScreen(
             }
         )
     }
+}
+
+private data class NotificationDateGroups(
+    val today: List<NotificationItem>,
+    val thisWeek: List<NotificationItem>,
+    val earlier: List<NotificationItem>,
+)
+
+private fun groupNotificationsByDate(now: Instant, items: List<NotificationItem>): NotificationDateGroups {
+    if (items.isEmpty()) return NotificationDateGroups(emptyList(), emptyList(), emptyList())
+
+    val today = mutableListOf<NotificationItem>()
+    val thisWeek = mutableListOf<NotificationItem>()
+    val earlier = mutableListOf<NotificationItem>()
+
+    items.forEach { item ->
+        val createdInstant = runCatching { Instant.parse(item.createdAt) }.getOrNull()
+        if (createdInstant == null) {
+            earlier += item
+        } else {
+            val delta = now - createdInstant
+            val hours = delta.inWholeHours
+            val days = hours / 24
+            when {
+                hours < 24 -> today += item
+                days < 7 -> thisWeek += item
+                else -> earlier += item
+            }
+        }
+    }
+
+    return NotificationDateGroups(
+        today = today,
+        thisWeek = thisWeek,
+        earlier = earlier,
+    )
 }
 
 @Composable
@@ -17583,6 +18361,7 @@ private fun BottomBar(
     navItems: List<NavItem>,
     current: MainScreen,
     chromeAlpha: Float,
+    alertsUnreadCount: Int,
     onSelected: (MainScreen) -> Unit,
 ) {
     BoxWithConstraints(
@@ -17764,8 +18543,49 @@ private fun BottomBar(
                                     .padding(10.dp),
                                 contentAlignment = Alignment.Center
                             ) {
+                                // Main nav icon
                                 CompositionLocalProvider(LocalContentColor provides iconTint) {
                                     item.icon()
+                                }
+
+                                // Unread indicator for Alerts tab
+                                if (item.screen == MainScreen.Alerts && alertsUnreadCount > 0) {
+                                    val dotPulse by rememberInfiniteTransition(label = "alertsDotPulse").animateFloat(
+                                        initialValue = 0.9f,
+                                        targetValue = 1.1f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(durationMillis = 1200, easing = EaseOutBack),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "alertsDotPulseAnim"
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = 2.dp, y = (-2).dp)
+                                    ) {
+                                        if (selected) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(16.dp * dotPulse)
+                                                    .background(
+                                                        brush = Brush.radialGradient(
+                                                            colors = listOf(
+                                                                Color(0xFFFF5A5A).copy(alpha = 0.35f),
+                                                                Color.Transparent
+                                                            )
+                                                        ),
+                                                        shape = CircleShape
+                                                    )
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(9.dp * dotPulse)
+                                                .background(Color(0xFFFF5A5A), CircleShape)
+                                                .border(1.dp, Color.White.copy(alpha = 0.9f), CircleShape)
+                                        )
+                                    }
                                 }
                             }
                             Text(

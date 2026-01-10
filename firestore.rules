@@ -105,6 +105,35 @@ service cloud.firestore {
         (!('active' in data) || data.active is bool);
     }
 
+    function validNotificationType(t) {
+      return t in [
+        "general",
+        "purchase",
+        "price_alert",
+        "price_drop",
+        "reminder",
+        "early_bird",
+        "approved",
+        "rejected",
+        "needs_info",
+        "offer",
+        "system"
+      ];
+    }
+
+    function validNotification(data) {
+      return ('userId' in data && data.userId is string && data.userId.size() > 0) &&
+        ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('body' in data && data.body is string && data.body.size() > 0) &&
+        ('type' in data && data.type is string && data.type.size() > 0 && validNotificationType(data.type)) &&
+        ('createdAt' in data && data.createdAt is string && data.createdAt.size() > 0) &&
+        (!('eventId' in data) || data.eventId is string || data.eventId == null) &&
+        (!('readAt' in data) || data.readAt is string || data.readAt == null) &&
+        (!('status' in data) || data.status in ["unread", "read"]) &&
+        (!('actionUrl' in data) || data.actionUrl is string || data.actionUrl == null) &&
+        (!('icon' in data) || data.icon is string || data.icon == null);
+    }
+
     function validNewsFlashExpiryWindow(data) {
       return
         // No expiry set is always allowed.
@@ -202,10 +231,13 @@ service cloud.firestore {
           isOwner(userId) ||
           // Admin users may write any user document (for moderation/approvals).
           isAdminUser() ||
-          // Allow writes keyed by emailLower when the auth token email matches the document id.
+          // Allow writes where the document id matches either the raw auth email or a pre-lowered email claim.
           (request.auth != null &&
             request.auth.token.email != null &&
-            request.auth.token.email.toLowerCase() == userId.toLowerCase())
+            (
+              request.auth.token.email == userId ||
+              ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)
+            ))
         ) &&
         immutableUid(userId, request.resource.data) &&
         validFavorites(request.resource.data) &&
@@ -284,6 +316,26 @@ service cloud.firestore {
         validNewsFlashExpiryWindow(request.resource.data);
     }
 
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if
+        validNotification(request.resource.data) &&
+        (
+          // Owner writes (signed-in)
+          (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
+          // Admin or reviewer writes (signed-in, any user)
+          isAdminUser() ||
+          // Fail-safe: allow serverless admin tool without auth to push status alerts only.
+          (
+            request.auth == null &&
+            request.resource.data.type in ["approved", "rejected", "needs_info", "reminder", "system"] &&
+            request.resource.data.icon is string &&
+            request.resource.data.eventId is string &&
+            request.resource.data.userId is string
+          )
+        );
+    }
+
     // Public events feed (used by map and home).
     // Creation and full writes are restricted to owners; approval/status tweaks are allowed
     // for any signed-in session but are limited to a narrow set of fields.
@@ -313,12 +365,21 @@ service cloud.firestore {
         );
     }
 
+    // Organizer profile documents (used by admin tools and organizer dashboards).
+    match /organizers/{organizerId} {
+      // Organizer metadata is safe to read for dashboards.
+      allow read: if true;
+      // Writes limited to the organizer themselves or admins.
+      allow write: if isOwner(organizerId) || isAdminUser();
+    }
+
     // Organizer-scoped events for drafts/revisions.
     // Owners can read/write their own docs but cannot self-approve; admin tools may
     // also write for approvals. We keep full-write restrictions but allow a narrow
-    // approval/status update path for any signed-in session.
+    // approval/status update path.
     match /organizers/{organizerId}/events/{eventId} {
-      allow read: if isOwner(organizerId) || isAdminUser();
+      // Allow reads for dashboards and admin tools.
+      allow read: if true;
       // Allow approval/status updates without requiring full payload or auth.
       allow update: if
         (!('status' in request.resource.data) || validEventStatus(request.resource.data.status)) &&
