@@ -8,7 +8,11 @@ service firebase.storage {
     // Per-user profile uploads. Only the authenticated owner can read/write their files.
     // Expected structure: /users/{uid}/profile/* (images only)
     match /users/{uid}/{allPaths=**} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      // Images are surfaced in the UI via public HTTPS download URLs which are fetched
+      // without Firebase Auth attached (e.g. by Coil/HTTP clients). To ensure profile
+      // avatars render correctly, allow public read access for image content while
+      // keeping write access restricted to the owning user.
+      allow read: if resource != null && resource.contentType.matches('image/.*');
       allow write: if request.auth != null
         && request.auth.uid == uid
         && request.resource.size < 5 * 1024 * 1024 // 5 MB limit
@@ -73,9 +77,13 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
-    // Deny everything else by default.
+    // For any remaining paths not covered above (including legacy, root-level
+    // admin/demo assets), allow public READ access only for image content. All
+    // writes remain denied so that uploads must go through the scoped rules
+    // above (users/, events/, banners/, newsflash/, etc.).
     match /{allPaths=**} {
-      allow read, write: if false;
+      allow read: if resource != null && resource.contentType.matches('image/.*');
+      allow write: if false;
     }
   }
 }
