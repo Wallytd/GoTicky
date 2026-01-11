@@ -5941,6 +5941,7 @@ private fun GoTickyRoot() {
                                                         HomeScreen(
                                                             userProfile = userProfile,
                                                             isGuest = isGuestMode,
+                                                            onOpenProfile = { currentScreen = MainScreen.Profile },
                                                             onOpenAlerts = { currentScreen = MainScreen.Alerts },
                                                             onOpenTickets = { currentScreen = MainScreen.Tickets },
                                                             onEventSelected = { event ->
@@ -9399,6 +9400,7 @@ private fun AdminActivityRow(item: AdminActivity) {
 private fun HomeScreen(
     userProfile: UserProfile,
     isGuest: Boolean,
+    onOpenProfile: () -> Unit,
     onOpenAlerts: () -> Unit,
     onOpenTickets: () -> Unit,
     onEventSelected: (org.example.project.data.EventItem) -> Unit,
@@ -9548,7 +9550,7 @@ private fun HomeScreen(
                         }
                         ProfileAvatar(
                             initials = "TG",
-                            onClick = onOpenAlerts,
+                            onClick = onOpenProfile,
                             photoPainter = profilePhotoPainter
                         )
                     }
