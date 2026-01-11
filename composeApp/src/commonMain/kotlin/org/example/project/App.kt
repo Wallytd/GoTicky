@@ -1667,7 +1667,9 @@ private suspend fun addNotificationForUser(
         "icon" to icon,
     )
     return runCatching {
-        Firebase.firestore.collection("notifications").document(notificationId).set(payload)
+        val firestore = Firebase.firestore
+        firestore.collection("notifications").document(notificationId).set(payload)
+        firestore.collection("alerts").document(notificationId).set(payload)
         NotificationItem(
             id = notificationId,
             userId = userId,
@@ -1687,15 +1689,13 @@ private suspend fun addNotificationForUser(
 private suspend fun markNotificationReadOnFirestore(notificationId: String) {
     val nowIso = currentInstant().toString()
     runCatching {
-        Firebase.firestore
-            .collection("notifications")
-            .document(notificationId)
-            .update(
-                mapOf(
-                    "readAt" to nowIso,
-                    "status" to "read"
-                )
-            )
+        val firestore = Firebase.firestore
+        val updatePayload = mapOf(
+            "readAt" to nowIso,
+            "status" to "read"
+        )
+        firestore.collection("notifications").document(notificationId).update(updatePayload)
+        firestore.collection("alerts").document(notificationId).update(updatePayload)
     }
 }
 
@@ -5882,7 +5882,10 @@ private fun GoTickyRoot() {
                                                                         eventId = purchasedEvent.id,
                                                                         actionUrl = "goticky://tickets",
                                                                         icon = "purchase"
-                                                                    )
+                                                                    ).onSuccess { created ->
+                                                                        notifications.removeAll { it.id == created.id }
+                                                                        notifications.add(0, created)
+                                                                    }
                                                                 }
                                                             }
                                                         }

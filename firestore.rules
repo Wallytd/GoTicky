@@ -336,6 +336,27 @@ service cloud.firestore {
         );
     }
 
+    // Mirror collection for alerts feed so ticket confirmations & reminders appear in Alerts screen.
+    match /alerts/{alertId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if
+        validNotification(request.resource.data) &&
+        (
+          // Owner writes (signed-in)
+          (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
+          // Admin or reviewer writes (signed-in, any user)
+          isAdminUser() ||
+          // Fail-safe: allow serverless admin tool without auth to push status alerts only.
+          (
+            request.auth == null &&
+            request.resource.data.type in ["approved", "rejected", "needs_info", "reminder", "system"] &&
+            request.resource.data.icon is string &&
+            request.resource.data.eventId is string &&
+            request.resource.data.userId is string
+          )
+        );
+    }
+
     // Public events feed (used by map and home).
     // Creation and full writes are restricted to owners; approval/status tweaks are allowed
     // for any signed-in session but are limited to a narrow set of fields.
