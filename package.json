@@ -1,0 +1,24 @@
+{
+  "name": "goticky",
+  "version": "1.0.0",
+  "description": "This is a Kotlin Multiplatform project targeting Android, iOS, Web, Desktop (JVM).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wallytd/GoTicky.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Wallytd/GoTicky/issues"
+  },
+  "homepage": "https://github.com/Wallytd/GoTicky#readme",
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

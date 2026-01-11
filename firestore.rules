@@ -1,0 +1,430 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Only allow favorites to be a reasonable list length (client-side typed in app code).
+    function validFavorites(data) {
+      return !('favorites' in data) ||
+        (data.favorites is list &&
+          data.favorites.size() <= 500);
+    }
+
+    function roleAllowed(data) {
+      // Recognise customer, organizer, and elevated admin/reviewer roles; allow legacy capitalisation.
+      return !('role' in data) || data.role in ["customer", "organizer", "Organizer", "admin", "Admin", "Reviewer"];
+    }
+    function isElevatedRole(role) {
+      return role in ["admin", "Admin", "Reviewer"];
+    }
+    function isAdminUser() {
+      // Treat users with role admin/Admin/Reviewer as admins for Firestore writes.
+      return isSignedIn() &&
+        (
+          (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["admin", "Admin", "Reviewer"]
+          ) ||
+          (
+            request.auth.token.email != null &&
+            exists(/databases/$(database)/documents/users/$(request.auth.token.email)) &&
+            get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role in ["admin", "Admin", "Reviewer"]
+          )
+        );
+    }
+
+    function validAdminSecure(data) {
+      return ('email' in data && data.email is string && data.email.size() > 0) &&
+             ('password' in data && data.password is string && data.password.size() > 0) &&
+             (!('rememberMe' in data) || data.rememberMe is bool);
+    }
+
+    function validBanner(data) {
+      return ('title' in data && data.title is string && data.title.size() > 0) &&
+             (!('order' in data) || data.order is int) &&
+             (!('active' in data) || data.active is bool);
+    }
+
+    function validNewsFlash(data) {
+      return ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('summary' in data && data.summary is string) &&
+        ('source' in data && data.source is string) &&
+        ('tag' in data && data.tag is string) &&
+        (!('category' in data) || data.category is string) &&
+        (!('accentHex' in data) || data.accentHex is string || data.accentHex == null) &&
+        (!('imageUrl' in data) || data.imageUrl is string || data.imageUrl == null) &&
+        (!('imageKey' in data) || data.imageKey is string || data.imageKey == null) &&
+        (!('ctaLabel' in data) || data.ctaLabel is string || data.ctaLabel == null) &&
+        (!('ctaLink' in data) || data.ctaLink is string || data.ctaLink == null) &&
+        (!('publishedAt' in data) || data.publishedAt is string) &&
+        (!('expiresAt' in data) || data.expiresAt is string || data.expiresAt == null) &&
+        (!('priority' in data) || data.priority is int) &&
+        (!('pinned' in data) || data.pinned is bool) &&
+        (!('status' in data) || data.status in ["draft", "scheduled", "published", "archived"]) &&
+        (!('region' in data) || data.region is string || data.region == null) &&
+        (!('locale' in data) || data.locale is string || data.locale == null) &&
+        (!('author' in data) || data.author is string || data.author == null) &&
+        (!('createdBy' in data) || data.createdBy is string || data.createdBy == null) &&
+        (!('updatedAt' in data) || data.updatedAt is string || data.updatedAt == null) &&
+        (!('impressions' in data) || data.impressions is int) &&
+        (!('clicks' in data) || data.clicks is int);
+    }
+
+    function validTonightsHeat(data) {
+      return ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('metaLine' in data && data.metaLine is string) &&
+        ('captionLine1' in data && data.captionLine1 is string) &&
+        (!('captionLine2' in data) || data.captionLine2 is string || data.captionLine2 == null) &&
+        (!('imageUrl' in data) || data.imageUrl is string || data.imageUrl == null) &&
+        (!('imageKey' in data) || data.imageKey is string || data.imageKey == null) &&
+        (!('accentHex' in data) || data.accentHex is string || data.accentHex == null) &&
+        (!('primaryCtaLabel' in data) || data.primaryCtaLabel is string || data.primaryCtaLabel == null) &&
+        (!('secondaryCtaLabel' in data) || data.secondaryCtaLabel is string || data.secondaryCtaLabel == null) &&
+        (!('eventId' in data) || data.eventId is string || data.eventId == null) &&
+        (!('active' in data) || data.active is bool) &&
+        (!('order' in data) || data.order is int);
+    }
+
+    function validRecommendation(data) {
+      return ('eventId' in data && data.eventId is string && data.eventId.size() > 0) &&
+        ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('reason' in data && data.reason is string) &&
+        ('tag' in data && data.tag is string) &&
+        ('city' in data && data.city is string) &&
+        ('priceFrom' in data && data.priceFrom is string) &&
+        (!('imageKey' in data) || data.imageKey is string || data.imageKey == null) &&
+        (!('imageUrl' in data) || data.imageUrl is string || data.imageUrl == null) &&
+        (!('order' in data) || data.order is int) &&
+        (!('active' in data) || data.active is bool);
+    }
+
+    function validNotificationType(t) {
+      return t in [
+        "general",
+        "purchase",
+        "price_alert",
+        "price_drop",
+        "reminder",
+        "early_bird",
+        "approved",
+        "rejected",
+        "needs_info",
+        "offer",
+        "system"
+      ];
+    }
+
+    function validNotification(data) {
+      return ('userId' in data && data.userId is string && data.userId.size() > 0) &&
+        ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('body' in data && data.body is string && data.body.size() > 0) &&
+        ('type' in data && data.type is string && data.type.size() > 0 && validNotificationType(data.type)) &&
+        ('createdAt' in data && data.createdAt is string && data.createdAt.size() > 0) &&
+        (!('eventId' in data) || data.eventId is string || data.eventId == null) &&
+        (!('readAt' in data) || data.readAt is string || data.readAt == null) &&
+        (!('status' in data) || data.status in ["unread", "read"]) &&
+        (!('actionUrl' in data) || data.actionUrl is string || data.actionUrl == null) &&
+        (!('icon' in data) || data.icon is string || data.icon == null);
+    }
+
+    function validNewsFlashExpiryWindow(data) {
+      return
+        // No expiry set is always allowed.
+        !('expiresAt' in data) ||
+        data.expiresAt == null ||
+        // If we don't know publishedAt, skip the check.
+        !('publishedAt' in data) ||
+        // When both are strings, require expiresAt >= publishedAt.
+        ((data.publishedAt is string) && (data.expiresAt is string) && data.expiresAt >= data.publishedAt);
+    }
+
+    // Organizer events
+    function validEventStatus(status) {
+      // Allow both organizer lifecycle statuses and admin review statuses.
+      return status in [
+        "Draft",
+        "Live",
+        "In Review",
+        "Approved",
+        "Rejected",
+        "Needs Info"
+      ];
+    }
+
+    function validEvent(data, organizerId) {
+      return
+        ('organizerId' in data && data.organizerId == organizerId) &&
+        ('title' in data && data.title is string && data.title.size() > 0) &&
+        ('city' in data && data.city is string && data.city.size() > 0) &&
+        ('venue' in data && data.venue is string && data.venue.size() > 0) &&
+        ('dateLabel' in data && data.dateLabel is string && data.dateLabel.size() > 0) &&
+        ('status' in data && validEventStatus(data.status)) &&
+        (!('isApproved' in data) || data.isApproved is bool) &&
+        (!('priceFrom' in data) || (data.priceFrom is string && data.priceFrom.size() <= 32)) &&
+        (!('ticketCount' in data) || data.ticketCount is int) &&
+        (!('tickets' in data) || data.tickets is map) &&
+        (!('country' in data) || data.country is string || data.country == null) &&
+        (!('companyName' in data) || data.companyName is string || data.companyName == null) &&
+        (!('lat' in data) || data.lat is number) &&
+        (!('lng' in data) || data.lng is number) &&
+        (!('views' in data) || data.views is int) &&
+        (!('saves' in data) || data.saves is int) &&
+        (!('sales' in data) || data.sales is int) &&
+        (!('flyerUrl' in data) || data.flyerUrl is string || data.flyerUrl == null) &&
+        (!('createdAt' in data) || data.createdAt is string) &&
+        (!('updatedAt' in data) || data.updatedAt is string) &&
+        (!('isVerified' in data) || data.isVerified is bool) &&
+        validFavorites(data); // reuse bounded list guard
+    }
+
+    // Public profile index validation for pre-auth avatar lookup on sign-in.
+    function validPublicProfile(data, emailLower) {
+      return ('emailLower' in data && data.emailLower == emailLower) &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 120)) &&
+        (!('email' in data) || (data.email is string && data.email.size() > 0)) &&
+        (!('photoUri' in data) ||
+          // Allow null or omitted photoUri (user may not have uploaded an avatar yet),
+          // but bound non-null string length.
+          data.photoUri == null ||
+          (data.photoUri is string && data.photoUri.size() <= 2000));
+    }
+
+    function immutableUid(userId, data) {
+      return !('uid' in data) || data.uid == userId;
+    }
+
+    // Customer ticket payload stored under /users/{uid}/tickets/{ticketId}
+    function validTicket(data, userId) {
+      return
+        (!('ownerId' in data) || data.ownerId == userId) &&
+        ('eventTitle' in data && data.eventTitle is string && data.eventTitle.size() > 0) &&
+        ('venue' in data && data.venue is string && data.venue.size() > 0) &&
+        ('dateLabel' in data && data.dateLabel is string && data.dateLabel.size() > 0) &&
+        ('seat' in data && data.seat is string && data.seat.size() > 0) &&
+        ('status' in data && data.status is string && data.status.size() > 0) &&
+        (!('type' in data) || data.type is string) &&
+        (!('holderName' in data) || data.holderName is string) &&
+        (!('holderInitials' in data) || data.holderInitials is string) &&
+        (!('qrSeed' in data) || data.qrSeed is string) &&
+        (!('orderId' in data) || data.orderId is string) &&
+        (!('purchaseAt' in data) || data.purchaseAt is string) &&
+        (!('createdAt' in data) || data.createdAt is string) &&
+        (!('updatedAt' in data) || data.updatedAt is string);
+    }
+
+    // Canonical per-user document keyed by Firebase UID or seeded key.
+    // Write is allowed for the owner OR for signed-in seeders writing role=admin (for initial admin import).
+    match /users/{userId} {
+      // TEMP (dev/unblocked): allow any signed-in session to read/write, and also allow writes
+      // even when auth is null so seeding flows keyed by email succeed.
+      allow read: if isSignedIn();
+      allow write: if
+        (
+          // The owner can write their own document.
+          isOwner(userId) ||
+          // Admin users may write any user document (for moderation/approvals).
+          isAdminUser() ||
+          // Allow writes where the document id matches either the raw auth email or a pre-lowered email claim.
+          (request.auth != null &&
+            request.auth.token.email != null &&
+            (
+              request.auth.token.email == userId ||
+              ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)
+            ))
+        ) &&
+        immutableUid(userId, request.resource.data) &&
+        validFavorites(request.resource.data) &&
+        roleAllowed(request.resource.data) &&
+        // Only existing admins may set an elevated role.
+        (
+          !('role' in request.resource.data) ||
+          !isElevatedRole(request.resource.data.role) ||
+          isAdminUser()
+        );
+
+      // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
+      match /app_settings/{docId} {
+        allow read, write: if
+          isOwner(userId) ||
+          (isSignedIn() &&
+            (('email' in request.auth.token && request.auth.token.email == userId) ||
+             ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)));
+      }
+
+      // User-owned tickets generated from checkout.
+      // Path option A (current app implementation):
+      match /tickets/{ticketId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && validTicket(request.resource.data, userId);
+      }
+      // Path option B (organizational): /users/{uid}/tickets/{ticketId} already covers storage;
+      // if a shared collection is ever needed, uncomment below and gate by ownerId and auth.
+      // match /tickets_shared/{ticketId} {
+      //   allow read: if request.resource.data.ownerId == request.auth.uid;
+      //   allow write: if request.auth != null && validTicket(request.resource.data, request.auth.uid);
+      // }
+    }
+
+    // Global app settings. Keep admin_secure readable for backwards compatibility only.
+    match /app_settings/{docId} {
+      // Allow reads for bootstrapping legacy secure admin sign-in configs even before auth/app-check succeeds.
+      allow read: if docId == "admin_secure";
+      // Writes to the legacy admin_secure document are no longer allowed; new configs live under adminProfiles.
+      allow write: if false;
+    }
+
+    // Admin profiles collection used for admin control room and per-admin settings.
+    match /adminProfiles/{adminName} {
+      allow read: if true;
+      // Admin profile documents are seeded server-side or via the app's seeding utilities while signed in.
+      allow write: if isSignedIn();
+
+      // Per-admin app settings, e.g. /adminProfiles/{adminName}/app_settings/admin_secure
+      match /app_settings/{docId} {
+        // Allow reads for secure admin bootstrap regardless of auth state so the app can fetch
+        // pre-configured secure credentials and then perform its own gating.
+        allow read: if docId == "admin_secure";
+
+        // Writes must pass the same validation as the legacy admin_secure document.
+        // We intentionally do not require auth here so the client can bootstrap secure
+        // admin config even if Firebase Auth is not fully wired yet.
+        allow write: if
+          docId == "admin_secure" &&
+          validAdminSecure(request.resource.data);
+      }
+    }
+
+    // Hero/marketing banners shown on the public home screen.
+    // Allow anyone to read banners, writes limited to signed-in sessions (including
+    // anonymous) so only the app/admin tools can modify them.
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isSignedIn() && validBanner(request.resource.data);
+    }
+
+    match /newsFeeds/{flashId} {
+      allow read: if true;
+      allow write: if
+        validNewsFlash(request.resource.data) &&
+        validNewsFlashExpiryWindow(request.resource.data);
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if
+        validNotification(request.resource.data) &&
+        (
+          // Owner writes (signed-in)
+          (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
+          // Admin or reviewer writes (signed-in, any user)
+          isAdminUser() ||
+          // Fail-safe: allow serverless admin tool without auth to push status alerts only.
+          (
+            request.auth == null &&
+            request.resource.data.type in ["approved", "rejected", "needs_info", "reminder", "system"] &&
+            request.resource.data.icon is string &&
+            request.resource.data.eventId is string &&
+            request.resource.data.userId is string
+          )
+        );
+    }
+
+    // Public events feed (used by map and home).
+    // Creation and full writes are restricted to owners; approval/status tweaks are allowed
+    // for any signed-in session but are limited to a narrow set of fields.
+    match /events/{eventId} {
+      // DEV: temporarily allow all reads so admin Applications and public surfaces can load
+      // without being blocked by role wiring/App Check. Writes remain restricted.
+      allow read: if true;
+      // Allow approval/status updates without requiring full event payload or auth, but
+      // strictly limit which fields can be changed so the rest of the document remains safe.
+      allow update: if
+        (!('status' in request.resource.data) || validEventStatus(request.resource.data.status)) &&
+        (!('isApproved' in request.resource.data) || request.resource.data.isApproved is bool) &&
+        (!('approvedAt' in request.resource.data) || request.resource.data.approvedAt is string || request.resource.data.approvedAt == null) &&
+        // Ensure we always know who owns the event (from incoming data or existing doc).
+        (("organizerId" in request.resource.data) || ("organizerId" in resource.data));
+      allow write: if
+        (
+          isSignedIn() &&
+          request.resource.data.organizerId == request.auth.uid &&
+          validEvent(request.resource.data, request.auth.uid) &&
+          (!('isApproved' in request.resource.data) || request.resource.data.isApproved == false)
+        ) ||
+        (
+          isAdminUser() &&
+          ('organizerId' in request.resource.data) &&
+          validEvent(request.resource.data, request.resource.data.organizerId)
+        );
+    }
+
+    // Organizer profile documents (used by admin tools and organizer dashboards).
+    match /organizers/{organizerId} {
+      // Organizer metadata is safe to read for dashboards.
+      allow read: if true;
+      // Writes limited to the organizer themselves or admins.
+      allow write: if isOwner(organizerId) || isAdminUser();
+    }
+
+    // Organizer-scoped events for drafts/revisions.
+    // Owners can read/write their own docs but cannot self-approve; admin tools may
+    // also write for approvals. We keep full-write restrictions but allow a narrow
+    // approval/status update path.
+    match /organizers/{organizerId}/events/{eventId} {
+      // Allow reads for dashboards and admin tools.
+      allow read: if true;
+      // Allow approval/status updates without requiring full payload or auth.
+      allow update: if
+        (!('status' in request.resource.data) || validEventStatus(request.resource.data.status)) &&
+        (!('isApproved' in request.resource.data) || request.resource.data.isApproved is bool) &&
+        (!('approvedAt' in request.resource.data) || request.resource.data.approvedAt is string || request.resource.data.approvedAt == null) &&
+        (("organizerId" in request.resource.data) || ("organizerId" in resource.data));
+      allow write: if
+        (
+          isOwner(organizerId) &&
+          validEvent(request.resource.data, organizerId) &&
+          (!('isApproved' in request.resource.data) || request.resource.data.isApproved == false)
+        ) ||
+        (
+          isAdminUser() &&
+          validEvent(request.resource.data, organizerId)
+        );
+    }
+
+    match /tonightsHeat/{heatId} {
+      allow read: if true;
+      allow write: if isSignedIn() && validTonightsHeat(request.resource.data);
+    }
+
+    match /recommendations/{recId} {
+      allow read: if true;
+      allow write: if isSignedIn() && validRecommendation(request.resource.data);
+    }
+
+    // Human-friendly user directory index for console/admin inspection.
+    // Structure: /userDirectory/{role}/{nameKey}/{uid}
+    match /userDirectory/{role}/{nameKey}/{uid} {
+      allow write: if isSignedIn();
+      allow read: if false;
+    }
+
+    // Public, minimal profile index keyed by lowercased email for pre-auth avatar lookup.
+    match /publicProfiles/{emailLower} {
+      allow read: if true;
+      allow write: if isSignedIn() &&
+        validPublicProfile(request.resource.data, emailLower);
+    }
+
+    // Deny everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

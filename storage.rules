@@ -1,0 +1,81 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Per-user profile uploads. Only the authenticated owner can read/write their files.
+    // Expected structure: /users/{uid}/profile/* (images only)
+    match /users/{uid}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024 // 5 MB limit
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Admin photos bucket (public read, write limited to signed-in uploads).
+    match /adminPhotos/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Hero/banner images used on the public home screen.
+    // Public read so the home screen can load images without auth, writes allowed
+    // with strict size and content-type limits (no auth requirement, to work with
+    // anonymous or placeholder sessions).
+    match /banners/{allPaths=**} {
+      allow read: if true;
+      allow write: if
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
+    // Organizer event flyers and assets.
+    // Authenticated organizers can upload under /events/{uid}/flyers/**
+    match /events/{uid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // News flash images stored per draft/published item.
+    // Public read so the home feed can load thumbnails; writes allowed with
+    // size/type limits (mirrors banners) to keep admin tools working even if
+    // auth/app-check is not ready.
+    match /newsflash/{allPaths=**} {
+      allow read: if true;
+      allow write: if
+        request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Tonight's heat hero images.
+    // Public read so the home card can load; writes limited to signed-in sessions
+    // with strict size/content-type.
+    match /tonights_heat/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // For You recommendation images.
+    match /recommendations/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

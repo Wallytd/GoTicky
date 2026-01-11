@@ -1,0 +1,79 @@
+Reusing configuration cache.
+> Task :composeApp:preBuild UP-TO-DATE
+> Task :composeApp:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :composeApp:generateComposeResClass UP-TO-DATE
+> Task :composeApp:kmpPartiallyResolvedDependenciesChecker
+> Task :composeApp:preDebugBuild UP-TO-DATE
+> Task :composeApp:generateExpectResourceCollectorsForCommonMain UP-TO-DATE
+> Task :composeApp:processDebugGoogleServices UP-TO-DATE
+> Task :composeApp:copyNonXmlValueResourcesForAndroidDebug NO-SOURCE
+> Task :composeApp:convertXmlValueResourcesForCommonMain NO-SOURCE
+> Task :composeApp:convertXmlValueResourcesForAndroidDebug NO-SOURCE
+> Task :composeApp:generateDebugResValues UP-TO-DATE
+> Task :composeApp:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :composeApp:prepareComposeResourcesTaskForAndroidDebug NO-SOURCE
+> Task :composeApp:copyNonXmlValueResourcesForCommonMain UP-TO-DATE
+> Task :composeApp:generateDebugResources UP-TO-DATE
+> Task :composeApp:extractDeepLinksDebug UP-TO-DATE
+> Task :composeApp:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :composeApp:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :composeApp:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :composeApp:generateResourceAccessorsForAndroidMain NO-SOURCE
+> Task :composeApp:packageDebugResources UP-TO-DATE
+> Task :composeApp:generateResourceAccessorsForAndroidDebug NO-SOURCE
+> Task :composeApp:prepareComposeResourcesTaskForCommonMain UP-TO-DATE
+> Task :composeApp:processDebugNavigationResources UP-TO-DATE
+> Task :composeApp:checkDebugAarMetadata UP-TO-DATE
+> Task :composeApp:compileDebugNavigationResources UP-TO-DATE
+> Task :composeApp:generateResourceAccessorsForCommonMain UP-TO-DATE
+> Task :composeApp:mergeDebugResources UP-TO-DATE
+> Task :composeApp:parseDebugLocalResources UP-TO-DATE
+> Task :composeApp:generateActualResourceCollectorsForAndroidMain UP-TO-DATE
+> Task :composeApp:mapDebugSourceSetPaths UP-TO-DATE
+> Task :composeApp:processDebugMainManifest UP-TO-DATE
+> Task :composeApp:processDebugManifest UP-TO-DATE
+> Task :composeApp:processDebugManifestForPackage UP-TO-DATE
+> Task :composeApp:processDebugResources UP-TO-DATE
+
+> Task :composeApp:compileDebugKotlinAndroid FAILED
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:488:20 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:489:13 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:493:69 Unresolved reference 'expiresMonths'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:496:45 Unresolved reference 'expiresTimeSlots'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:496:74 Unresolved reference 'expiresTimeSlots'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:847:52 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1172:9 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1174:34 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1197:81 Unresolved reference 'expiresMonths'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1202:43 Unresolved reference 'expiresMonths'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1202:43 Cannot infer type for type parameter 'V'. Specify it explicitly.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1233:78 Unresolved reference 'expiresMonths'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1267:56 Unresolved reference 'expiresTimeSlots'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1269:36 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1270:29 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1271:42 Unresolved reference 'expiresTimeSlots'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1291:42 Unresolved reference 'expiresTimeSlots'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1293:72 @Composable invocations can only happen from the context of a @Composable function
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1293:111 @Composable invocations can only happen from the context of a @Composable function
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1294:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1352:21 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:1360:25 Unresolved reference 'showExpiresPicker'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/EventRepository.kt:20:53 This declaration needs opt-in. Its usage must be marked with '@kotlin.time.ExperimentalTime' or '@OptIn(kotlin.time.ExperimentalTime::class)'
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/EventRepository.kt:23:36 This declaration needs opt-in. Its usage must be marked with '@kotlin.time.ExperimentalTime' or '@OptIn(kotlin.time.ExperimentalTime::class)'
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':composeApp:compileDebugKotlinAndroid'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 10s
+24 actionable tasks: 2 executed, 22 up-to-date
+Configuration cache entry reused.

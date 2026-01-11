@@ -1,0 +1,37 @@
+{
+  "adminProfiles": [
+    {
+      "id": "1",
+      "fullName": "Kate Mula",
+      "email": "kate@goticky.com",
+      "password": "kate2026",
+      "phoneNumber": "+263771234567",
+      "birthday": "1989-04-11",
+      "gender": "Female",
+      "country": "Zimbabwe",
+      "photoUri": "https://firebasestorage.googleapis.com/v0/b/goticky-47533.firebasestorage.app/o/Kate%20Mula.jpeg?alt=media&token=53a92d5d-a158-483e-9a2d-0ee6fb84b23c"
+    },
+    {
+      "id": "2",
+      "fullName": "Rob Johnson",
+      "email": "rob@goticky.com",
+      "password": "rob2026",
+      "phoneNumber": "+263781234568",
+      "birthday": "1991-09-23",
+      "gender": "Male",
+      "country": "Zimbabwe",
+      "photoUri": "https://firebasestorage.googleapis.com/v0/b/goticky-47533.firebasestorage.app/o/Rob%20Johnson.jpeg?alt=media&token=5d16a2c8-526a-431b-81da-cfb8812caba2"
+    },
+    {
+      "id": "3",
+      "fullName": "Walter Dru",
+      "email": "walter@goticky.com",
+      "password": "walter2026",
+      "phoneNumber": "+263731234569",
+      "birthday": "1993-02-07",
+      "gender": "Non-binary",
+      "country": "Zimbabwe",
+      "photoUri": "https://firebasestorage.googleapis.com/v0/b/goticky-47533.firebasestorage.app/o/Walter%20Dru.jpeg?alt=media&token=0b9d9abd-166c-4226-bfde-1545530aa16a"
+    }
+  ]
+}

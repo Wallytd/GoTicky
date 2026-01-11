@@ -1,0 +1,28 @@
+source 'https://cdn.cocoapods.org'
+
+platform :ios, '15.0'
+# Build pods as static frameworks to avoid embed/sign conflicts.
+use_frameworks! :linkage => :static
+inhibit_all_warnings!
+
+target 'iosApp' do
+  # Compose Multiplatform framework produced by :composeApp:syncFramework
+  pod 'ComposeApp', :path => '../composeApp'
+  # Native Firebase SDKs required by dev.gitlive Firebase bindings in ComposeApp
+  pod 'Firebase/Auth'
+  pod 'Firebase/Firestore'
+end
+
+post_install do |installer|
+  # Align all pods to iOS 15 minimum to silence deployment target warnings.
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
+    # Add dummy outputs to stop Xcode warning about always-running script phases.
+    target.shell_script_build_phases.each do |phase|
+      next unless phase.name == 'Create Symlinks to Header Folders'
+      phase.output_paths = ["${DERIVED_FILE_DIR}/#{target.name}-#{phase.name}.marker"]
+    end
+  end
+end

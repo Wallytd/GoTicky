@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyAoivYOI72VuA6eGm4SystksVlbNWs8Lcc</string>
+	<key>GCM_SENDER_ID</key>
+	<string>1058527094400</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>org.example.project.GoTicky</string>
+	<key>PROJECT_ID</key>
+	<string>goticky-47533</string>
+	<key>STORAGE_BUCKET</key>
+	<string>goticky-47533.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:1058527094400:ios:a06defd430c2b3c7cd6865</string>
+	<key>DATABASE_URL</key>
+	<string>https://goticky-47533-default-rtdb.firebaseio.com</string>
+</dict>
+</plist>

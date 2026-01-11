@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1058527094400",
+    "firebase_url": "https://goticky-47533-default-rtdb.firebaseio.com",
+    "project_id": "goticky-47533",
+    "storage_bucket": "goticky-47533.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1058527094400:android:141ad7ef9575b5b7cd6865",
+        "android_client_info": {
+          "package_name": "org.example.project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgb_nTqktjOHqpHzoFVuKFrViR5GzaOzw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
