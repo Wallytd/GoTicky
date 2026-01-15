@@ -80,6 +80,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.focusRequester
@@ -459,6 +460,9 @@ fun AuthScreen(
     )
     val neonInputColor = Color(0xFF7EF9FF)
     val linkColor = MaterialTheme.colorScheme.primary
+    val termsUrl = "https://github.com/Wallytd/GoTicky/blob/master/TERMS_OF_SERVICE.md"
+    val privacyUrl = "https://github.com/Wallytd/GoTicky/blob/master/PRIVACY_POLICY.md"
+    val uriHandler = LocalUriHandler.current
     val termsText = remember(linkColor) {
         buildAnnotatedString {
             append("By creating an account or logging in, you agree with GoTicky's ")
@@ -1082,8 +1086,8 @@ fun AuthScreen(
                             onClick = { offset ->
                                 termsText.getStringAnnotations(start = offset, end = offset).firstOrNull()?.let { annotation ->
                                     when (annotation.tag) {
-                                        "terms" -> scope.launch { snackbarHostState.showSnackbar("Terms and Conditions") }
-                                        "privacy" -> scope.launch { snackbarHostState.showSnackbar("Privacy Policy") }
+                                        "terms" -> uriHandler.openUri(termsUrl)
+                                        "privacy" -> uriHandler.openUri(privacyUrl)
                                     }
                                 }
                             }

@@ -16148,7 +16148,8 @@ private fun SettingsLinkRow(
 private fun LegalScreen(onBack: () -> Unit) {
     val scrollState = rememberScrollState()
     val uriHandler = LocalUriHandler.current
-    val pdfUrl = "https://goticky.app/legal/goticky-privacy-terms.pdf"
+    val termsUrl = "https://github.com/Wallytd/GoTicky/blob/master/TERMS_OF_SERVICE.md"
+    val privacyUrl = "https://github.com/Wallytd/GoTicky/blob/master/PRIVACY_POLICY.md"
     val sections = listOf(
         "Overview" to "GoTicky is a ticket discovery and purchase experience. We use your data to process orders, prevent fraud, personalize recommendations, and keep you informed about events you engage with.",
         "Data we collect" to "Account data (name, email, phone), preferences (genres, cities), device signals for fraud prevention, and transaction metadata. We do not store card details—payments are handled by PCI-compliant providers.",
@@ -16175,7 +16176,8 @@ private fun LegalScreen(onBack: () -> Unit) {
                     title = "Privacy & Terms",
                     onBack = onBack,
                     actions = {
-                        NeonTextButton(text = "Download", onClick = { uriHandler.openUri(pdfUrl) })
+                        NeonTextButton(text = "Privacy", onClick = { uriHandler.openUri(privacyUrl) })
+                        NeonTextButton(text = "Terms", onClick = { uriHandler.openUri(termsUrl) })
                     },
                     backgroundColor = Color.Transparent
                 )
