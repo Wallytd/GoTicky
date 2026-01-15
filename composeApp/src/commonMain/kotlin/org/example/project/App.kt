@@ -16150,6 +16150,27 @@ private fun LegalScreen(onBack: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     val termsUrl = "https://github.com/Wallytd/GoTicky/blob/master/TERMS_OF_SERVICE.md"
     val privacyUrl = "https://github.com/Wallytd/GoTicky/blob/master/PRIVACY_POLICY.md"
+    val privacySections = listOf(
+        "Who controls your data" to "GoTicky is the controller. Reach us at privacy@goticky.app or legal@goticky.app. We honor local rights (GDPR/EEA, UK, CCPA/CPRA, POPIA).",
+        "Data we collect" to "Account identity, preferences & activity, transaction metadata (no full card storage), device/network diagnostics, optional location, and support communications.",
+        "How we use data" to "Run ticketing, alerts, recommendations, maps; process payments; prevent fraud; send transactional messages; analyze performance. Marketing is opt-in.",
+        "Sharing" to "Payment processors, organizers/venues, service providers (hosting, analytics, crash, email/push), and legal/safety. We do not sell personal data.",
+        "Your choices" to "Access/correct/delete/export data; opt out of marketing; control location; withdraw consent where used; contact privacy@goticky.app for requests.",
+        "Security & retention" to "TLS in transit, encrypted tokens, restricted access, fraud monitoring. We retain data while needed for service/legal/security, then delete or de-identify.",
+        "International transfers" to "Data may move across regions; we apply safeguards (e.g., SCCs where applicable).",
+        "Children" to "Not directed to under 16; we delete known child data without consent.",
+        "Changes" to "We will highlight material updates in-app or on-site; continued use means acceptance."
+    )
+    val termsSections = listOf(
+        "Eligibility & accounts" to "You must be 16+ and able to contract. Keep info accurate; you are responsible for account activity.",
+        "Ticketing, pricing, and fees" to "Organizers set availability, pricing, seating, and refund/transfer rules. Payments go through PCI-compliant providers; we do not store full cards.",
+        "User conduct" to "No fraud, bots/scalping abuse, harassment, scraping, reverse engineering, or violating venue/organizer rules.",
+        "Liability" to "We are not liable for indirect or consequential damages or for event changes/cancellations outside our control. Remedies follow organizer policies.",
+        "Indemnity" to "You will indemnify GoTicky for misuse, terms violations, or IP/right infringements you cause.",
+        "Termination" to "You may stop anytime; we may suspend/terminate for violations, fraud risk, or legal reasons. Certain clauses survive.",
+        "Changes" to "We may update terms; material changes will be highlighted. Continued use accepts updates.",
+        "Governing law" to "Zimbabwe law (or as required locally); venue is courts where we are based unless consumer law requires otherwise."
+    )
     val sections = listOf(
         "Overview" to "GoTicky is a ticket discovery and purchase experience. We use your data to process orders, prevent fraud, personalize recommendations, and keep you informed about events you engage with.",
         "Data we collect" to "Account data (name, email, phone), preferences (genres, cities), device signals for fraud prevention, and transaction metadata. We do not store card details—payments are handled by PCI-compliant providers.",
@@ -16181,6 +16202,22 @@ private fun LegalScreen(onBack: () -> Unit) {
                     },
                     backgroundColor = Color.Transparent
                 )
+            }
+            GlowCard {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Open full documents",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        NeonTextButton(text = "View Privacy on GitHub", onClick = { uriHandler.openUri(privacyUrl) })
+                        NeonTextButton(text = "View Terms on GitHub", onClick = { uriHandler.openUri(termsUrl) })
+                    }
+                }
             }
             GlowCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -16228,38 +16265,78 @@ private fun LegalScreen(onBack: () -> Unit) {
                 }
             }
             GlowCard {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val openPrivacy = remember { mutableStateMapOf<Int, Boolean>() }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Terms (high level)",
+                        "Privacy policy (in-app view)",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    val terms = listOf(
-                        "Use of service" to "You agree to truthful info, no scalping abuse, and compliance with venue rules.",
-                        "Tickets & refunds" to "All sales are subject to organizer policies; we surface refund/transfer options where supported.",
-                        "Liability" to "We are not responsible for event changes or cancellations beyond our control; we facilitate organizer remedies.",
-                        "User conduct" to "No fraud, harassment, or platform abuse. Violations may lead to suspension.",
-                        "Changes" to "We may update these terms; continued use means acceptance. Material changes will be highlighted."
-                    )
-                    terms.forEach { (t, desc) ->
-                        Row(
+                    privacySections.forEachIndexed { idx, (title, desc) ->
+                        val expanded = openPrivacy[idx] ?: false
+                        val rotation by updateTransition(expanded, label = "privacy$idx").animateFloat(
+                            transitionSpec = { tween(durationMillis = 240, easing = EaseOutBack) }, label = "privacyArrow$idx"
+                        ) { if (it) 90f else 0f }
+                        GlowCard(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(goTickyShapes.medium)
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .pressAnimated(scaleDown = 0.97f)
+                                .clickable { openPrivacy[idx] = !expanded }
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                            Column {
-                                Text(t, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                                Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+                                    Icon(imageVector = Icons.Outlined.ArrowForward, contentDescription = null, modifier = Modifier.rotate(rotation), tint = MaterialTheme.colorScheme.tertiary)
+                                }
+                                AnimatedVisibility(
+                                    visible = expanded,
+                                    enter = fadeIn(animationSpec = tween(200)) + slideInVertically { it / 4 }
+                                ) {
+                                    Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            GlowCard {
+                val openTerms = remember { mutableStateMapOf<Int, Boolean>() }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Terms of service (in-app view)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    termsSections.forEachIndexed { idx, (title, desc) ->
+                        val expanded = openTerms[idx] ?: false
+                        val rotation by updateTransition(expanded, label = "terms$idx").animateFloat(
+                            transitionSpec = { tween(durationMillis = 240, easing = EaseOutBack) }, label = "termsArrow$idx"
+                        ) { if (it) 90f else 0f }
+                        GlowCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated(scaleDown = 0.97f)
+                                .clickable { openTerms[idx] = !expanded }
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+                                    Icon(imageVector = Icons.Outlined.ArrowForward, contentDescription = null, modifier = Modifier.rotate(rotation), tint = MaterialTheme.colorScheme.secondary)
+                                }
+                                AnimatedVisibility(
+                                    visible = expanded,
+                                    enter = fadeIn(animationSpec = tween(200)) + slideInVertically { it / 4 }
+                                ) {
+                                    Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                     }
