@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -92,13 +93,26 @@ fun TicketCard(
     val barcodeId = remember(ticket.id, ticket.qrSeed, ticket.holderInitials) {
         buildBarcodeNumericId(ticket)
     }
+    var venueCopied by remember { mutableStateOf(false) }
+    val (dateLine, timeLine) = remember(ticket.dateLabel) {
+        val parts = ticket.dateLabel.split(" at ", limit = 2)
+        val date = parts.getOrNull(0)?.trim().orEmpty()
+        val timeRaw = parts.getOrNull(1)?.trim().orEmpty()
+        val timeFormatted = if (timeRaw.isNotBlank()) timeRaw.lowercase() else ""
+        date to timeFormatted
+    }
+    val ticketPrice = remember(ticket.seat) {
+        val split = ticket.seat.split("•")
+        split.getOrNull(1)?.trim().takeUnless { it.isNullOrBlank() } ?: ticket.seat
+    }
     val clipboard = LocalClipboardManager.current
     var barcodeCopied by remember { mutableStateOf(false) }
 
-    LaunchedEffect(barcodeCopied) {
-        if (barcodeCopied) {
+    LaunchedEffect(barcodeCopied, venueCopied) {
+        if (barcodeCopied || venueCopied) {
             delay(1500)
             barcodeCopied = false
+            venueCopied = false
         }
     }
 
@@ -129,8 +143,9 @@ fun TicketCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        ticket.venue,
+                        "${ticket.venue}, ${ticket.city}",
                         style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.SemiBold,
                             shadow = Shadow(
                                 color = metallic.darkStroke.copy(alpha = 0.4f),
                                 offset = Offset(0f, 1f),
@@ -195,11 +210,167 @@ fun TicketCard(
                                 onClick = {},
                                 photoPainter = profilePainter
                             )
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Column(
+                                modifier = Modifier.pressAnimated(),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
                                 Text(
                                     ticket.holderName,
                                     style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = FontWeight.SemiBold,
+                                        shadow = Shadow(
+                                            color = metallic.ink.copy(alpha = 0.5f),
+                                            offset = Offset(0f, 1.2f),
+                                            blurRadius = 7f
+                                        )
+                                    ),
+                                    color = metallic.ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        "ID:",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            shadow = Shadow(
+                                                color = Color(0xFF2E7D32).copy(alpha = 0.45f),
+                                                offset = Offset(0f, 1.1f),
+                                                blurRadius = 5f
+                                            )
+                                        ),
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                    Text(
+                                        ticket.id,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 10.sp,
+                                            shadow = Shadow(
+                                                color = metallic.ink.copy(alpha = 0.5f),
+                                                offset = Offset(0f, 1.2f),
+                                                blurRadius = 7f
+                                            )
+                                        ),
+                                        color = metallic.ink.copy(alpha = 0.92f),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                        Column(
+                            modifier = Modifier
+                                .clip(goTickyShapes.medium)
+                                .background(metallic.darkStroke.copy(alpha = 0.06f))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalAlignment = Alignment.End
+                            ) {
+                                Text(
+                                    "Day",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Normal,
+                                        shadow = Shadow(
+                                            color = metallic.glow.copy(alpha = 0.45f),
+                                            offset = Offset(0f, 1.2f),
+                                            blurRadius = 6f
+                                        )
+                                    ),
+                                    color = metallic.ink.copy(alpha = 0.95f)
+                                )
+                                Text(
+                                    dateLine,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        shadow = Shadow(
+                                            color = metallic.ink.copy(alpha = 0.5f),
+                                            offset = Offset(0f, 1.2f),
+                                            blurRadius = 7f
+                                        )
+                                    ),
+                                    color = metallic.ink.copy(alpha = 0.96f),
+                                    textAlign = TextAlign.End,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (timeLine.isNotBlank()) {
+                                    Text(
+                                        "Time",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Normal,
+                                            shadow = Shadow(
+                                                color = metallic.glow.copy(alpha = 0.38f),
+                                                offset = Offset(0f, 1f),
+                                                blurRadius = 5f
+                                            )
+                                        ),
+                                        color = metallic.ink.copy(alpha = 0.9f)
+                                    )
+                                    Text(
+                                        timeLine,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            shadow = Shadow(
+                                                color = metallic.ink.copy(alpha = 0.5f),
+                                                offset = Offset(0f, 1.2f),
+                                                blurRadius = 7f
+                                            )
+                                        ),
+                                        color = metallic.ink.copy(alpha = 0.92f),
+                                        textAlign = TextAlign.End,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(goTickyShapes.medium)
+                            .background(metallic.glow.copy(alpha = 0.14f))
+                            .border(1.dp, metallic.darkStroke.copy(alpha = 0.18f), goTickyShapes.medium)
+                            .pressAnimated()
+                            .clickable {
+                                clipboard.setText(AnnotatedString("${ticket.venue}, ${ticket.city}"))
+                                venueCopied = true
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Place,
+                                contentDescription = "Venue",
+                                tint = Color(0xFFB74A4A)
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "Venue",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        shadow = Shadow(
+                                            color = metallic.darkStroke.copy(alpha = 0.35f),
+                                            offset = Offset(0f, 0.8f),
+                                            blurRadius = 4f
+                                        )
+                                    ),
+                                    color = metallic.ink.copy(alpha = 0.8f)
+                                )
+                                Text(
+                                    text = "${ticket.venue}, ${ticket.city}",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
                                         shadow = Shadow(
                                             color = metallic.darkStroke.copy(alpha = 0.55f),
                                             offset = Offset(0f, 1.2f),
@@ -210,41 +381,20 @@ fun TicketCard(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Text(
-                                    "ID ${ticket.id}",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        shadow = Shadow(
-                                            color = metallic.darkStroke.copy(alpha = 0.4f),
-                                            offset = Offset(0f, 1f),
-                                            blurRadius = 5f
-                                        )
-                                    ),
-                                    color = metallic.ink.copy(alpha = 0.85f),
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
-                        Column(
-                            modifier = Modifier
-                                .clip(goTickyShapes.medium)
-                                .background(metallic.darkStroke.copy(alpha = 0.06f))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalAlignment = Alignment.End
-                        ) {
+                        if (venueCopied) {
                             Text(
-                                ticket.dateLabel,
-                                style = MaterialTheme.typography.labelMedium.copy(
+                                text = "Copied",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Medium,
                                     shadow = Shadow(
-                                        color = metallic.darkStroke.copy(alpha = 0.45f),
-                                        offset = Offset(0f, 1.2f),
-                                        blurRadius = 6f
+                                        color = metallic.glow.copy(alpha = 0.45f),
+                                        offset = Offset(0f, 1f),
+                                        blurRadius = 5f
                                     )
                                 ),
-                                color = metallic.ink.copy(alpha = 0.95f),
-                                textAlign = TextAlign.End,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                color = metallic.ink.copy(alpha = 0.9f)
                             )
                         }
                     }
@@ -253,8 +403,14 @@ fun TicketCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        DetailChip(title = "Seat", value = ticket.seat, accent = metallic.ink)
-                        DetailChip(title = "Type", value = ticket.type.name, accent = metallic.ink)
+                        DetailChip(title = "Ticket Price", value = ticketPrice, accent = metallic.ink)
+                        DetailChip(
+                            title = "Type",
+                            value = ticket.type.name,
+                            accent = metallic.ink,
+                            horizontalAlignment = Alignment.End,
+                            textAlign = TextAlign.End
+                        )
                     }
 
                     ticket.purchaseAt?.let { purchaseRaw ->
@@ -265,7 +421,7 @@ fun TicketCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "Purchased",
+                                "Purchased at",
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = metallic.ink.copy(alpha = 0.9f)
                             )
@@ -1170,11 +1326,21 @@ private fun metallicPalette(type: TicketType): MetallicPalette = when (type) {
 }
 
 @Composable
-private fun DetailChip(title: String, value: String, accent: Color) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+private fun DetailChip(
+    title: String,
+    value: String,
+    accent: Color,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    textAlign: TextAlign = TextAlign.Start
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalAlignment = horizontalAlignment
+    ) {
         Text(
             text = title,
             style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Normal,
                 shadow = Shadow(
                     color = accent.copy(alpha = 0.35f),
                     offset = Offset(0f, 0.8f),
@@ -1193,7 +1359,8 @@ private fun DetailChip(title: String, value: String, accent: Color) {
                     blurRadius = 7f
                 )
             ),
-            color = accent
+            color = accent,
+            textAlign = textAlign
         )
     }
 }

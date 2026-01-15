@@ -2909,8 +2909,7 @@ private data class AdminOrganizer(
     val countryName: String = "",
     val phoneCode: String = "",
     val phoneNumber: String = "",
-    val gender: String = "",
-    val role: String = ""
+    val role: String = "",
 )
 private data class AdminRoleEntry(
     val id: String,

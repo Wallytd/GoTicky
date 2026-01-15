@@ -9,6 +9,7 @@ data class EventItem(
     val id: String,
     val title: String,
     val city: String,
+    val venue: String = "",
     val dateLabel: String,
     val startsAt: Instant? = null,
     val priceFrom: String,

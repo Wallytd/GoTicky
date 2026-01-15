@@ -36,12 +36,26 @@ service firebase.storage {
 
     // Organizer event flyers and assets.
     // Authenticated organizers can upload under /events/{uid}/flyers/**
-    match /events/{uid}/{allPaths=**} {
+    match /events/{uid} {
       allow read: if true;
-      allow write: if isSignedIn()
-        && request.auth.uid == uid
-        && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+
+      // Flyer uploads (strict size/type, owner-gated).
+      match /flyers/{allPaths=**} {
+        allow read: if true;
+        allow write: if isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.size < 5 * 1024 * 1024
+          && request.resource.contentType.matches('image/.*');
+      }
+
+      // Any other event assets under /events/{uid}/** follow the same constraints.
+      match /{allPaths=**} {
+        allow read: if true;
+        allow write: if isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.size < 5 * 1024 * 1024
+          && request.resource.contentType.matches('image/.*');
+      }
     }
 
     // News flash images stored per draft/published item.

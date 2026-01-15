@@ -40,6 +40,32 @@ class EventRepository(
         return "evt-${now}-${salt}"
     }
 
+    private suspend fun loadOrganizerProfile(uid: String): Map<String, Any?> =
+        runCatching {
+            val doc = Firebase.firestore.collection("users").document(uid).get()
+            if (!doc.exists) return@runCatching emptyMap()
+            val fullName = doc.get<String?>("displayName")?.trim().orEmpty()
+            val email = doc.get<String?>("email")?.trim().orEmpty()
+            val phoneCode = doc.get<String?>("phoneCode")?.trim().orEmpty()
+            val phoneNumber = doc.get<String?>("phoneNumber")?.trim().orEmpty()
+            val birthday = doc.get<String?>("birthday")?.trim().orEmpty()
+            val gender = doc.get<String?>("gender")?.trim().orEmpty()
+            val countryName = doc.get<String?>("countryName")?.trim().orEmpty()
+            val photoUri = doc.get<String?>("photoUri")
+            mapOf(
+                "uid" to uid,
+                "fullName" to fullName,
+                "email" to email,
+                "phoneCode" to phoneCode,
+                "phoneNumber" to phoneNumber,
+                "birthday" to birthday,
+                "gender" to gender,
+                "countryName" to countryName,
+                "photoUri" to photoUri,
+                "syncedAt" to isoNow(),
+            )
+        }.getOrDefault(emptyMap())
+
     private suspend fun ensureAuthUid(): String? {
         val auth = Firebase.auth
         if (auth.currentUser == null) {
@@ -89,6 +115,7 @@ class EventRepository(
         val lat = input.lat ?: fallbackLat
         val lng = input.lng ?: fallbackLng
         val nowIso = isoNow()
+        val organizerProfileData = loadOrganizerProfile(uid)
         val normalizedPriceFrom = normalizePriceFrom(input.priceFrom)
         val payload = mapOf(
             "organizerId" to uid,
@@ -118,9 +145,14 @@ class EventRepository(
             "createdAt" to nowIso,
             "updatedAt" to nowIso,
         )
+        val organizerPayload = payload.toMutableMap().apply {
+            if (organizerProfileData.isNotEmpty()) {
+                this["organizerProfile"] = organizerProfileData
+            }
+        }
 
         return runCatching {
-            newDoc.set(payload)
+            newDoc.set(organizerPayload)
             val publicPayload = payload.toMutableMap().apply {
                 this["status"] = if (input.isApproved) "Approved" else "In Review"
             }
@@ -132,17 +164,36 @@ class EventRepository(
             val roleToSet = existingRole ?: "organizer"
             val displayName = authUser?.displayName ?: input.companyName.ifBlank { "Organizer" }
             val email = authUser?.email
-            val organizerProfile = mutableMapOf<String, Any?>(
-                "uid" to uid,
-                "displayName" to displayName,
-                "companyName" to input.companyName,
-                "role" to roleToSet,
-                "updatedAt" to nowIso,
-            )
-            if (!email.isNullOrBlank()) {
-                organizerProfile["email"] = email
+            val organizerProfile = mutableMapOf<String, Any?>().apply {
+                this["uid"] = uid
+                this["displayName"] = displayName
+                this["companyName"] = input.companyName
+                this["role"] = roleToSet
+                this["createdAt"] = nowIso
+                this["updatedAt"] = nowIso
+                if (!email.isNullOrBlank()) {
+                    this["email"] = email
+                }
             }
             userDoc.set(organizerProfile, merge = true)
+
+            // Mirror organizer metadata into /organizers/{uid} for admin and event detail views.
+            val organizerDocPayload = mutableMapOf<String, Any?>().apply {
+                this["uid"] = uid
+                this["name"] = organizerProfile["displayName"] ?: displayName
+                this["companyName"] = input.companyName
+                this["role"] = roleToSet
+                this["createdAt"] = nowIso
+                this["updatedAt"] = nowIso
+                organizerProfile["countryName"]?.let { this["countryName"] = it }
+                organizerProfile["phoneCode"]?.let { this["phoneCode"] = it }
+                organizerProfile["phoneNumber"]?.let { this["phoneNumber"] = it }
+                organizerProfile["birthday"]?.let { this["birthday"] = it }
+                organizerProfile["gender"]?.let { this["gender"] = it }
+                organizerProfile["email"]?.let { this["email"] = it }
+                organizerProfile["photoUri"]?.let { this["photoUri"] = it }
+            }
+            firestore.collection("organizers").document(uid).set(organizerDocPayload, merge = true)
 
             val organizerEvent = OrganizerEvent(
                 id = "org-$eventId",

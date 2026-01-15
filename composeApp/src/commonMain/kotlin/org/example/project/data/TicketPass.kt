@@ -14,6 +14,7 @@ data class TicketPass(
     val id: String,
     val eventTitle: String,
     val venue: String,
+    val city: String = "",
     val dateLabel: String,
     val seat: String,
     val status: String,
