@@ -7,8 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
+// Web placeholder to avoid duplicating the js actual. Keeping a distinct name prevents overload conflicts.
 @Composable
-actual fun EventMapView(
+fun EventMapViewWebPlaceholder(
     events: List<MapEvent>,
     modifier: Modifier,
     onEventSelected: (MapEvent) -> Unit,

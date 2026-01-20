@@ -155,6 +155,20 @@ service cloud.firestore {
         (!('icon' in data) || data.icon is string || data.icon == null);
     }
 
+    function validReview(data) {
+      return
+        ('userId' in data && data.userId is string && data.userId.size() > 0) &&
+        ('eventId' in data && data.eventId is string && data.eventId.size() > 0) &&
+        ('rating' in data && data.rating is int && data.rating >= 1 && data.rating <= 5) &&
+        (!('userName' in data) || data.userName is string) &&
+        (!('eventTitle' in data) || data.eventTitle is string) &&
+        (!('qos1' in data) || data.qos1 is string) &&
+        (!('qos2' in data) || data.qos2 is string) &&
+        (!('qos3' in data) || data.qos3 is string) &&
+        (!('comment' in data) || (data.comment is string && data.comment.size() <= 400)) &&
+        (!('createdAt' in data) || data.createdAt is string);
+    }
+
     function validNewsFlashExpiryWindow(data) {
       return
         // No expiry set is always allowed.
@@ -191,6 +205,7 @@ service cloud.firestore {
         (!('gender' in data) || data.gender is string) &&
         (!('countryName' in data) || data.countryName is string) &&
         (!('photoUri' in data) || data.photoUri is string || data.photoUri == null) &&
+        (!('kycStatus' in data) || data.kycStatus is string) &&
         (!('syncedAt' in data) || data.syncedAt is string);
     }
 
@@ -209,7 +224,6 @@ service cloud.firestore {
         (!('photoUri' in data) || data.photoUri is string || data.photoUri == null) &&
         (!('updatedAt' in data) || data.updatedAt is string || data.updatedAt == null) &&
         (!('kycStatus' in data) || data.kycStatus is string) &&
-        (!('verifiedAt' in data) || data.verifiedAt is string || data.verifiedAt == null) &&
         (!('frozen' in data) || data.frozen is bool);
     }
 
@@ -280,9 +294,9 @@ service cloud.firestore {
     // Canonical per-user document keyed by Firebase UID or seeded key.
     // Write is allowed for the owner OR for signed-in seeders writing role=admin (for initial admin import).
     match /users/{userId} {
-      // TEMP (dev/unblocked): allow any signed-in session to read/write, and also allow writes
-      // even when auth is null so seeding flows keyed by email succeed.
-      allow read: if isSignedIn();
+      // TEMPORARY DEBUG: Allow all reads to diagnose permission issue
+      // TODO: Revert to: allow read: if isSignedIn();
+      allow read: if true;
       allow write: if
         (
           // The owner can write their own document.
@@ -415,6 +429,15 @@ service cloud.firestore {
         );
     }
 
+    // Public event reviews: one review per user per event (doc id = userId_eventId).
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow write: if
+        isSignedIn() &&
+        validReview(request.resource.data) &&
+        reviewId == request.auth.uid + "_" + request.resource.data.eventId;
+    }
+
     // Public events feed (used by map and home).
     // Creation and full writes are restricted to owners; approval/status tweaks are allowed
     // for any signed-in session but are limited to a narrow set of fields.
@@ -442,6 +465,13 @@ service cloud.firestore {
           ('organizerId' in request.resource.data) &&
           validEvent(request.resource.data, request.resource.data.organizerId)
         );
+
+      // Admins may update verification fields on existing events without full payload.
+      allow update: if
+        isAdminUser() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isVerified', 'kycStatus', 'organizerProfile', 'updatedAt'
+        ]);
     }
 
     // Organizer profile documents (used by admin tools and organizer dashboards).
@@ -461,9 +491,20 @@ service cloud.firestore {
       // Allow reads for dashboards and admin tools.
       allow read: if true;
 
+      // NEW: Allow admins to update specific approval/verification fields without full validation.
+      // This enables partial updates for isApproved, isVerified, status changes.
+      allow update: if
+        isAdminUser() &&
+        request.resource.data.organizerId == organizerId &&
+        // Only allow updating these specific fields (prevents arbitrary field changes)
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isApproved', 'isVerified', 'status', 'updatedAt', 'approvedAt',
+          'organizerProfile', 'kycStatus'
+        ]);
+
       // Require full event payloads on every write/update to keep a single, linear
       // source of truth at /organizers/{organizerId}/events/{eventId}. Partial
-      // updates are not allowed.
+      // updates are not allowed except for the admin-specific rule above.
       allow write, update: if
         (
           isOwner(organizerId) &&

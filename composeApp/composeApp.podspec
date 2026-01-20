@@ -1,17 +1,16 @@
 Pod::Spec.new do |spec|
-    spec.name                     = 'ComposeApp'
+    spec.name                     = 'composeApp'
     spec.version                  = '1.0.0'
     spec.homepage                 = 'https://goticky.app'
     spec.source                   = { :http=> ''}
     spec.authors                  = ''
     spec.license                  = ''
     spec.summary                  = 'GoTicky shared Compose module'
-    # Build as static to avoid embed-and-sign conflicts.
-    spec.static_framework         = true
     spec.vendored_frameworks      = 'build/cocoapods/framework/ComposeApp.framework'
     spec.libraries                = 'c++'
     spec.ios.deployment_target    = '15.0'
-                
+    spec.dependency 'FirebaseAuth'
+    spec.dependency 'FirebaseFirestore'
                 
     if !Dir.exist?('build/cocoapods/framework/ComposeApp.framework') || Dir.empty?('build/cocoapods/framework/ComposeApp.framework')
         raise "
@@ -38,10 +37,6 @@ Pod::Spec.new do |spec|
             :name => 'Build composeApp',
             :execution_position => :before_compile,
             :shell_path => '/bin/sh',
-            # CocoaPods will skip rerunning the script when the framework output is up to date.
-            :output_files => [
-                '${PODS_TARGET_SRCROOT}/build/cocoapods/framework/ComposeApp.framework/ComposeApp'
-            ],
             :script => <<-SCRIPT
                 if [ "YES" = "$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED" ]; then
                   echo "Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \"YES\""
@@ -56,5 +51,5 @@ Pod::Spec.new do |spec|
             SCRIPT
         }
     ]
-    spec.resources = ['build/compose/cocoapods/compose-resources']
+    spec.resources = ['build\compose\cocoapods\compose-resources']
 end

@@ -14,8 +14,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -90,16 +93,32 @@ fun Pill(
     color: Color = MaterialTheme.colorScheme.surfaceVariant,
     textColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
+    val isBright = color.luminance() > 0.7f
+    val resolvedTextColor = if (textColor == MaterialTheme.colorScheme.onSurface) {
+        if (isBright) Color(0xFF0B0F16) else Color.White
+    } else textColor
+
     Row(
         modifier = modifier
             .clip(goTickyShapes.medium)
             .background(color)
+            .then(
+                if (isBright) Modifier.border(1.dp, Color.Black.copy(alpha = 0.08f), goTickyShapes.medium)
+                else Modifier
+            )
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-            color = textColor
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.35f),
+                    offset = Offset(0f, 0.5f),
+                    blurRadius = 1.5f
+                )
+            ),
+            color = resolvedTextColor
         )
     }
 }

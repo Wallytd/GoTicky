@@ -115,18 +115,33 @@ class EventRepository(
         val lat = input.lat ?: fallbackLat
         val lng = input.lng ?: fallbackLng
         val nowIso = isoNow()
-        val organizerProfileData = loadOrganizerProfile(uid)
+        val organizerProfileData = loadOrganizerProfile(uid).ifEmpty {
+            val displayName = authUser?.displayName ?: input.companyName.ifBlank { "Organizer" }
+            val email = authUser?.email ?: ""
+            mapOf(
+                "uid" to uid,
+                "fullName" to displayName,
+                "email" to email,
+                "syncedAt" to nowIso,
+            )
+        }
         val normalizedPriceFrom = normalizePriceFrom(input.priceFrom)
-        val payload = mapOf(
+        
+        // Check if organizer is verified for auto-verification
+        val organizerVerified = runCatching {
+            val userDoc = firestore.collection("users").document(uid).get()
+            userDoc.get<Boolean?>("isVerified") ?: false
+        }.getOrDefault(false)
+        
+        // Base payload shared across organizer/private and public events
+        val basePayload = mapOf(
             "organizerId" to uid,
             "title" to input.title,
             "city" to input.city,
             "venue" to input.venue,
             "country" to input.country,
             "dateLabel" to input.dateLabel,
-            "status" to input.status,
             "priceFrom" to normalizedPriceFrom,
-            "isApproved" to input.isApproved,
             "ticketCount" to input.ticketCount,
             "tickets" to mapOf(
                 "earlyBird" to input.ticketEarlyBird,
@@ -141,20 +156,21 @@ class EventRepository(
             "views" to 0,
             "saves" to 0,
             "sales" to 0,
-            "isVerified" to false,
             "createdAt" to nowIso,
             "updatedAt" to nowIso,
+            "organizerProfile" to organizerProfileData,
         )
-        val organizerPayload = payload.toMutableMap().apply {
-            if (organizerProfileData.isNotEmpty()) {
-                this["organizerProfile"] = organizerProfileData
-            }
+        // Organizer-scoped event: do NOT write isVerified/isApproved
+        val organizerPayload = basePayload.toMutableMap().apply {
+            this["status"] = input.status
         }
 
         return runCatching {
             newDoc.set(organizerPayload)
-            val publicPayload = payload.toMutableMap().apply {
+            val publicPayload = basePayload.toMutableMap().apply {
                 this["status"] = if (input.isApproved) "Approved" else "In Review"
+                this["isApproved"] = input.isApproved
+                this["isVerified"] = organizerVerified
             }
             firestore.collection("events").document(eventId).set(publicPayload)
 
@@ -209,7 +225,7 @@ class EventRepository(
                 saves = 0,
                 sales = 0,
                 ticketCount = input.ticketCount,
-                isVerified = false,
+                isVerified = organizerVerified,
             )
             SavedEvent(
                 event = organizerEvent,
