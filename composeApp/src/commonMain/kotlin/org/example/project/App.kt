@@ -262,6 +262,7 @@ import org.example.project.platform.rememberProfileImageStorage
 import org.example.project.platform.rememberNewsFlashImageStorage
 import org.example.project.platform.rememberEventImageStorage
 import org.example.project.platform.rememberUriPainter
+import org.example.project.platform.SystemBackHandler
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
@@ -4217,6 +4218,36 @@ private fun GoTickyRoot() {
         }
     }
 
+    val backAction: (() -> Unit)? = when {
+        !isAuthenticated -> ({})
+        showLogoutConfirm && !logoutInProgress -> ({ showLogoutConfirm = false })
+        showGuestGateDialog -> ({ showGuestGateDialog = false })
+        showAdminGateDialog -> ({ showAdminGateDialog = false })
+        detailEvent != null -> ({ detailEvent = null })
+        showCheckout -> ({
+            showCheckout = false
+            if (checkoutReturnEvent != null) {
+                detailEvent = checkoutReturnEvent
+            }
+            checkoutReturnEvent = null
+            checkoutOrder = null
+        })
+        checkoutSuccess -> ({
+            checkoutSuccess = false
+            currentScreen = MainScreen.Home
+        })
+        selectedTicket != null -> ({ selectedTicket = null })
+        selectedOrganizerEvent != null -> ({ selectedOrganizerEvent = null })
+        showCreateEvent && !createEventSaving -> ({ showCreateEvent = false })
+        showAdminSignIn -> ({ showAdminSignIn = false })
+        currentScreen != MainScreen.Home -> ({ currentScreen = MainScreen.Home })
+        else -> ({})
+    }
+
+    SystemBackHandler(enabled = backAction != null) {
+        backAction?.invoke()
+    }
+
     LaunchedEffect(Unit) {
         refreshNewsFlash()
         refreshRecommendations()
@@ -5561,7 +5592,7 @@ private fun GoTickyRoot() {
                                 isGuestIntroActive = true
                             },
                             onBiometricSignIn = {
-                                when (val bio = biometricLauncher.authenticate(
+                                return@AuthScreen when (val bio = biometricLauncher.authenticate(
                                     BiometricPromptConfig(
                                         title = "Unlock GoTicky",
                                         subtitle = "Use your fingerprint to continue",
