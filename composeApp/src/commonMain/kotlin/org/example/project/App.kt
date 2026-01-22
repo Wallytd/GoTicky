@@ -76,6 +76,7 @@ import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.BackHand
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Home
@@ -97,8 +98,9 @@ import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.LocalOffer
@@ -107,6 +109,7 @@ import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Navigation
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
@@ -319,6 +322,194 @@ import kotlin.math.sin
 
 private enum class MainScreen {
     Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
+}
+
+@Composable
+private fun ReviewsPreview(
+    reviews: List<UserReview>,
+    loading: Boolean,
+    error: String?,
+    onRefresh: () -> Unit,
+) {
+    val goldStar = Color(0xFFF5C542)
+    val tz = remember { TimeZone.currentSystemDefault() }
+
+    GlowCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressAnimated()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "What people said after their tickets",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Live pulls from Firestore reviews",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                NeonTextButton(text = "Refresh", onClick = onRefresh)
+            }
+
+            when {
+                loading -> {
+                    LoadingRow(Modifier.fillMaxWidth())
+                }
+                error != null -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        NeonTextButton(text = "Retry", onClick = onRefresh)
+                    }
+                }
+                reviews.isEmpty() -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "No reviews yet. Be the first after your next ticket!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.Star,
+                            contentDescription = null,
+                            tint = goldStar
+                        )
+                    }
+                }
+                else -> {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(reviews) { review ->
+                            val relativeTime = remember(review.createdAt) {
+                                review.createdAt.toLocalDateTime(tz).date.toString()
+                            }
+                            GlowCard(
+                                modifier = Modifier
+                                    .width(240.dp)
+                                    .pressAnimated()
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                review.userName,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                review.eventTitle,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            repeat(review.rating) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Star,
+                                                    contentDescription = null,
+                                                    tint = goldStar,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = review.comment.ifBlank { "Left quick ratings only." },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf(review.qos1, review.qos2, review.qos3).forEach { tag ->
+                                            Pill(text = tag, color = MaterialTheme.colorScheme.surfaceVariant, textColor = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = relativeTime,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Outlined.ThumbUp,
+                                            contentDescription = null,
+                                            tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnimatedHandNudge(visible: Boolean) {
+    val transition = rememberInfiniteTransition(label = "handNudge")
+    val offsetY by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -6f,
+        animationSpec = infiniteRepeatable(animation = tween(650, easing = EaseOutBack), repeatMode = RepeatMode.Reverse),
+        label = "handOffset"
+    )
+    val alpha by animateFloatAsState(targetValue = if (visible) 1f else 0f, animationSpec = tween(220), label = "handAlpha")
+    AnimatedVisibility(visible = visible, modifier = Modifier.padding(start = 2.dp)) {
+        Box(
+            modifier = Modifier
+                .offset(y = offsetY.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape)
+                .padding(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.BackHand,
+                contentDescription = "Tap to rate",
+                tint = Color(0xFFF5C542).copy(alpha = alpha)
+            )
+        }
+    }
 }
 
 @Composable
@@ -1415,6 +1606,7 @@ private fun NotificationCard(
     fresh: Boolean,
     onOpen: () -> Unit,
     onMarkRead: () -> Unit,
+    onToggleStar: (Boolean) -> Unit,
     now: Instant,
 ) {
     val iconColor = when (item.type.lowercase()) {
@@ -1489,8 +1681,31 @@ private fun NotificationCard(
                     }
                 }
             }
-            if (item.status.lowercase() != "read") {
-                NeonTextButton(text = "Mark read", onClick = onMarkRead, modifier = Modifier.pressAnimated())
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (item.status.lowercase() != "read") {
+                    NeonTextButton(text = "Mark read", onClick = onMarkRead, modifier = Modifier.pressAnimated())
+                }
+                val starColor by animateColorAsState(
+                    targetValue = if (item.starred) Color(0xFFFFC94A) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Quick),
+                    label = "notifStarTint"
+                )
+                val starScale by rememberInfiniteTransition(label = "notifStarPulse").animateFloat(
+                    initialValue = 0.94f,
+                    targetValue = if (item.starred) 1.08f else 1f,
+                    animationSpec = infiniteRepeatable(tween(1400, easing = EaseOutBack), RepeatMode.Reverse),
+                    label = "notifStarScale"
+                )
+                Icon(
+                    imageVector = if (item.starred) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                    contentDescription = "Star alert",
+                    tint = starColor,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .graphicsLayer(scaleX = starScale, scaleY = starScale)
+                        .pressAnimated()
+                        .clickable { onToggleStar(!item.starred) }
+                )
             }
         }
     }
@@ -1606,20 +1821,16 @@ private suspend fun fetchNotificationsFromFirestore(userId: String): List<Notifi
     val authUser = Firebase.auth.currentUser ?: throw IllegalStateException("Sign in to load notifications.")
     if (authUser.uid != userId) throw IllegalStateException("Session mismatch. Please sign in again.")
 
-    val snap = Firebase.firestore
-        .collection("notifications")
-        .where { "userId" equalTo userId }
-        .orderBy("createdAt", Direction.DESCENDING)
-        .get()
+    val firestore = Firebase.firestore
 
-    return snap.documents.take(50).mapNotNull { doc ->
+    fun mapNotificationDoc(doc: DocumentSnapshot): NotificationItem? {
         val id = doc.id
-        val title = doc.get<String?>("title") ?: return@mapNotNull null
+        val title = doc.get<String?>("title") ?: return null
         val body = doc.get<String?>("body") ?: ""
         val type = doc.get<String?>("type") ?: "general"
-        val createdAt = doc.get<String?>("createdAt") ?: return@mapNotNull null
-        val user = doc.get<String?>("userId") ?: return@mapNotNull null
-        NotificationItem(
+        val createdAt = doc.get<String?>("createdAt") ?: return null
+        val user = doc.get<String?>("userId") ?: return null
+        return NotificationItem(
             id = id,
             userId = user,
             title = title,
@@ -1631,8 +1842,27 @@ private suspend fun fetchNotificationsFromFirestore(userId: String): List<Notifi
             status = doc.get<String?>("status") ?: "unread",
             actionUrl = doc.get<String?>("actionUrl"),
             icon = doc.get<String?>("icon"),
+            starred = doc.get<Boolean?>("starred") ?: false,
         )
     }
+
+    suspend fun fetchFromCollection(collectionName: String): List<NotificationItem> {
+        val snap = firestore
+            .collection(collectionName)
+            .where { "userId" equalTo userId }
+            .orderBy("createdAt", Direction.DESCENDING)
+            .get()
+        return snap.documents.mapNotNull(::mapNotificationDoc)
+    }
+
+    // Prefer canonical notifications collection, but merge any mirrored alerts docs so nothing is lost.
+    val primary = fetchFromCollection("notifications")
+    val mirrored = fetchFromCollection("alerts")
+
+    return (primary + mirrored)
+        .distinctBy { it.id }
+        .sortedByDescending { it.createdAt }
+        .take(50)
 }
 
 private fun notificationErrorMessage(t: Throwable): String {
@@ -1671,6 +1901,7 @@ private suspend fun addNotificationForUser(
         "status" to "unread",
         "actionUrl" to actionUrl,
         "icon" to icon,
+        "starred" to false,
     )
     return runCatching {
         val firestore = Firebase.firestore
@@ -1688,6 +1919,7 @@ private suspend fun addNotificationForUser(
             status = "unread",
             actionUrl = actionUrl,
             icon = icon,
+            starred = false,
         )
     }
 }
@@ -1702,6 +1934,15 @@ private suspend fun markNotificationReadOnFirestore(notificationId: String) {
         )
         firestore.collection("notifications").document(notificationId).update(updatePayload)
         firestore.collection("alerts").document(notificationId).update(updatePayload)
+    }
+}
+
+private suspend fun updateNotificationStarOnFirestore(notificationId: String, starred: Boolean) {
+    runCatching {
+        val firestore = Firebase.firestore
+        val payload = mapOf("starred" to starred)
+        firestore.collection("notifications").document(notificationId).update(payload)
+        firestore.collection("alerts").document(notificationId).update(payload)
     }
 }
 
@@ -3985,6 +4226,7 @@ private fun GoTickyRoot() {
     var showReviewDialog by remember { mutableStateOf(false) }
     var reviewDraft by remember { mutableStateOf(ReviewDraft()) }
     var submittingReview by remember { mutableStateOf(false) }
+    var showRatingNudge by remember { mutableStateOf(false) }
     val submittedReviewEventIds = remember { mutableStateListOf<String>() }
     var lastCheckoutOrder by remember { mutableStateOf<OrderSummary?>(null) }
     val userTickets = remember { mutableStateListOf<TicketPass>() }
@@ -4215,6 +4457,16 @@ private fun GoTickyRoot() {
         }
         scope.launch {
             markNotificationReadOnFirestore(item.id)
+        }
+    }
+
+    fun toggleNotificationStarLocal(item: NotificationItem, starred: Boolean) {
+        val idx = notifications.indexOfFirst { it.id == item.id }
+        if (idx >= 0) {
+            notifications[idx] = notifications[idx].copy(starred = starred)
+        }
+        scope.launch {
+            updateNotificationStarOnFirestore(item.id, starred)
         }
     }
 
@@ -6191,6 +6443,7 @@ private fun GoTickyRoot() {
                                                             onOpenEvent = { eventId -> openEventById(eventId) },
                                                             onRefreshNotifications = { refreshNotifications() },
                                                             onMarkRead = { markNotificationReadLocal(it) },
+                                                            onToggleStar = { item, starred -> toggleNotificationStarLocal(item, starred) },
                                                             onUpdatePersonalization = { newPrefs ->
                                                                 personalizationPrefs = newPrefs
                                                             },
@@ -6457,8 +6710,16 @@ private fun GoTickyRoot() {
                         ReviewDialog(
                             event = pendingReviewEvent!!,
                             draft = reviewDraft,
-                            onDraftChange = { reviewDraft = it },
-                            onDismiss = { showReviewDialog = false },
+                            submitting = submittingReview,
+                            ratingNudge = showRatingNudge,
+                            onDraftChange = {
+                                reviewDraft = it
+                                if (showRatingNudge && it.rating > 0) showRatingNudge = false
+                            },
+                            onDismiss = {
+                                showRatingNudge = false
+                                showReviewDialog = false
+                            },
                             onSubmit = {
                                 val user = authRepo.currentUser()
                                 val uid = user?.uid
@@ -6469,6 +6730,7 @@ private fun GoTickyRoot() {
                                 }
                                 val event = pendingReviewEvent ?: return@ReviewDialog
                                 if (reviewDraft.rating <= 0) {
+                                    showRatingNudge = true
                                     scope.launch { snackbarHostState.showSnackbar("Please add a star rating.") }
                                     return@ReviewDialog
                                 }
@@ -6487,6 +6749,7 @@ private fun GoTickyRoot() {
                                         submittedReviewEventIds.add(event.id)
                                         snackbarHostState.showSnackbar("Thanks for reviewing ${event.title}!")
                                         reviewDraft = ReviewDraft()
+                                        showRatingNudge = false
                                         showReviewDialog = false
                                         pendingReviewEvent = null
                                     }.onFailure { t ->
@@ -6494,8 +6757,7 @@ private fun GoTickyRoot() {
                                     }
                                     submittingReview = false
                                 }
-                            },
-                            submitting = submittingReview
+                            }
                         )
                     }
                 }
@@ -6509,10 +6771,12 @@ private fun ReviewDialog(
     event: EventItem,
     draft: ReviewDraft,
     submitting: Boolean,
+    ratingNudge: Boolean,
     onDraftChange: (ReviewDraft) -> Unit,
     onDismiss: () -> Unit,
     onSubmit: () -> Unit,
 ) {
+    val goldStar = Color(0xFFF5C542)
     var pulsing by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (pulsing) 1.0f else 0.95f,
@@ -6530,13 +6794,13 @@ private fun ReviewDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     (1..5).forEach { star ->
                         val filled = draft.rating >= star
                         Icon(
                             imageVector = if (filled) Icons.Filled.Star else Icons.Outlined.Star,
                             contentDescription = "$star star",
-                            tint = if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (filled) goldStar else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .size(30.dp)
                                 .clip(CircleShape)
@@ -6545,6 +6809,7 @@ private fun ReviewDialog(
                                 .clickable { onDraftChange(draft.copy(rating = star)) }
                         )
                     }
+                    AnimatedHandNudge(visible = ratingNudge)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("How was the vibe?", style = MaterialTheme.typography.labelMedium)
@@ -10281,6 +10546,10 @@ private fun HomeScreen(
     var selectedMonth by remember { mutableStateOf<String?>(null) }
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
+    val coroutineScope = rememberCoroutineScope()
+    val reviews = remember { mutableStateListOf<UserReview>() }
+    var reviewsLoading by remember { mutableStateOf(false) }
+    var reviewsError by remember { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
 
     // Recompute public events whenever the adminApplications state list mutates (approvals, edits).
@@ -10334,6 +10603,32 @@ private fun HomeScreen(
         if (forceOpenSearchDialog) {
             showQueryDialog = true
             onConsumeForceOpenSearchDialog()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        reviewsLoading = true
+        reviewsError = null
+        fetchReviewsFromFirestore()
+            .onSuccess { list ->
+                reviews.clear(); reviews.addAll(list)
+            }
+            .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
+        reviewsLoading = false
+    }
+
+    val refreshReviews = remember {
+        {
+            reviewsLoading = true
+            reviewsError = null
+            coroutineScope.launch {
+                fetchReviewsFromFirestore()
+                    .onSuccess { list ->
+                        reviews.clear(); reviews.addAll(list)
+                    }
+                    .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
+                reviewsLoading = false
+            }
         }
     }
 
@@ -10616,8 +10911,18 @@ private fun HomeScreen(
             now = now
         )
 
-        SectionHeader("Progress preview", action = null)
-        LoadingRow(Modifier.fillMaxWidth())
+        SectionHeader(
+            "Progress preview",
+            action = {
+                NeonTextButton(text = "Refresh", onClick = { refreshReviews() })
+            }
+        )
+        ReviewsPreview(
+            reviews = reviews,
+            loading = reviewsLoading,
+            error = reviewsError,
+            onRefresh = { refreshReviews() }
+        )
         Spacer(modifier = Modifier.height(96.dp))
     }
 
@@ -13765,8 +14070,9 @@ private fun TicketsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(GoTickyGradients.CardGlow)
+            .navigationBarsPadding()
             .padding(start = 16.dp, end = 16.dp, top = 34.dp),
-        contentPadding = PaddingValues(bottom = 96.dp),
+        contentPadding = PaddingValues(bottom = 180.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -16451,6 +16757,7 @@ private fun AlertsScreen(
     onOpenEvent: (String) -> Unit,
     onRefreshNotifications: () -> Unit,
     onMarkRead: (NotificationItem) -> Unit,
+    onToggleStar: (NotificationItem, Boolean) -> Unit,
     onUpdatePersonalization: (PersonalizationPrefs) -> Unit,
 ) {
     var showPersonalize by remember { mutableStateOf(false) }
@@ -16459,9 +16766,11 @@ private fun AlertsScreen(
     val (unread, read) = remember(notifications) {
         notifications.partition { it.status.lowercase() != "read" }
     }
-    val groupedRead = remember(read, now) {
-        groupNotificationsByDate(now, read)
-    }
+    val starred = remember(notifications) { notifications.filter { it.starred } }
+    val groupedRead = remember(read, now) { groupNotificationsByDate(now, read) }
+    val groupedStarredRead = remember(starred, now) { groupNotificationsByDate(now, starred.filter { it.status.lowercase() == "read" }) }
+    val starredUnread = remember(starred) { starred.filter { it.status.lowercase() != "read" } }
+    var selectedFilter by rememberSaveable { mutableStateOf(AlertsFilter.Unread) }
 
     Column(
         modifier = Modifier
@@ -16478,6 +16787,63 @@ private fun AlertsScreen(
                 actions = null,
                 backgroundColor = Color.Transparent
             )
+        }
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            val filters = listOf(
+                Triple(AlertsFilter.Unread, "Unread", unread.size),
+                Triple(AlertsFilter.Read, "Read", read.size),
+                Triple(AlertsFilter.Starred, "Starred", starred.size),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                filters.forEach { (filter, label, count) ->
+                    val selected = selectedFilter == filter
+                    val bg by animateColorAsState(
+                        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "alertTabBg-$label"
+                    )
+                    val contentColor by animateColorAsState(
+                        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "alertTabText-$label"
+                    )
+                    Row(
+                        modifier = Modifier
+                            .clip(goTickyShapes.medium)
+                            .background(bg)
+                            .border(1.dp, contentColor.copy(alpha = 0.35f), goTickyShapes.medium)
+                            .pressAnimated()
+                            .clickable { selectedFilter = filter }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = contentColor)
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(contentColor.copy(alpha = 0.14f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = contentColor)
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Outlined.NotificationsActive,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
         notificationsError?.let {
             GlowCard(
@@ -16550,95 +16916,216 @@ private fun AlertsScreen(
             }
         )
         if (notificationsLoading && notifications.isEmpty()) {
-            repeat(3) {
-                NotificationSkeleton()
-            }
+            repeat(3) { NotificationSkeleton() }
         }
-        if (!notificationsLoading && unread.isEmpty()) {
-            GlowCard {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("You’re all caught up", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-                    Text("We’ll notify you when something important happens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        when (selectedFilter) {
+            AlertsFilter.Unread -> {
+                if (!notificationsLoading && unread.isEmpty()) {
+                    GlowCard {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("You’re all caught up", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text("We’ll notify you when something important happens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                unread.forEach { item ->
+                    NotificationCard(
+                        item = item,
+                        fresh = true,
+                        onOpen = {
+                            if (!item.eventId.isNullOrBlank()) {
+                                onOpenEvent(item.eventId)
+                            } else if (!item.actionUrl.isNullOrBlank()) {
+                                uriHandler.openUri(item.actionUrl!!)
+                            }
+                            onMarkRead(item)
+                        },
+                        onMarkRead = { onMarkRead(item) },
+                        onToggleStar = { starred -> onToggleStar(item, starred) },
+                        now = now
+                    )
                 }
             }
-        }
-        unread.forEach { item ->
-            NotificationCard(
-                item = item,
-                fresh = true,
-                onOpen = {
-                    if (!item.eventId.isNullOrBlank()) {
-                        onOpenEvent(item.eventId)
-                    } else if (!item.actionUrl.isNullOrBlank()) {
-                        uriHandler.openUri(item.actionUrl!!)
+
+            AlertsFilter.Read -> {
+                if (!notificationsLoading && read.isEmpty()) {
+                    GlowCard {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("No read alerts yet", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text("Once you read alerts, they’ll appear here for quick recall.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                    onMarkRead(item)
-                },
-                onMarkRead = { onMarkRead(item) },
-                now = now
-            )
-        }
+                }
+                if (groupedRead.today.isNotEmpty()) {
+                    SectionHeader(title = "Today", action = null)
+                    groupedRead.today.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = false,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                            },
+                            onMarkRead = { /* already read */ },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
 
-        if (groupedRead.today.isNotEmpty()) {
-            SectionHeader(title = "Today", action = null)
-            groupedRead.today.forEach { item ->
-                NotificationCard(
-                    item = item,
-                    fresh = false,
-                    onOpen = {
-                        if (!item.eventId.isNullOrBlank()) {
-                            onOpenEvent(item.eventId)
-                        } else if (!item.actionUrl.isNullOrBlank()) {
-                            uriHandler.openUri(item.actionUrl!!)
-                        }
-                    },
-                    onMarkRead = { /* already read */ },
-                    now = now
-                )
+                if (groupedRead.thisWeek.isNotEmpty()) {
+                    SectionHeader(title = "This week", action = null)
+                    groupedRead.thisWeek.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = false,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                            },
+                            onMarkRead = { /* already read */ },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
+
+                if (groupedRead.earlier.isNotEmpty()) {
+                    SectionHeader(title = "Earlier", action = null)
+                    groupedRead.earlier.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = false,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                            },
+                            onMarkRead = { /* already read */ },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
             }
-        }
 
-        if (groupedRead.thisWeek.isNotEmpty()) {
-            SectionHeader(title = "This week", action = null)
-            groupedRead.thisWeek.forEach { item ->
-                NotificationCard(
-                    item = item,
-                    fresh = false,
-                    onOpen = {
-                        if (!item.eventId.isNullOrBlank()) {
-                            onOpenEvent(item.eventId)
-                        } else if (!item.actionUrl.isNullOrBlank()) {
-                            uriHandler.openUri(item.actionUrl!!)
+            AlertsFilter.Starred -> {
+                if (!notificationsLoading && starred.isEmpty()) {
+                    GlowCard {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("Star what matters", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text("Pin key alerts so they’re always a tap away.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    },
-                    onMarkRead = { /* already read */ },
-                    now = now
-                )
-            }
-        }
+                    }
+                }
 
-        if (groupedRead.earlier.isNotEmpty()) {
-            SectionHeader(title = "Earlier", action = null)
-            groupedRead.earlier.forEach { item ->
-                NotificationCard(
-                    item = item,
-                    fresh = false,
-                    onOpen = {
-                        if (!item.eventId.isNullOrBlank()) {
-                            onOpenEvent(item.eventId)
-                        } else if (!item.actionUrl.isNullOrBlank()) {
-                            uriHandler.openUri(item.actionUrl!!)
-                        }
-                    },
-                    onMarkRead = { /* already read */ },
-                    now = now
-                )
+                if (starredUnread.isNotEmpty()) {
+                    SectionHeader(title = "Starred · Unread", action = null)
+                    starredUnread.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = true,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                                onMarkRead(item)
+                            },
+                            onMarkRead = { onMarkRead(item) },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
+
+                if (groupedStarredRead.today.isNotEmpty()) {
+                    SectionHeader(title = "Starred · Today", action = null)
+                    groupedStarredRead.today.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = false,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                            },
+                            onMarkRead = { /* already read */ },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
+
+                if (groupedStarredRead.thisWeek.isNotEmpty()) {
+                    SectionHeader(title = "Starred · This week", action = null)
+                    groupedStarredRead.thisWeek.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = false,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                            },
+                            onMarkRead = { /* already read */ },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
+
+                if (groupedStarredRead.earlier.isNotEmpty()) {
+                    SectionHeader(title = "Starred · Earlier", action = null)
+                    groupedStarredRead.earlier.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = false,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                            },
+                            onMarkRead = { /* already read */ },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
             }
         }
 
@@ -16704,6 +17191,8 @@ private data class NotificationDateGroups(
     val thisWeek: List<NotificationItem>,
     val earlier: List<NotificationItem>,
 )
+
+private enum class AlertsFilter { Unread, Read, Starred }
 
 private fun groupNotificationsByDate(now: Instant, items: List<NotificationItem>): NotificationDateGroups {
     if (items.isEmpty()) return NotificationDateGroups(emptyList(), emptyList(), emptyList())

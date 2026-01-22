@@ -160,7 +160,8 @@ service cloud.firestore {
         (!('readAt' in data) || data.readAt is string || data.readAt == null) &&
         (!('status' in data) || data.status in ["unread", "read"]) &&
         (!('actionUrl' in data) || data.actionUrl is string || data.actionUrl == null) &&
-        (!('icon' in data) || data.icon is string || data.icon == null);
+        (!('icon' in data) || data.icon is string || data.icon == null) &&
+        (!('starred' in data) || data.starred is bool);
     }
 
     function validReview(data) {

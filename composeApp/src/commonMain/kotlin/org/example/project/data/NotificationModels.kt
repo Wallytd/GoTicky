@@ -12,4 +12,5 @@ data class NotificationItem(
     val status: String = "unread",
     val actionUrl: String? = null,
     val icon: String? = null,
+    val starred: Boolean = false,
 )
