@@ -4666,12 +4666,16 @@ private fun GoTickyRoot() {
         }
         // Ensure the session is recognized as an admin in Firestore rules.
         auth.currentUser?.uid?.let { uid ->
+            val emailLower = userProfile.email.trim().lowercase().takeIf { it.isNotBlank() }
+                ?: auth.currentUser?.email?.trim()?.lowercase()
             runCatching {
                 Firebase.firestore.collection("users").document(uid).set(
                     mapOf(
                         "uid" to uid,
                         "displayName" to "Admin Session",
                         "role" to "Admin",
+                        "email" to (emailLower?.takeIf { it.isNotBlank() } ?: ""),
+                        "emailLower" to (emailLower ?: ""),
                         "countryName" to "Zimbabwe",
                     ),
                     merge = true
@@ -5128,9 +5132,8 @@ private fun GoTickyRoot() {
                     firestore.collection("events").document(app.eventId).set(publicPayload, merge = true)
 
                     // Mirror approval to organizer's private events collection when we know the organizerId.
-                    if (organizerIdForRule.isNotBlank()) {
+                    if (false && organizerIdForRule.isNotBlank()) {
                         val organizerPayload = mutableMapOf<String, Any?>(
-                            "isApproved" to approvedFlag,
                             "status" to status,
                             "updatedAt" to currentInstant().toString(),
                             "organizerId" to organizerIdForRule,

@@ -242,8 +242,15 @@ class EventRepository(
             val snap = firestore.collection("organizers").document(uid).collection("events").get()
             snap.documents.mapNotNull { doc ->
                 val title = doc.get<String?>("title") ?: return@mapNotNull null
-                val isApproved = doc.get<Boolean?>("isApproved") ?: false
+                val status = doc.get<String?>("status") ?: "Draft"
                 val normalizedPriceFrom = normalizePriceFrom(doc.get<String?>("priceFrom") ?: "")
+
+                // Pull canonical approval from /events; fall back to status == Approved if missing.
+                val publicApproval = runCatching {
+                    firestore.collection("events").document(doc.id).get().get<Boolean?>("isApproved")
+                }.getOrNull()
+                val isApproved = publicApproval ?: status.equals("Approved", ignoreCase = true)
+
                 OrganizerEvent(
                     id = "org-${doc.id}",
                     eventId = doc.id,
@@ -253,7 +260,7 @@ class EventRepository(
                     dateLabel = doc.get<String?>("dateLabel") ?: "",
                     priceFrom = normalizedPriceFrom,
                     isApproved = isApproved,
-                    status = doc.get<String?>("status") ?: "Draft",
+                    status = status,
                     views = (doc.get<Long?>("views") ?: 0L).toInt(),
                     saves = (doc.get<Long?>("saves") ?: 0L).toInt(),
                     sales = (doc.get<Long?>("sales") ?: 0L).toInt(),
