@@ -6,6 +6,7 @@ import dev.gitlive.firebase.firestore.firestore
 import org.example.project.currentInstant
 import kotlin.random.Random
 import org.example.project.platform.EventImageStorage
+import org.example.project.platform.isFirebaseAvailable
 
 data class SavedEvent(
     val event: OrganizerEvent,
@@ -42,6 +43,7 @@ class EventRepository(
 
     private suspend fun loadOrganizerProfile(uid: String): Map<String, Any?> =
         runCatching {
+            if (!isFirebaseAvailable()) return@runCatching emptyMap()
             val doc = Firebase.firestore.collection("users").document(uid).get()
             if (!doc.exists) return@runCatching emptyMap()
             val fullName = doc.get<String?>("displayName")?.trim().orEmpty()
@@ -67,6 +69,7 @@ class EventRepository(
         }.getOrDefault(emptyMap())
 
     private suspend fun ensureAuthUid(): String? {
+        if (!isFirebaseAvailable()) return null
         val auth = Firebase.auth
         if (auth.currentUser == null) {
             runCatching { auth.signInAnonymously() }
@@ -90,6 +93,7 @@ class EventRepository(
         localFlyerUri: String?,
         onUploadProgress: (Float) -> Unit = {},
     ): Result<SavedEvent> {
+        if (!isFirebaseAvailable()) return Result.failure(IllegalStateException("Firebase unavailable on this platform"))
         val uid = ensureAuthUid() ?: return Result.failure(IllegalStateException("No auth session"))
         val firestore = Firebase.firestore
         val authUser = Firebase.auth.currentUser
@@ -236,6 +240,7 @@ class EventRepository(
     }
 
     suspend fun fetchOrganizerEvents(): Result<List<OrganizerEvent>> {
+        if (!isFirebaseAvailable()) return Result.success(emptyList())
         val uid = ensureAuthUid() ?: return Result.failure(IllegalStateException("No auth session"))
         val firestore = Firebase.firestore
         return runCatching {

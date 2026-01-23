@@ -5,6 +5,7 @@ import dev.gitlive.firebase.auth.FirebaseAuth
 import dev.gitlive.firebase.auth.auth
 import dev.gitlive.firebase.firestore.firestore
 import kotlinx.datetime.Instant
+import org.example.project.platform.isFirebaseAvailable
 
 sealed class AuthResult {
     object Success : AuthResult()
@@ -34,6 +35,7 @@ class FirebaseAuthRepository(
 ) : AuthRepository {
 
     override suspend fun signIn(email: String, password: String): AuthResult {
+        if (!isFirebaseAvailable()) return AuthResult.Error("Firebase unavailable on this platform")
         return try {
             auth.signInWithEmailAndPassword(email, password)
             AuthResult.Success
@@ -43,6 +45,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun findProfileByEmail(email: String): UserProfile? {
+        if (!isFirebaseAvailable()) return null
         val key = email.trim().lowercase()
         if (key.isBlank()) return null
         return try {
@@ -71,6 +74,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun signUp(profile: UserProfile, password: String): AuthResult {
+        if (!isFirebaseAvailable()) return AuthResult.Error("Firebase unavailable on this platform")
         return try {
             auth.createUserWithEmailAndPassword(profile.email, password)
             auth.currentUser?.updateProfile(displayName = profile.fullName, photoUrl = null)
@@ -134,10 +138,12 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun signOut() {
+        if (!isFirebaseAvailable()) return
         auth.signOut()
     }
 
     override fun currentUser(): AuthUser? {
+        if (!isFirebaseAvailable()) return null
         val user = auth.currentUser ?: return null
         return AuthUser(
             uid = user.uid,
@@ -147,6 +153,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun fetchProfile(): UserProfile? {
+        if (!isFirebaseAvailable()) return null
         val authUser = auth.currentUser ?: return null
         val uid = authUser.uid
         val authEmail = authUser.email
@@ -246,6 +253,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun updateProfile(profile: UserProfile): AuthResult {
+        if (!isFirebaseAvailable()) return AuthResult.Error("Firebase unavailable on this platform")
         val uid = auth.currentUser?.uid ?: return AuthResult.Error("Not signed in")
         return try {
             // Update auth display name
@@ -306,6 +314,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun updateFavorites(favorites: List<String>): AuthResult {
+        if (!isFirebaseAvailable()) return AuthResult.Error("Firebase unavailable on this platform")
         val uid = auth.currentUser?.uid ?: return AuthResult.Error("Not signed in")
         return try {
             Firebase.firestore.collection("users").document(uid).set(
@@ -321,6 +330,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun fetchFavorites(): List<String> {
+        if (!isFirebaseAvailable()) return emptyList()
         val uid = auth.currentUser?.uid ?: return emptyList()
         return try {
             val doc = Firebase.firestore.collection("users").document(uid).get()

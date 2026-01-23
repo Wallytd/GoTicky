@@ -65,6 +65,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ArrowForward
@@ -281,6 +283,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
 import org.example.project.GoTickyFeatures
+import org.example.project.platform.isFirebaseAvailable
 import androidx.compose.runtime.mutableStateMapOf
 import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -316,6 +319,7 @@ import dev.gitlive.firebase.auth.auth
 import dev.gitlive.firebase.firestore.Direction
 import dev.gitlive.firebase.firestore.firestore
 import dev.gitlive.firebase.firestore.DocumentSnapshot
+import dev.gitlive.firebase.firestore.Timestamp
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -1777,6 +1781,7 @@ private fun formatRelativeTime(now: Instant, created: Instant): String {
 }
 
 private suspend fun fetchRecommendationsFromFirestore(): List<Recommendation> {
+    if (!isFirebaseAvailable()) return emptyList()
     return try {
         ensureSettingsSession()
         val snap = Firebase.firestore
@@ -1818,6 +1823,7 @@ private suspend fun fetchRecommendationsFromFirestore(): List<Recommendation> {
 }
 
 private suspend fun fetchNotificationsFromFirestore(userId: String): List<NotificationItem> {
+    if (!isFirebaseAvailable()) return emptyList()
     val authUser = Firebase.auth.currentUser ?: throw IllegalStateException("Sign in to load notifications.")
     if (authUser.uid != userId) throw IllegalStateException("Session mismatch. Please sign in again.")
 
@@ -1828,7 +1834,12 @@ private suspend fun fetchNotificationsFromFirestore(userId: String): List<Notifi
         val title = doc.get<String?>("title") ?: return null
         val body = doc.get<String?>("body") ?: ""
         val type = doc.get<String?>("type") ?: "general"
-        val createdAt = doc.get<String?>("createdAt") ?: return null
+        val createdAt = doc.get<String?>("createdAt")
+            ?: doc.get<Timestamp?>("createdAt")?.let { ts ->
+                Instant.fromEpochSeconds(ts.seconds, ts.nanoseconds.toLong()).toString()
+            }
+            ?: doc.get<Long?>("createdAt")?.let { millis -> Instant.fromEpochMilliseconds(millis).toString() }
+            ?: return null
         val user = doc.get<String?>("userId") ?: return null
         return NotificationItem(
             id = id,
@@ -1847,10 +1858,10 @@ private suspend fun fetchNotificationsFromFirestore(userId: String): List<Notifi
     }
 
     suspend fun fetchFromCollection(collectionName: String): List<NotificationItem> {
+        // Avoid composite-index requirement on userId + createdAt; fetch by user and sort locally.
         val snap = firestore
             .collection(collectionName)
             .where { "userId" equalTo userId }
-            .orderBy("createdAt", Direction.DESCENDING)
             .get()
         return snap.documents.mapNotNull(::mapNotificationDoc)
     }
@@ -1861,7 +1872,9 @@ private suspend fun fetchNotificationsFromFirestore(userId: String): List<Notifi
 
     return (primary + mirrored)
         .distinctBy { it.id }
-        .sortedByDescending { it.createdAt }
+        .sortedWith(compareByDescending<NotificationItem> {
+            runCatching { Instant.parse(it.createdAt) }.getOrNull()
+        }.thenByDescending { it.createdAt })
         .take(50)
 }
 
@@ -1876,11 +1889,12 @@ private suspend fun addNotificationForUser(
     userId: String,
     title: String,
     body: String,
-    type: String,
+    type: String = "general",
     eventId: String? = null,
     actionUrl: String? = null,
     icon: String? = null,
 ): Result<NotificationItem> {
+    if (!isFirebaseAvailable()) return Result.failure(IllegalStateException("Firebase unavailable"))
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         // Best-effort session so Firestore rules allow the write (covers admin + anon sessions).
@@ -1905,29 +1919,34 @@ private suspend fun addNotificationForUser(
     )
     return runCatching {
         val firestore = Firebase.firestore
+        if (!isFirebaseAvailable()) return@runCatching Result.failure(IllegalStateException("Firebase unavailable"))
         firestore.collection("notifications").document(notificationId).set(payload)
         firestore.collection("alerts").document(notificationId).set(payload)
-        NotificationItem(
-            id = notificationId,
-            userId = userId,
-            title = title,
-            body = body,
-            type = type,
-            eventId = eventId,
-            createdAt = nowIso,
-            readAt = null,
-            status = "unread",
-            actionUrl = actionUrl,
-            icon = icon,
-            starred = false,
+        Result.success(
+            NotificationItem(
+                id = notificationId,
+                userId = userId,
+                title = title,
+                body = body,
+                type = type,
+                eventId = eventId,
+                createdAt = nowIso,
+                readAt = null,
+                status = "unread",
+                actionUrl = actionUrl,
+                icon = icon,
+                starred = false,
+            )
         )
-    }
+    }.getOrElse { Result.failure(it) }
 }
 
 private suspend fun markNotificationReadOnFirestore(notificationId: String) {
+    if (!isFirebaseAvailable()) return
     val nowIso = currentInstant().toString()
     runCatching {
         val firestore = Firebase.firestore
+        if (!isFirebaseAvailable()) return@runCatching
         val updatePayload = mapOf(
             "readAt" to nowIso,
             "status" to "read"
@@ -1938,8 +1957,10 @@ private suspend fun markNotificationReadOnFirestore(notificationId: String) {
 }
 
 private suspend fun updateNotificationStarOnFirestore(notificationId: String, starred: Boolean) {
+    if (!isFirebaseAvailable()) return
     runCatching {
         val firestore = Firebase.firestore
+        if (!isFirebaseAvailable()) return@runCatching
         val payload = mapOf("starred" to starred)
         firestore.collection("notifications").document(notificationId).update(payload)
         firestore.collection("alerts").document(notificationId).update(payload)
@@ -1956,6 +1977,7 @@ private suspend fun runProactiveAlerts(
     remindersSent: MutableMap<String, MutableSet<String>>,
     markReminderSent: (String, String) -> Unit,
 ) {
+    if (!isFirebaseAvailable()) return
     val uid = Firebase.auth.currentUser?.uid ?: return
     if (publicEvents.isEmpty()) return
     val now = currentInstant()
@@ -2785,6 +2807,7 @@ private fun buildTicketPassFromBooking(
 }
 
 private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
+    if (!isFirebaseAvailable()) return Result.success(Unit)
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         runCatching { auth.signInAnonymously() }
@@ -2819,6 +2842,7 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
 }
 
 private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
+    if (!isFirebaseAvailable()) return Result.success(emptyList())
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         // Best-effort session for Firestore rules; avoid surfacing a snackbar if it fails.
@@ -3341,6 +3365,7 @@ private fun applyShade(color: Color, shade: Float): Color {
 }
 
 private suspend fun fetchHeroBannersFromFirestore(): List<HeroSlide> {
+    if (!isFirebaseAvailable()) return emptyList()
     return try {
         ensureSettingsSession()
         val snap = Firebase.firestore
@@ -3477,6 +3502,7 @@ private fun monthNameToNumber(name: String): Int? {
 }
 
 private suspend fun fetchNewsFlashDocuments(): List<NewsFlash> {
+    if (!isFirebaseAvailable()) return emptyList()
     return try {
         ensureSettingsSession()
         val snap = Firebase.firestore
@@ -3550,6 +3576,7 @@ private suspend fun fetchNewsFlashForPublic(): List<EntertainmentNewsItem> {
 }
 
 private suspend fun saveNewsFlashToFirestore(item: NewsFlash) {
+    if (!isFirebaseAvailable()) return
     runCatching {
         ensureSettingsSession()
         Firebase.firestore
@@ -3586,6 +3613,7 @@ private suspend fun saveNewsFlashToFirestore(item: NewsFlash) {
 }
 
 private suspend fun saveHeroBannerToFirestore(slide: HeroSlide) {
+    if (!isFirebaseAvailable()) return
     runCatching {
         ensureSettingsSession()
         Firebase.firestore
@@ -3613,6 +3641,7 @@ private suspend fun saveHeroBannerToFirestore(slide: HeroSlide) {
 }
 
 private suspend fun deleteHeroBannerFromFirestore(id: String) {
+    if (!isFirebaseAvailable()) return
     runCatching {
         ensureSettingsSession()
         Firebase.firestore
@@ -3724,6 +3753,7 @@ private data class ReviewDraft(
 private fun reviewDocId(userId: String, eventId: String) = "${userId}_${eventId}"
 
 private suspend fun fetchReviewsFromFirestore(limit: Int = 12): Result<List<UserReview>> = runCatching {
+    if (!isFirebaseAvailable()) return@runCatching emptyList()
     val firestore = Firebase.firestore
     val snap = firestore.collection("reviews")
         .orderBy("createdAt", Direction.DESCENDING)
@@ -3765,6 +3795,7 @@ private suspend fun submitReviewToFirestore(
     event: EventItem,
     draft: ReviewDraft,
 ): Result<UserReview> = runCatching {
+    if (!isFirebaseAvailable()) throw IllegalStateException("Firebase unavailable")
     val firestore = Firebase.firestore
     val docId = reviewDocId(userId, event.id)
     val nowIso = currentInstant().toString()
@@ -3797,6 +3828,7 @@ private suspend fun submitReviewToFirestore(
 }
 
 private suspend fun ensureSettingsSession() {
+    if (!isFirebaseAvailable()) return
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         // Avoid auto anonymous sign-in here; it can wipe a persisted user session and break remember-me.
@@ -3805,6 +3837,7 @@ private suspend fun ensureSettingsSession() {
 }
 
 private suspend fun loadUserSettingsFromFirestore(uid: String): SettingsPrefs? {
+    if (!isFirebaseAvailable()) return null
     return try {
         val doc = Firebase.firestore
             .collection("users")
@@ -3831,6 +3864,7 @@ private suspend fun loadUserSettingsFromFirestore(uid: String): SettingsPrefs? {
 }
 
 private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPrefs) {
+    if (!isFirebaseAvailable()) return
     try {
         Firebase.firestore
             .collection("users")
@@ -3855,6 +3889,7 @@ private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPref
 
 private suspend fun fetchAdminSecureConfig(): Result<AdminSecureConfig> {
     return runCatching {
+        if (!isFirebaseAvailable()) throw IllegalStateException("Firebase unavailable")
         ensureSettingsSession()
         val firestore = Firebase.firestore
 
@@ -3939,6 +3974,7 @@ private suspend fun seedAdminSecureConfig(): AdminSecureConfig? {
 
 private suspend fun saveAdminSecureConfig(config: AdminSecureConfig) {
     runCatching {
+        if (!isFirebaseAvailable()) return@runCatching
         ensureSettingsSession()
         val firestore = Firebase.firestore
 
@@ -3965,6 +4001,7 @@ private suspend fun saveAdminSecureConfig(config: AdminSecureConfig) {
 }
 
 private suspend fun loadAdminSecureConfigForPrefill(): AdminSecureConfig? {
+    if (!isFirebaseAvailable()) return null
     ensureSettingsSession()
     val firestore = Firebase.firestore
 
@@ -3990,9 +4027,41 @@ private suspend fun loadAdminSecureConfigForPrefill(): AdminSecureConfig? {
 
 @Composable
 fun App() {
+    if (!isFirebaseAvailable()) {
+        GoTickyTheme {
+            FallbackOfflineScreen()
+        }
+        return
+    }
+
     LaunchedEffect(Unit) { initFirebase() }
     GoTickyTheme {
         GoTickyRoot()
+    }
+}
+
+@Composable
+private fun FallbackOfflineScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Text(
+                text = "Firebase features are unavailable on this platform.",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Run the Android build for full functionality.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -4392,6 +4461,11 @@ private fun GoTickyRoot() {
     }
 
     fun refreshNotifications() {
+        if (!isFirebaseAvailable()) {
+            notifications.clear()
+            notificationsError = "Firebase not available on this platform."
+            return
+        }
         val uid = Firebase.auth.currentUser?.uid
         if (uid == null) {
             notifications.clear()
@@ -4420,6 +4494,12 @@ private fun GoTickyRoot() {
     }
 
     fun requestPriceAlert(event: org.example.project.data.EventItem) {
+        if (!isFirebaseAvailable()) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Firebase not available on this platform.")
+            }
+            return
+        }
         val uid = Firebase.auth.currentUser?.uid
         if (uid == null) {
             scope.launch {
@@ -4557,6 +4637,12 @@ private fun GoTickyRoot() {
             notifications.clear()
             notificationsError = null
             notificationsLoading = false
+        }
+    }
+
+    LaunchedEffect(currentScreen, isAuthenticated) {
+        if (isAuthenticated && currentScreen == MainScreen.Alerts) {
+            refreshNotifications()
         }
     }
 
@@ -10912,7 +10998,7 @@ private fun HomeScreen(
         )
 
         SectionHeader(
-            "Progress preview",
+            "Reviews update",
             action = {
                 NeonTextButton(text = "Refresh", onClick = { refreshReviews() })
             }
@@ -16772,12 +16858,23 @@ private fun AlertsScreen(
     val starredUnread = remember(starred) { starred.filter { it.status.lowercase() != "read" } }
     var selectedFilter by rememberSaveable { mutableStateOf(AlertsFilter.Unread) }
 
+    LaunchedEffect(unread.size, read.size, starred.size, notificationsLoading) {
+        if (!notificationsLoading && selectedFilter == AlertsFilter.Unread && unread.isEmpty()) {
+            selectedFilter = when {
+                starred.isNotEmpty() -> AlertsFilter.Starred
+                read.isNotEmpty() -> AlertsFilter.Read
+                else -> AlertsFilter.Unread
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+            .navigationBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 220.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
@@ -16873,11 +16970,21 @@ private fun AlertsScreen(
                         }
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Tap to refresh alerts", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
                         Text(
-                            if (notificationsLoading) "Syncing…" else "Manual refresh keeps you in control.",
+                            notificationsError ?: "Tap to refresh alerts",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            when {
+                                notificationsLoading -> "Syncing…"
+                                !notificationsError.isNullOrBlank() -> notificationsError!!
+                                else -> "Manual refresh keeps you in control."
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
@@ -16930,7 +17037,11 @@ private fun AlertsScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("You’re all caught up", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text(
+                                "You’re all caught up",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                             Text("We’ll notify you when something important happens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -16964,7 +17075,11 @@ private fun AlertsScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("No read alerts yet", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text(
+                                "No read alerts yet",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                             Text("Once you read alerts, they’ll appear here for quick recall.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
