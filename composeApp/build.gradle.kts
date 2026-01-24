@@ -71,7 +71,9 @@ kotlin {
             dependencies {
                 implementation(npm("qrcode", "1.5.3"))
                 implementation(devNpm("copy-webpack-plugin", "11.0.0"))
-            }       
+                // Firebase Web SDK for JS target so dev.gitlive Firebase can bind to the default app
+                implementation(npm("firebase", "10.12.5"))
+            }
         }
 
         androidMain.dependencies {
