@@ -1,13 +1,83 @@
 package org.example.project.platform
 
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
 
-// JS/web stub: return a transparent bitmap sized to requested dimensions.
-private fun blankBitmap(width: Int, height: Int): ImageBitmap = ImageBitmap(width, height)
+// JS/Web implementations mirror the lightweight, seed-based pattern used on iOS.
+// This avoids bringing ZXing into the JS bundle while still giving tickets a
+// consistent visual code block.
+actual fun platformQrBitmap(seed: String, sizePx: Int, dark: Color, light: Color): ImageBitmap {
+    return generatePatternBitmap(
+        width = sizePx,
+        height = sizePx,
+        seed = seed,
+        block = 12,
+        dark = dark,
+        light = light,
+    )
+}
 
-actual fun platformQrBitmap(seed: String, sizePx: Int, dark: Color, light: Color): ImageBitmap =
-    blankBitmap(sizePx, sizePx)
+actual fun platformBarcodeBitmap(
+    seed: String,
+    width: Int,
+    height: Int,
+    dark: Color,
+    light: Color,
+): ImageBitmap {
+    return generatePatternBitmap(
+        width = width,
+        height = height,
+        seed = seed,
+        block = 8,
+        dark = dark,
+        light = light,
+    )
+}
 
-actual fun platformBarcodeBitmap(seed: String, width: Int, height: Int, dark: Color, light: Color): ImageBitmap =
-    blankBitmap(width, height)
+private fun generatePatternBitmap(
+    width: Int,
+    height: Int,
+    seed: String,
+    block: Int,
+    dark: Color,
+    light: Color,
+): ImageBitmap {
+    val bitmap = ImageBitmap(width, height)
+    val canvas = Canvas(bitmap)
+
+    val lightPaint = Paint().apply { color = light }
+    val darkPaint = Paint().apply { color = dark }
+
+    // Fill background
+    canvas.drawRect(Rect(0f, 0f, width.toFloat(), height.toFloat()), lightPaint)
+
+    // Deterministic pattern based on seed hash; keeps visuals stable per ticket.
+    val hash = seed.hashCode().toUInt().toLong()
+    var cursor = hash
+    val cols = (width / block).coerceAtLeast(1)
+    val rows = (height / block).coerceAtLeast(1)
+
+    for (y in 0 until rows) {
+        for (x in 0 until cols) {
+            cursor = cursor * 1103515245 + 12345
+            val on = (cursor ushr 16) % 7 < 3 // ~40% fill density
+            if (on) {
+                val left = x * block.toFloat()
+                val top = y * block.toFloat()
+                canvas.drawRect(
+                    Rect(
+                        left = left,
+                        top = top,
+                        right = (left + block).coerceAtMost(width.toFloat()),
+                        bottom = (top + block).coerceAtMost(height.toFloat()),
+                    ),
+                    darkPaint,
+                )
+            }
+        }
+    }
+    return bitmap
+}

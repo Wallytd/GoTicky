@@ -1,17 +1,18 @@
 package org.example.project.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 
+// JS/Web stub: echo back the local URI instead of remote upload.
 private class JsProfileImageStorage : ProfileImageStorage {
     override suspend fun uploadProfileImage(
         localUri: String,
-        onProgress: (Float) -> Unit
+        onProgress: (Float) -> Unit,
     ): String? {
-        // JS/web stub: report immediate completion
         onProgress(1f)
-        return null
+        return localUri
     }
 }
 
 @Composable
-actual fun rememberProfileImageStorage(): ProfileImageStorage = JsProfileImageStorage()
+actual fun rememberProfileImageStorage(): ProfileImageStorage = remember { JsProfileImageStorage() }

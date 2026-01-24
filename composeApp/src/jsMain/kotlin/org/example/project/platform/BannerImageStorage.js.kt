@@ -3,7 +3,7 @@ package org.example.project.platform
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 
-// JS/web stub: cannot upload; returns the provided local URI.
+// JS/Web stub: we don't persist to remote storage; just echo back the chosen URI.
 private class JsBannerImageStorage : BannerImageStorage {
     override suspend fun uploadBannerImage(
         bannerId: String,
@@ -16,5 +16,4 @@ private class JsBannerImageStorage : BannerImageStorage {
 }
 
 @Composable
-actual fun rememberBannerImageStorage(): BannerImageStorage =
-    remember { JsBannerImageStorage() }
+actual fun rememberBannerImageStorage(): BannerImageStorage = remember { JsBannerImageStorage() }

@@ -3,10 +3,7 @@ package org.example.project.platform
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 
-/**
- * Web placeholder that immediately returns the provided URI and marks progress as complete.
- * Keeps shared flows working without requiring Firebase Storage on JS.
- */
+// JS/Web stub: return the picked URI without remote upload.
 private class JsEventImageStorage : EventImageStorage {
     override suspend fun uploadEventFlyer(
         organizerId: String,
@@ -20,5 +17,4 @@ private class JsEventImageStorage : EventImageStorage {
 }
 
 @Composable
-actual fun rememberEventImageStorage(): EventImageStorage =
-    remember { JsEventImageStorage() }
+actual fun rememberEventImageStorage(): EventImageStorage = remember { JsEventImageStorage() }

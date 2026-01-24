@@ -53,7 +53,13 @@ kotlin {
     jvm()
 
     js {
-        browser()
+        browser {
+            commonWebpackConfig {
+                cssSupport {
+                    enabled.set(true)
+                }
+            }
+        }
         binaries.executable()
     }
 
@@ -61,7 +67,12 @@ kotlin {
         val commonMain by getting
         val androidMain by getting
         val jvmMain by getting
-        val jsMain by getting
+        val jsMain by getting {
+            dependencies {
+                implementation(npm("qrcode", "1.5.3"))
+                implementation(devNpm("copy-webpack-plugin", "11.0.0"))
+            }       
+        }
 
         androidMain.dependencies {
             implementation(compose.preview)
