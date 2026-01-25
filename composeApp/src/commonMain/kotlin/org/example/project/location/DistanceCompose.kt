@@ -43,6 +43,8 @@ fun rememberDistanceForEvents(events: List<EventItem>): Map<String, DistanceSamp
             if (isValid) {
                 stableLocation = userLocation
             }
+        } else {
+            stableLocation = null
         }
     }
 
