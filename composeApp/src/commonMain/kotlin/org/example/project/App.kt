@@ -66,7 +66,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.IntOffset
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -332,6 +332,17 @@ import kotlin.math.sin
 import kotlin.time.Clock
 import org.example.project.ui.screens.AlertsScreen as ModernAlertsScreen
 
+fun formatReviewDate(isoString: String): String {
+    try {
+        val instant = Instant.parse(isoString)
+        val localDate = instant.toLocalDateTime(TimeZone.currentSystemDefault()).date
+        val monthName = localDate.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
+        return "${localDate.dayOfMonth} $monthName ${localDate.year}"
+    } catch (e: Exception) {
+        return isoString
+    }
+}
+
 private enum class MainScreen {
     Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
 }
@@ -556,6 +567,8 @@ private fun ReviewsPreview(
 ) {
     val goldStar = Color(0xFFF5C542)
     val tz = remember { TimeZone.currentSystemDefault() }
+    // We'll track the current index in the parent to display the counter
+    var currentIndex by remember { mutableStateOf(0) }
 
     GlowCard(
         modifier = Modifier
@@ -566,7 +579,7 @@ private fun ReviewsPreview(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -585,7 +598,30 @@ private fun ReviewsPreview(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                NeonTextButton(text = "Refresh", onClick = onRefresh)
+                
+               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                   // Animated Review Counter
+                    if (reviews.isNotEmpty()) {
+                        AnimatedContent(
+                            targetState = currentIndex + 1,
+                            transitionSpec = {
+                                slideInVertically { height -> height } + fadeIn() togetherWith
+                                slideOutVertically { height -> -height } + fadeOut()
+                            }
+                        ) { count ->
+                           Text(
+                               text = "$count/${reviews.size}",
+                               style = MaterialTheme.typography.labelLarge.copy(
+                                   fontWeight = FontWeight.Bold,
+                                   fontFeatureSettings = "tnum"
+                               ),
+                               color = MaterialTheme.colorScheme.primary
+                           )
+                        }
+                    }
+
+                    NeonTextButton(text = "Refresh", onClick = onRefresh)
+               }
             }
 
             when {
@@ -629,7 +665,8 @@ private fun ReviewsPreview(
                     CardShuffleReviewsDeck(
                         reviews = reviews,
                         goldStar = goldStar,
-                        tz = tz
+                        tz = tz,
+                        onIndexChanged = { newIndex -> currentIndex = newIndex }
                     )
                 }
 
@@ -639,16 +676,23 @@ private fun ReviewsPreview(
 }
 
 @Composable
+@Composable
 private fun CardShuffleReviewsDeck(
     reviews: List<UserReview>,
     goldStar: Color,
-    tz: TimeZone
+    tz: TimeZone,
+    onIndexChanged: (Int) -> Unit
 ) {
     // State management
     var currentIndex by remember { mutableStateOf(0) }
     var isAnimating by remember { mutableStateOf(false) }
     var lastInteractionTime by remember { mutableStateOf(0L) }
     val coroutineScope = rememberCoroutineScope()
+    
+    // Sync internal index with parent
+    LaunchedEffect(currentIndex) {
+        onIndexChanged(currentIndex)
+    }
     
     // Animation values for the top card
     val offsetX = remember { Animatable(0f) }
@@ -658,9 +702,9 @@ private fun CardShuffleReviewsDeck(
     
     // Auto-shuffle effect
     LaunchedEffect(currentIndex, lastInteractionTime) {
-        delay(4500L) // Wait 4.5 seconds
+        delay(6000L) // Wait 6 seconds
         val timeSinceInteraction = currentInstant().toEpochMilliseconds() - lastInteractionTime
-        if (timeSinceInteraction >= 4500L && !isAnimating && reviews.size > 1) {
+        if (timeSinceInteraction >= 6000L && !isAnimating && reviews.size > 1) {
             // Auto-shuffle to next card
             shuffleToNext(
                 currentIndex = currentIndex,
@@ -677,7 +721,7 @@ private fun CardShuffleReviewsDeck(
         }
     }
     
-    // Initialize last interaction time
+    // Initialize lastInteractionTime once
     LaunchedEffect(Unit) {
         lastInteractionTime = currentInstant().toEpochMilliseconds()
     }
@@ -688,241 +732,234 @@ private fun CardShuffleReviewsDeck(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(280.dp),
+            .height(260.dp), // Height for the deck
         contentAlignment = Alignment.Center
     ) {
         // Render cards in reverse order so top card is drawn last
-        val maxVisibleCards = minOf(5, reviews.size)
+        val maxVisibleCards = minOf(4, reviews.size)
         
         for (i in (maxVisibleCards - 1) downTo 0) {
             val cardIndex = (currentIndex + i) % reviews.size
             val review = reviews[cardIndex]
             val isTopCard = i == 0
             
-            // Calculate card position in stack
-            val stackOffset = (i * 10).dp
-            val stackScale = 1f - (i * 0.04f)
-            val stackRotation = (i * 2f) - 4f
-            val stackAlpha = 1f - (i * 0.15f)
+            // Calculate card position in stack - Make it more visible/fanned out
+            // Dramatic fanning
+            val stackOffset = (i * 14).dp 
+            val stackScale = 1f - (i * 0.07f)
+            val stackRotation = if (i % 2 == 0) (i * 3f) else -(i * 3f) // Alternating rotation for messy stack look
+            val stackAlpha = 1f - (i * 0.1f)
             
-            val relativeTime = remember(review.createdAt) {
-                review.createdAt.toLocalDateTime(tz).date.toString()
+            // Use new date formatter
+            val formattedDate = remember(review.createdAt) {
+                formatReviewDate(review.createdAt.toString())
             }
             
-            val cardModifier = if (isTopCard) {
-                Modifier
-                    .fillMaxWidth(0.85f)
-                    .offset(
-                        x = offsetX.value.dp,
-                        y = stackOffset + (offsetY.value).dp
-                    )
-                    .graphicsLayer {
-                        scaleX = stackScale * scale.value
-                        scaleY = stackScale * scale.value
-                        rotationZ = stackRotation + rotation.value
-                        rotationY = rotation.value * 0.3f
-                        alpha = stackAlpha
-                        shadowElevation = 12f
-                        transformOrigin = TransformOrigin.Center
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = {
-                                lastInteractionTime = currentInstant().toEpochMilliseconds()
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                if (!isAnimating) {
-                                    coroutineScope.launch {
-                                        offsetX.snapTo(offsetX.value + dragAmount.x)
-                                        offsetY.snapTo(offsetY.value + dragAmount.y)
-                                        rotation.snapTo((offsetX.value / 10f).coerceIn(-15f, 15f))
-                                    }
-                                }
-                            },
-                            onDragEnd = {
-                                coroutineScope.launch {
-                                    if (kotlin.math.abs(offsetX.value) > 100f || kotlin.math.abs(offsetY.value) > 100f) {
-                                        // Swipe detected - shuffle to next
-                                        shuffleToNext(
-                                            currentIndex = currentIndex,
-                                            reviewsSize = reviews.size,
-                                            onIndexChange = { currentIndex = it },
-                                            isAnimating = isAnimating,
-                                            onAnimatingChange = { isAnimating = it },
-                                            offsetX = offsetX,
-                                            offsetY = offsetY,
-                                            rotation = rotation,
-                                            scale = scale,
-                                            coroutineScope = coroutineScope
-                                        )
-                                    } else {
-                                        // Return to center
-                                        launch { offsetX.animateTo(0f, tween(300, easing = EaseOutBack)) }
-                                        launch { offsetY.animateTo(0f, tween(300, easing = EaseOutBack)) }
-                                        launch { rotation.animateTo(0f, tween(300, easing = EaseOutBack)) }
-                                    }
-                                }
-                            }
-                        )
-                    }
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        if (!isAnimating) {
-                            lastInteractionTime = currentInstant().toEpochMilliseconds()
-                            shuffleToNext(
-                                currentIndex = currentIndex,
-                                reviewsSize = reviews.size,
-                                onIndexChange = { currentIndex = it },
-                                isAnimating = isAnimating,
-                                onAnimatingChange = { isAnimating = it },
-                                offsetX = offsetX,
-                                offsetY = offsetY,
-                                rotation = rotation,
-                                scale = scale,
-                                coroutineScope = coroutineScope
-                            )
-                        }
-                    }
-            } else {
-                Modifier
-                    .fillMaxWidth(0.85f)
-                    .offset(y = stackOffset)
-                    .graphicsLayer {
-                        scaleX = stackScale
-                        scaleY = stackScale
-                        rotationZ = stackRotation
-                        alpha = stackAlpha
-                        shadowElevation = (maxVisibleCards - i) * 2f
-                    }
-            }
-            
-            GlowCard(
-                modifier = cardModifier
-            ) {
+            // Reconstruct the Card UI here to ensure it uses the new Date and style
+            val cardContent = @Composable {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                    modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
+                        Column {
                             Text(
                                 review.userName,
-                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                review.eventTitle,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                review.userTitle.ifEmpty { "Verified Attendee" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            repeat(review.rating) {
+                        
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            repeat(5) { starIndex ->
                                 Icon(
-                                    imageVector = Icons.Filled.Star,
+                                    imageVector = if (starIndex < review.rating) Icons.Filled.Star else Icons.Outlined.Star,
                                     contentDescription = null,
-                                    tint = goldStar,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = if (starIndex < review.rating) goldStar else MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
                     }
                     
                     Text(
-                        text = review.comment.ifBlank { "Left quick ratings only." },
+                        review.comment,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                     
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(review.qos1, review.qos2, review.qos3).forEach { tag ->
-                            Pill(
-                                text = tag,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                textColor = MaterialTheme.colorScheme.onSurface
-                            )
+                    // Tags in a FlowRow
+                    if (review.tags.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            review.tags.take(3).forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        tag,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                     
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = relativeTime,
+                         Text(
+                            formattedDate,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.7f)
                         )
                         Icon(
-                            imageVector = Icons.Outlined.ThumbUp,
-                            contentDescription = null,
-                            tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                             imageVector = Icons.Outlined.ThumbUp,
+                             contentDescription = "Helpful",
+                             modifier = Modifier.size(16.dp),
+                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.7f)
                         )
                     }
                 }
             }
-        }
-        
-        // Card counter indicator
-        if (reviews.size > 1) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .offset(y = 32.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            
+            if (isTopCard) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f) // A bit wider
+                        .height(220.dp) // Fixed height for cards
+                        .offset { IntOffset(offsetX.value.roundToInt(), offsetY.value.roundToInt() + stackOffset.roundToPx()) }
+                        .graphicsLayer {
+                            scaleX = stackScale * scale.value
+                            scaleY = stackScale * scale.value
+                            rotationZ = (stackRotation * 0.2f) + rotation.value // Less initial rotation for top card
+                            shadowElevation = 20f // More shadow
+                            transformOrigin = TransformOrigin.Center
+                            shape = RoundedCornerShape(24.dp)
+                            clip = true
+                        }
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp))
+                        .background(GoTickyGradients.GlassWash, RoundedCornerShape(24.dp)) // subtle gradient
+                         // Interaction
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = {
+                                    lastInteractionTime = currentInstant().toEpochMilliseconds()
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    if (!isAnimating) {
+                                        coroutineScope.launch {
+                                            offsetX.snapTo(offsetX.value + dragAmount.x)
+                                            offsetY.snapTo(offsetY.value + dragAmount.y)
+                                            // Dynamic rotation based on drag
+                                            rotation.snapTo((offsetX.value / 15f).coerceIn(-20f, 20f))
+                                        }
+                                    }
+                                },
+                                onDragEnd = {
+                                    coroutineScope.launch {
+                                        if (kotlin.math.abs(offsetX.value) > 150f) {
+                                            // Swipe detected - shuffle to next
+                                            shuffleToNext(
+                                                currentIndex = currentIndex,
+                                                reviewsSize = reviews.size,
+                                                onIndexChange = { currentIndex = it },
+                                                isAnimating = isAnimating,
+                                                onAnimatingChange = { isAnimating = it },
+                                                offsetX = offsetX,
+                                                offsetY = offsetY,
+                                                rotation = rotation,
+                                                scale = scale,
+                                                coroutineScope = coroutineScope
+                                            )
+                                        } else {
+                                            // Return to center
+                                            launch { offsetX.animateTo(0f, tween(400, easing = EaseOutBack)) }
+                                            launch { offsetY.animateTo(0f, tween(400, easing = EaseOutBack)) }
+                                            launch { rotation.animateTo(0f, tween(400, easing = EaseOutBack)) }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        .clickable(
+                             interactionSource = remember { MutableInteractionSource() },
+                             indication = null
+                        ) {
+                             // Tap to shuffle
+                             if (!isAnimating) {
+                                 lastInteractionTime = currentInstant().toEpochMilliseconds()
+                                 shuffleToNext(
+                                     currentIndex = currentIndex,
+                                     reviewsSize = reviews.size,
+                                     onIndexChange = { currentIndex = it },
+                                     isAnimating = isAnimating,
+                                     onAnimatingChange = { isAnimating = it },
+                                     offsetX = offsetX,
+                                     offsetY = offsetY,
+                                     rotation = rotation,
+                                     scale = scale,
+                                     coroutineScope = coroutineScope
+                                 )
+                             }
+                        }
                 ) {
-                    repeat(minOf(reviews.size, 5)) { index ->
-                        val isActive = index == (currentIndex % minOf(reviews.size, 5))
-                        Box(
-                            modifier = Modifier
-                                .size(if (isActive) 8.dp else 6.dp)
-                                .background(
-                                    color = if (isActive) 
-                                        MaterialTheme.colorScheme.primary 
-                                    else 
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                    shape = CircleShape
-                                )
-                                .animateContentSize(
-                                    animationSpec = tween(
-                                        durationMillis = 300,
-                                        easing = EaseOutBack
-                                    )
-                                )
-                        )
-                    }
+                    cardContent()
+                }
+            } else {
+                 // Background cards
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .height(220.dp)
+                        .offset(y = stackOffset)
+                        .graphicsLayer {
+                            scaleX = stackScale
+                            scaleY = stackScale
+                            rotationZ = stackRotation
+                            alpha = stackAlpha
+                            shadowElevation = (maxVisibleCards - i) * 4f
+                            shape = RoundedCornerShape(24.dp)
+                            clip = true
+                        }
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp)) // Slightly different color for depth
+                         // Add a scrim to background cards to make top pop more
+                        .drawBehind {
+                            drawRect(Color.Black.copy(alpha = 0.05f * i))
+                        }
+                ) {
+                    // We don't necessarily need to render full content for background cards to save performance, 
+                    // but it helps the effect if they look real.
+                    // We can use a simplified version or the same.
+                    cardContent()
                 }
             }
         }
     }
-}
+}            
+
 
 private fun shuffleToNext(
     currentIndex: Int,
@@ -11348,9 +11385,6 @@ private fun HomeScreen(
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val coroutineScope = rememberCoroutineScope()
-    val reviews = remember { mutableStateListOf<UserReview>() }
-    var reviewsLoading by remember { mutableStateOf(false) }
-    var reviewsError by remember { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
 
     // Recompute public events whenever the adminApplications state list mutates (approvals, edits).
@@ -11404,32 +11438,6 @@ private fun HomeScreen(
         if (forceOpenSearchDialog) {
             showQueryDialog = true
             onConsumeForceOpenSearchDialog()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        reviewsLoading = true
-        reviewsError = null
-        fetchReviewsFromFirestore()
-            .onSuccess { list ->
-                reviews.clear(); reviews.addAll(list)
-            }
-            .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
-        reviewsLoading = false
-    }
-
-    val refreshReviews = remember {
-        {
-            reviewsLoading = true
-            reviewsError = null
-            coroutineScope.launch {
-                fetchReviewsFromFirestore()
-                    .onSuccess { list ->
-                        reviews.clear(); reviews.addAll(list)
-                    }
-                    .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
-                reviewsLoading = false
-            }
         }
     }
 
@@ -11712,18 +11720,6 @@ private fun HomeScreen(
             now = now
         )
 
-        SectionHeader(
-            "Reviews update",
-            action = {
-                NeonTextButton(text = "Refresh", onClick = { refreshReviews() })
-            }
-        )
-        ReviewsPreview(
-            reviews = reviews,
-            loading = reviewsLoading,
-            error = reviewsError,
-            onRefresh = { refreshReviews() }
-        )
         Spacer(modifier = Modifier.height(96.dp))
     }
 
@@ -15179,27 +15175,6 @@ private fun ProfileScreen(
                         }
                     } else null,
                     onClick = { showFavorites = true }
-                ),
-                MenuItemSpec(
-                    label = "Reviews",
-                    icon = Icons.Outlined.Star,
-                    tint = Color(0xFFFFD54F),
-                    trailing = {
-                        Box(
-                            modifier = Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "3",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    onClick = { }
                 ),
                 MenuItemSpec(
                     label = "Settings",
