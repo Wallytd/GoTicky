@@ -1,0 +1,103 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Reusing configuration cache.
+> Task :composeApp:preBuild UP-TO-DATE
+> Task :composeApp:preDebugBuild UP-TO-DATE
+> Task :composeApp:convertXmlValueResourcesForCommonMain NO-SOURCE
+> Task :composeApp:convertXmlValueResourcesForAndroidDebug NO-SOURCE
+> Task :composeApp:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :composeApp:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :composeApp:copyNonXmlValueResourcesForAndroidDebug NO-SOURCE
+> Task :composeApp:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :composeApp:prepareComposeResourcesTaskForAndroidDebug NO-SOURCE
+> Task :composeApp:generateResourceAccessorsForAndroidMain NO-SOURCE
+> Task :composeApp:generateResourceAccessorsForAndroidDebug NO-SOURCE
+> Task :composeApp:kmpPartiallyResolvedDependenciesChecker
+> Task :composeApp:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :composeApp:generateExpectResourceCollectorsForCommonMain UP-TO-DATE
+> Task :composeApp:generateComposeResClass UP-TO-DATE
+> Task :composeApp:generateDebugResValues UP-TO-DATE
+> Task :composeApp:copyNonXmlValueResourcesForCommonMain UP-TO-DATE
+> Task :composeApp:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :composeApp:processDebugGoogleServices UP-TO-DATE
+> Task :composeApp:generateDebugResources UP-TO-DATE
+> Task :composeApp:extractDeepLinksDebug UP-TO-DATE
+> Task :composeApp:prepareComposeResourcesTaskForCommonMain UP-TO-DATE
+> Task :composeApp:generateResourceAccessorsForCommonMain UP-TO-DATE
+> Task :composeApp:generateActualResourceCollectorsForAndroidMain UP-TO-DATE
+> Task :composeApp:packageDebugResources UP-TO-DATE
+> Task :composeApp:checkDebugAarMetadata UP-TO-DATE
+> Task :composeApp:processDebugNavigationResources UP-TO-DATE
+> Task :composeApp:compileDebugNavigationResources UP-TO-DATE
+> Task :composeApp:parseDebugLocalResources UP-TO-DATE
+> Task :composeApp:mapDebugSourceSetPaths UP-TO-DATE
+> Task :composeApp:mergeDebugResources UP-TO-DATE
+> Task :composeApp:processDebugMainManifest UP-TO-DATE
+> Task :composeApp:processDebugManifest UP-TO-DATE
+> Task :composeApp:processDebugManifestForPackage UP-TO-DATE
+> Task :composeApp:processDebugResources UP-TO-DATE
+
+> Task :composeApp:compileDebugKotlinAndroid FAILED
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:38:12 Mismatched @Composable annotation between expect and actual declaration
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:84:32 Cannot access class 'ListenableFuture'. Check your module classpath for missing or conflicting dependencies.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:84:65 Cannot access class 'ListenableFuture'. Check your module classpath for missing or conflicting dependencies.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:96:32 Cannot access class 'ListenableFuture'. Check your module classpath for missing or conflicting dependencies.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:102:34 Cannot access class 'ListenableFuture'. Check your module classpath for missing or conflicting dependencies.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:102:55 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun MatchGroupCollection.get(name: String): MatchGroup?
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:125:32 Unresolved reference 'unbindAll'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/QrScanner.android.kt:126:41 Unresolved reference 'bindToLifecycle'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:92:57 Cannot access class 'ListenableFuture'. Check your module classpath for missing or conflicting dependencies.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:93:57 Cannot access class 'ListenableFuture'. Check your module classpath for missing or conflicting dependencies.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:98:16 Property delegate must have a 'getValue(Nothing?, KMutableProperty0<*>)' method. None of the following functions is applicable:
+fun <T> Lazy<T>.getValue(thisRef: Any?, property: KProperty<*>): T
+fun <V> KProperty0<V>.getValue(thisRef: Any?, property: KProperty<*>): V
+fun <T, V> KProperty1<T, V>.getValue(thisRef: T, property: KProperty<*>): V
+fun <K, V> Map<K, V>.getValue(key: K): V
+fun <V, V1 : V> Map<in String, V>.getValue(thisRef: Any?, property: KProperty<*>): V1
+fun <V, V1 : V> MutableMap<in String, out V>.getValue(thisRef: Any?, property: KProperty<*>): V1
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:98:16 Property delegate must have a 'setValue(Nothing?, KMutableProperty0<*>, ERROR CLASS: Ambiguity: getValue, [kotlin/getValue, kotlin/getValue, kotlin/getValue, kotlin/collections/getValue, kotlin/collections/getValue, kotlin/collections/getValue])' method. None of the following functions is applicable:
+fun <V> KMutableProperty0<V>.setValue(thisRef: Any?, property: KProperty<*>, value: V): Unit
+fun <T, V> KMutableProperty1<T, V>.setValue(thisRef: T, property: KProperty<*>, value: V): Unit
+fun <V> MutableMap<in String, in V>.setValue(thisRef: Any?, property: KProperty<*>, value: V): Unit
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:110:17 Unresolved reference 'cameraControl'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:116:34 Cannot access class 'ListenableFuture'. Check your module classpath for missing or conflicting dependencies.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:116:55 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun MatchGroupCollection.get(name: String): MatchGroup?
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:134:32 Unresolved reference 'unbindAll'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:135:41 Unresolved reference 'bindToLifecycle'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/androidMain/kotlin/org/example/project/platform/ZXingScanner.android.kt:147:29 Unresolved reference 'fillMaxSize'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/App.kt:774:64 Unresolved reference 'currentTimeMillis'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:163:42 This declaration needs opt-in. Its usage must be marked with '@kotlin.time.ExperimentalTime' or '@OptIn(kotlin.time.ExperimentalTime::class)'
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:196:38 Argument type mismatch: actual type is 'SuspendFunction2<Transaction, ERROR CLASS: Cannot infer type for parameter transaction, Unit>', but 'SuspendFunction1<Transaction, Unit>' was expected.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:196:40 Cannot infer type for value parameter 'transaction'. Specify it explicitly.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:198:46 Cannot infer type for type parameter 'V'. Specify it explicitly.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:201:52 No type arguments expected for fun MatchGroupCollection.get(name: String): MatchGroup?.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:202:21 Condition type mismatch: inferred type is 'Any' but 'Boolean' was expected.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:207:33 Argument type mismatch: actual type is 'DocumentReference', but 'Int' was expected.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:207:41 Argument type mismatch: actual type is 'Map<String, Comparable<*> & Serializable>', but 'Char' was expected.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:213:20 No parameter with name 'merge' found.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:315:64 This declaration needs opt-in. Its usage must be marked with '@kotlin.time.ExperimentalTime' or '@OptIn(kotlin.time.ExperimentalTime::class)'
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:395:48 This declaration needs opt-in. Its usage must be marked with '@kotlin.time.ExperimentalTime' or '@OptIn(kotlin.time.ExperimentalTime::class)'
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/data/TicketRepository.kt:450:42 This declaration needs opt-in. Its usage must be marked with '@kotlin.time.ExperimentalTime' or '@OptIn(kotlin.time.ExperimentalTime::class)'
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/ui/admin/AdminTicketsSection.kt:165:9 Unresolved reference 'AnimatedVisibility'.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/ui/admin/AdminTicketsSection.kt:166:13 @Composable invocations can only happen from the context of a @Composable function
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/ui/admin/AdminTicketsSection.kt:223:39 Argument type mismatch: actual type is 'Function0<Job>', but 'Function0<Unit>' was expected.
+e: file:///E:/Andoid%20Studio/AndroidStudioProjects/GoTicky/composeApp/src/commonMain/kotlin/org/example/project/ui/admin/AdminTicketsSection.kt:321:55 @Composable invocations can only happen from the context of a @Composable function
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':composeApp:compileDebugKotlinAndroid'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 38s
+24 actionable tasks: 2 executed, 22 up-to-date
+Configuration cache entry reused.

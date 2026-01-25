@@ -301,6 +301,42 @@ service cloud.firestore {
         (!('updatedAt' in data) || data.updatedAt is string);
     }
 
+    // Validation for ticket creation (admin/checkout only)
+    function validTicketCreate(data) {
+      return data.keys().hasAll(['eventId', 'ownerId', 'eventTitle', 'venue', 'seat', 'status', 'type', 'qrSeed']) &&
+             (!('scanned' in data) || data.scanned == false) &&
+             (!('scanCount' in data) || data.scanCount == 0) &&
+             (!('scanProhibited' in data) || data.scanProhibited == false);
+    }
+
+    // Validation for ticket scan updates (admin only)
+    function validTicketScanUpdate(newData, oldData) {
+      // Only allow updating scan-related fields
+      return newData.diff(oldData).affectedKeys().hasOnly([
+        'scanned', 'scannedAt', 'scannedBy', 'scanCount', 'scanProhibited', 'updatedAt'
+      ]) &&
+      // Prevent un-scanning (scanned can only go from false to true)
+      (!oldData.scanned || newData.scanned == true) &&
+      // Scan count can only increase
+      (newData.scanCount >= oldData.scanCount) &&
+      // Validate timestamp format
+      (!('scannedAt' in newData) || newData.scannedAt is string || newData.scannedAt == null) &&
+      (!('scannedBy' in newData) || newData.scannedBy is string || newData.scannedBy == null);
+    }
+
+    // Validation for scan event records
+    function validScanEvent(data) {
+      return data.keys().hasAll(['ticketId', 'scannerId', 'timestamp', 'success']) &&
+             data.ticketId is string &&
+             data.scannerId is string &&
+             data.timestamp is string &&
+             data.success is bool &&
+             (!('scannerName' in data) || data.scannerName is string) &&
+             (!('failureReason' in data) || data.failureReason is string || data.failureReason == null) &&
+             (!('location' in data) || data.location is string || data.location == null) &&
+             (!('deviceInfo' in data) || data.deviceInfo is string || data.deviceInfo == null);
+    }
+
     // Canonical per-user document keyed by Firebase UID or seeded key.
     // Write is allowed for the owner OR for signed-in seeders writing role=admin (for initial admin import).
     match /users/{userId} {
@@ -359,6 +395,36 @@ service cloud.firestore {
       //   allow write: if request.auth != null && validTicket(request.resource.data, request.auth.uid);
       // }
     }
+
+    // Root-level tickets collection for admin ticket scanning and management
+    match /tickets/{ticketId} {
+      // Admins can read all tickets
+      allow read: if isAdminUser();
+      
+      // Ticket owners can read their own tickets
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      
+      // Only admins can create tickets (from checkout process)
+      allow create: if isAdminUser() && validTicketCreate(request.resource.data);
+      
+      // Admins can update scan status with strict validation
+      allow update: if isAdminUser() && validTicketScanUpdate(request.resource.data, resource.data);
+      
+      // Scan events subcollection for audit trail
+      match /scanEvents/{scanEventId} {
+        allow read: if isAdminUser();
+        allow create: if isAdminUser() && validScanEvent(request.resource.data);
+        // Prevent modification or deletion of scan events (immutable audit trail)
+        allow update, delete: if false;
+      }
+    }
+
+    // Ticket statistics collection for analytics
+    match /ticketStats/{statId} {
+      allow read: if isAdminUser();
+      allow write: if isAdminUser();
+    }
+
 
     // Global app settings. Keep admin_secure readable for backwards compatibility only.
     match /app_settings/{docId} {

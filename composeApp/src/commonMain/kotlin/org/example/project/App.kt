@@ -5,6 +5,7 @@ package org.example.project
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.LinearEasing
@@ -19,15 +20,19 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -94,6 +99,7 @@ import androidx.compose.material.icons.outlined.Cake
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PhoneAndroid
@@ -323,9 +329,222 @@ import dev.gitlive.firebase.firestore.Timestamp
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.time.Clock
+import org.example.project.ui.screens.AlertsScreen as ModernAlertsScreen
 
 private enum class MainScreen {
     Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
+}
+
+@Composable
+private fun AdminTicketsSection(
+    groups: List<AdminTicketGroup>,
+    onScan: () -> Unit,
+    addActivity: (String, Color) -> Unit,
+) {
+    var statusFilter by remember { mutableStateOf("All") }
+    var cityFilter by remember { mutableStateOf("All") }
+    val cities = remember(groups) { listOf("All") + groups.map { it.city }.distinct() }
+    val totalTickets = remember(groups) { groups.sumOf { it.tickets.size } }
+    val scannedTickets = remember(groups) { groups.sumOf { g -> g.tickets.count { it.scanned } } }
+    val pendingTickets = totalTickets - scannedTickets
+    val scanProgress = if (totalTickets == 0) 0f else scannedTickets / totalTickets.toFloat()
+    val ticketCategoryColor = IconCategoryColors[IconCategory.Ticket] ?: MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val primaryColor = MaterialTheme.colorScheme.primary
+
+    val filteredGroups = remember(groups, statusFilter, cityFilter) {
+        groups.map { group ->
+            val filteredTickets = group.tickets
+                .filter {
+                    statusFilter == "All" ||
+                        it.status.equals(statusFilter, ignoreCase = true) ||
+                        (statusFilter == "Scanned" && it.scanned)
+                }
+            group.copy(tickets = filteredTickets)
+        }
+            .filter { cityFilter == "All" || it.city == cityFilter }
+            .filter { it.tickets.isNotEmpty() }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SectionHeader(
+            title = "Tickets & scanning",
+            action = {
+                PrimaryButton(
+                    text = "Open scanner",
+                    icon = { Icon(Icons.Outlined.QrCodeScanner, contentDescription = null) },
+                    onClick = {
+                        addActivity(
+                            "Opened scanner",
+                            ticketCategoryColor
+                        )
+                        onScan()
+                    },
+                    modifier = Modifier.pressAnimated()
+                )
+            }
+        )
+
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "Live entry progress",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                AnimatedProgressBar(progress = scanProgress, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Pill(text = "$scannedTickets scanned")
+                    Pill(text = "$pendingTickets pending")
+                    Pill(text = "$totalTickets total")
+                }
+                GhostButton(
+                    text = "Trigger scan mode",
+                    icon = { Icon(Icons.Outlined.QrCodeScanner, contentDescription = null) },
+                    onClick = onScan,
+                    modifier = Modifier.align(Alignment.End)
+                )
+            }
+        }
+
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("All", "Valid", "Pending entry", "Hold", "Scanned").forEach { status ->
+                NeonSelectablePill(
+                    text = status,
+                    selected = statusFilter == status,
+                    onClick = { statusFilter = status }
+                )
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            cities.forEach { city ->
+                NeonSelectablePill(
+                    text = city,
+                    selected = cityFilter == city,
+                    onClick = { cityFilter = city }
+                )
+            }
+        }
+
+        if (filteredGroups.isEmpty()) {
+            GlowCard(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LoadingSpinner(size = 18)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "No tickets match the current filters.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        } else {
+            filteredGroups.forEach { group ->
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    group.eventTitle,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "${group.venue} • ${group.city}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    group.dateLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Pill(text = "${group.tickets.count { it.scanned }}/${group.tickets.size} scanned")
+                        }
+                        AnimatedProgressBar(
+                            progress = if (group.tickets.isEmpty()) 0f else group.tickets.count { it.scanned } / group.tickets.size.toFloat(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            group.tickets.take(6).forEach { ticket ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressAnimated()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            "${ticket.holderName} • ${ticket.seat}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "${ticket.type.name} • ${ticket.purchaseChannel} • ${ticket.purchaseAt}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(ticket.priceLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                        Pill(text = if (ticket.scanned) "Scanned" else ticket.status)
+                                        Text("QR ${ticket.qrSeedShort}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                            if (group.tickets.size > 6) {
+                                NeonTextButton(
+                                    text = "View all ${group.tickets.size} tickets",
+                                    onClick = {
+                                        addActivity(
+                                            "View all tickets: ${group.eventTitle}",
+                                            secondaryColor
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                        PrimaryButton(
+                            text = "Open scanner for ${group.eventTitle}",
+                            icon = { Icon(Icons.Outlined.QrCodeScanner, contentDescription = null) },
+                            onClick = {
+                                addActivity(
+                                    "Scanner opened for ${group.eventTitle}",
+                                    ticketCategoryColor
+                                )
+                                onScan()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -387,6 +606,7 @@ private fun ReviewsPreview(
                         NeonTextButton(text = "Retry", onClick = onRefresh)
                     }
                 }
+
                 reviews.isEmpty() -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -406,87 +626,364 @@ private fun ReviewsPreview(
                     }
                 }
                 else -> {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(reviews) { review ->
-                            val relativeTime = remember(review.createdAt) {
-                                review.createdAt.toLocalDateTime(tz).date.toString()
-                            }
-                            GlowCard(
-                                modifier = Modifier
-                                    .width(240.dp)
-                                    .pressAnimated()
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(
-                                                review.userName,
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                review.eventTitle,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            repeat(review.rating) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Star,
-                                                    contentDescription = null,
-                                                    tint = goldStar,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
+                    CardShuffleReviewsDeck(
+                        reviews = reviews,
+                        goldStar = goldStar,
+                        tz = tz
+                    )
+                }
+
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardShuffleReviewsDeck(
+    reviews: List<UserReview>,
+    goldStar: Color,
+    tz: TimeZone
+) {
+    // State management
+    var currentIndex by remember { mutableStateOf(0) }
+    var isAnimating by remember { mutableStateOf(false) }
+    var lastInteractionTime by remember { mutableStateOf(0L) }
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Animation values for the top card
+    val offsetX = remember { Animatable(0f) }
+    val offsetY = remember { Animatable(0f) }
+    val rotation = remember { Animatable(0f) }
+    val scale = remember { Animatable(1f) }
+    
+    // Auto-shuffle effect
+    LaunchedEffect(currentIndex, lastInteractionTime) {
+        delay(4500L) // Wait 4.5 seconds
+        val timeSinceInteraction = currentInstant().toEpochMilliseconds() - lastInteractionTime
+        if (timeSinceInteraction >= 4500L && !isAnimating && reviews.size > 1) {
+            // Auto-shuffle to next card
+            shuffleToNext(
+                currentIndex = currentIndex,
+                reviewsSize = reviews.size,
+                onIndexChange = { currentIndex = it },
+                isAnimating = isAnimating,
+                onAnimatingChange = { isAnimating = it },
+                offsetX = offsetX,
+                offsetY = offsetY,
+                rotation = rotation,
+                scale = scale,
+                coroutineScope = coroutineScope
+            )
+        }
+    }
+    
+    // Initialize last interaction time
+    LaunchedEffect(Unit) {
+        lastInteractionTime = currentInstant().toEpochMilliseconds()
+    }
+    
+    // Display only if we have reviews
+    if (reviews.isEmpty()) return
+    
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(280.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Render cards in reverse order so top card is drawn last
+        val maxVisibleCards = minOf(5, reviews.size)
+        
+        for (i in (maxVisibleCards - 1) downTo 0) {
+            val cardIndex = (currentIndex + i) % reviews.size
+            val review = reviews[cardIndex]
+            val isTopCard = i == 0
+            
+            // Calculate card position in stack
+            val stackOffset = (i * 10).dp
+            val stackScale = 1f - (i * 0.04f)
+            val stackRotation = (i * 2f) - 4f
+            val stackAlpha = 1f - (i * 0.15f)
+            
+            val relativeTime = remember(review.createdAt) {
+                review.createdAt.toLocalDateTime(tz).date.toString()
+            }
+            
+            val cardModifier = if (isTopCard) {
+                Modifier
+                    .fillMaxWidth(0.85f)
+                    .offset(
+                        x = offsetX.value.dp,
+                        y = stackOffset + (offsetY.value).dp
+                    )
+                    .graphicsLayer {
+                        scaleX = stackScale * scale.value
+                        scaleY = stackScale * scale.value
+                        rotationZ = stackRotation + rotation.value
+                        rotationY = rotation.value * 0.3f
+                        alpha = stackAlpha
+                        shadowElevation = 12f
+                        transformOrigin = TransformOrigin.Center
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = {
+                                lastInteractionTime = currentInstant().toEpochMilliseconds()
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                if (!isAnimating) {
+                                    coroutineScope.launch {
+                                        offsetX.snapTo(offsetX.value + dragAmount.x)
+                                        offsetY.snapTo(offsetY.value + dragAmount.y)
+                                        rotation.snapTo((offsetX.value / 10f).coerceIn(-15f, 15f))
                                     }
-                                    Text(
-                                        text = review.comment.ifBlank { "Left quick ratings only." },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        listOf(review.qos1, review.qos2, review.qos3).forEach { tag ->
-                                            Pill(text = tag, color = MaterialTheme.colorScheme.surfaceVariant, textColor = MaterialTheme.colorScheme.onSurface)
-                                        }
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = relativeTime,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            },
+                            onDragEnd = {
+                                coroutineScope.launch {
+                                    if (kotlin.math.abs(offsetX.value) > 100f || kotlin.math.abs(offsetY.value) > 100f) {
+                                        // Swipe detected - shuffle to next
+                                        shuffleToNext(
+                                            currentIndex = currentIndex,
+                                            reviewsSize = reviews.size,
+                                            onIndexChange = { currentIndex = it },
+                                            isAnimating = isAnimating,
+                                            onAnimatingChange = { isAnimating = it },
+                                            offsetX = offsetX,
+                                            offsetY = offsetY,
+                                            rotation = rotation,
+                                            scale = scale,
+                                            coroutineScope = coroutineScope
                                         )
-                                        Icon(
-                                            imageVector = Icons.Outlined.ThumbUp,
-                                            contentDescription = null,
-                                            tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary
-                                        )
+                                    } else {
+                                        // Return to center
+                                        launch { offsetX.animateTo(0f, tween(300, easing = EaseOutBack)) }
+                                        launch { offsetY.animateTo(0f, tween(300, easing = EaseOutBack)) }
+                                        launch { rotation.animateTo(0f, tween(300, easing = EaseOutBack)) }
                                     }
                                 }
                             }
+                        )
+                    }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (!isAnimating) {
+                            lastInteractionTime = currentInstant().toEpochMilliseconds()
+                            shuffleToNext(
+                                currentIndex = currentIndex,
+                                reviewsSize = reviews.size,
+                                onIndexChange = { currentIndex = it },
+                                isAnimating = isAnimating,
+                                onAnimatingChange = { isAnimating = it },
+                                offsetX = offsetX,
+                                offsetY = offsetY,
+                                rotation = rotation,
+                                scale = scale,
+                                coroutineScope = coroutineScope
+                            )
                         }
+                    }
+            } else {
+                Modifier
+                    .fillMaxWidth(0.85f)
+                    .offset(y = stackOffset)
+                    .graphicsLayer {
+                        scaleX = stackScale
+                        scaleY = stackScale
+                        rotationZ = stackRotation
+                        alpha = stackAlpha
+                        shadowElevation = (maxVisibleCards - i) * 2f
+                    }
+            }
+            
+            GlowCard(
+                modifier = cardModifier
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Text(
+                                review.userName,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                review.eventTitle,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(review.rating) {
+                                Icon(
+                                    imageVector = Icons.Filled.Star,
+                                    contentDescription = null,
+                                    tint = goldStar,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                    
+                    Text(
+                        text = review.comment.ifBlank { "Left quick ratings only." },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(review.qos1, review.qos2, review.qos3).forEach { tag ->
+                            Pill(
+                                text = tag,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                textColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = relativeTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.ThumbUp,
+                            contentDescription = null,
+                            tint = IconCategoryColors[IconCategory.Profile] ?: MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
         }
+        
+        // Card counter indicator
+        if (reviews.size > 1) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = 32.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    repeat(minOf(reviews.size, 5)) { index ->
+                        val isActive = index == (currentIndex % minOf(reviews.size, 5))
+                        Box(
+                            modifier = Modifier
+                                .size(if (isActive) 8.dp else 6.dp)
+                                .background(
+                                    color = if (isActive) 
+                                        MaterialTheme.colorScheme.primary 
+                                    else 
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                    shape = CircleShape
+                                )
+                                .animateContentSize(
+                                    animationSpec = tween(
+                                        durationMillis = 300,
+                                        easing = EaseOutBack
+                                    )
+                                )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun shuffleToNext(
+    currentIndex: Int,
+    reviewsSize: Int,
+    onIndexChange: (Int) -> Unit,
+    isAnimating: Boolean,
+    onAnimatingChange: (Boolean) -> Unit,
+    offsetX: Animatable<Float, AnimationVector1D>,
+    offsetY: Animatable<Float, AnimationVector1D>,
+    rotation: Animatable<Float, AnimationVector1D>,
+    scale: Animatable<Float, AnimationVector1D>,
+    coroutineScope: CoroutineScope
+) {
+    if (isAnimating) return
+    
+    onAnimatingChange(true)
+    
+    coroutineScope.launch {
+        // Animate card sliding behind the stack
+        launch {
+            // Slight horizontal movement for visual interest
+            offsetX.animateTo(
+                targetValue = -30f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            // Move card downward and behind
+            offsetY.animateTo(
+                targetValue = 80f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            // Rotate as it goes behind
+            rotation.animateTo(
+                targetValue = -8f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            // Scale down as it moves to back
+            scale.animateTo(
+                targetValue = 0.85f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        
+        // Wait for animation to complete
+        delay(350)
+        
+        // Update index to show next card
+        onIndexChange((currentIndex + 1) % reviewsSize)
+        
+        // Reset animation values instantly
+        offsetX.snapTo(0f)
+        offsetY.snapTo(0f)
+        rotation.snapTo(0f)
+        scale.snapTo(1f)
+        
+        onAnimatingChange(false)
     }
 }
 
@@ -1613,6 +2110,7 @@ private fun NotificationCard(
     onToggleStar: (Boolean) -> Unit,
     now: Instant,
 ) {
+    val isRead = item.status.lowercase() == "read"
     val iconColor = when (item.type.lowercase()) {
         "approved" -> Color(0xFF63FFA6)
         "rejected", "error" -> Color(0xFFFF7B7B)
@@ -1620,7 +2118,36 @@ private fun NotificationCard(
         "offer" -> Color(0xFF7BD7FF)
         else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
     }
-    val backgroundGlow = if (fresh) iconColor.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val backgroundGlow = if (fresh) iconColor.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    val cardGradient = remember(isRead, iconColor, surfaceColor, surfaceVariantColor) {
+        if (isRead) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    surfaceColor.copy(alpha = 0.92f),
+                    surfaceVariantColor.copy(alpha = 0.65f)
+                )
+            )
+        } else {
+            Brush.linearGradient(
+                colors = listOf(
+                    iconColor.copy(alpha = 0.28f),
+                    surfaceColor.copy(alpha = 0.95f)
+                )
+            )
+        }
+    }
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (isRead) 0.85f else 1f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+        label = "notifContentAlpha"
+    )
+    val accentBarColor by animateColorAsState(
+        targetValue = if (isRead) iconColor.copy(alpha = 0.35f) else iconColor.copy(alpha = 0.75f),
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+        label = "notifAccentBar"
+    )
     val pulse by rememberInfiniteTransition(label = "notifPulse").animateFloat(
         initialValue = if (fresh) 0.97f else 1f,
         targetValue = if (fresh) 1.03f else 1f,
@@ -1647,16 +2174,24 @@ private fun NotificationCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(cardGradient)
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .clip(goTickyShapes.small)
+                    .background(accentBarColor)
+            )
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(backgroundGlow)
-                    .border(1.dp, iconColor.copy(alpha = 0.5f), CircleShape),
+                    .border(1.2.dp, iconColor.copy(alpha = 0.55f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -1672,21 +2207,40 @@ private fun NotificationCard(
                     modifier = Modifier.size(22.dp)
                 )
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                Text(item.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-                Text(item.body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .graphicsLayer(alpha = contentAlpha)
+            ) {
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (isRead) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f) else Color(0xFFF7FBFF)
+                )
+                Text(
+                    item.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isRead) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.95f) else Color(0xFFE5F1FF)
+                )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(relativeTime, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.status.lowercase() != "read") {
-                        Pill(text = "New", color = iconColor.copy(alpha = 0.18f), textColor = iconColor)
+                    Text(
+                        relativeTime,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isRead) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f) else iconColor.copy(alpha = 0.9f)
+                    )
+                    if (!isRead) {
+                        Pill(text = "New", color = iconColor.copy(alpha = 0.22f), textColor = iconColor)
+                    } else {
+                        Pill(text = "Seen", color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), textColor = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (item.status.lowercase() != "read") {
+                if (!isRead) {
                     NeonTextButton(text = "Mark read", onClick = onMarkRead, modifier = Modifier.pressAnimated())
                 }
                 val starColor by animateColorAsState(
@@ -2581,7 +3135,30 @@ private data class LaunchCheck(val id: String, val title: String, val desc: Stri
 private data class AdminKpi(val title: String, val value: String, val delta: String, val accent: Color)
 private data class AdminAttention(val title: String, val subtitle: String, val severity: String)
 private data class AdminActivity(val text: String, val time: String, val accent: Color)
-private enum class AdminSurface { Dashboard, Applications, Moderation, Organizer, Catalog, Banners, NewsFlash, Settings }
+private data class AdminTicketRow(
+    val id: String,
+    val holderName: String,
+    val seat: String,
+    val type: TicketType,
+    val priceLabel: String,
+    val purchaseChannel: String,
+    val purchaseAt: String,
+    val qrSeedShort: String,
+    val scanned: Boolean,
+    val scannedAt: String?,
+    val status: String,
+)
+
+private data class AdminTicketGroup(
+    val eventId: String,
+    val eventTitle: String,
+    val venue: String,
+    val city: String,
+    val dateLabel: String,
+    val tickets: List<AdminTicketRow>,
+)
+
+private enum class AdminSurface { Dashboard, Applications, Tickets, Moderation, Organizer, Catalog, Banners, NewsFlash, Settings }
 private enum class BottomNavVisibility { Visible, Hidden }
 private enum class GuestGateTarget { Checkout, Organizer }
 private data class AdminApplication(
@@ -2591,6 +3168,8 @@ private data class AdminApplication(
     val title: String,
     val organizer: String,
     val city: String,
+    val venue: String = "",
+    val country: String = "",
     val category: String,
     var status: String,
     var isApproved: Boolean = false,
@@ -2785,7 +3364,11 @@ private fun buildTicketPassFromBooking(
 ): TicketPass {
     val ticketId = order?.id ?: "T-${(1000..9999).random()}"
     val eventTitle = event?.title ?: order?.items?.firstOrNull()?.label ?: "Your event"
-    val venue = event?.city?.takeIf { it.isNotBlank() } ?: "Venue to be announced"
+    val venue = event?.venue?.takeIf { it.isNotBlank() }
+        ?: event?.city?.takeIf { it.isNotBlank() }
+        ?: "Venue to be announced"
+    val city = event?.city.orEmpty()
+    val country = event?.country.orEmpty()
     val dateLabel = event?.dateLabel ?: "See event details"
     val seatLabel = "${ticketTypeLabel.ifBlank { "General Admission" }} • ${order?.items?.firstOrNull()?.price ?: "Your seat"}"
     val type = ticketTypeFromLabel(ticketTypeLabel)
@@ -2795,6 +3378,8 @@ private fun buildTicketPassFromBooking(
         id = ticketId,
         eventTitle = eventTitle,
         venue = venue,
+        city = city,
+        country = country,
         dateLabel = dateLabel,
         seat = seatLabel,
         status = "Ready",
@@ -2826,6 +3411,8 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
                     "ownerId" to uid,
                     "eventTitle" to pass.eventTitle,
                     "venue" to pass.venue,
+                    "city" to pass.city,
+                    "country" to pass.country,
                     "dateLabel" to pass.dateLabel,
                     "seat" to pass.seat,
                     "status" to pass.status,
@@ -2859,6 +3446,8 @@ private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
         snap.documents.mapNotNull { doc ->
             val eventTitle = doc.get<String?>("eventTitle") ?: return@mapNotNull null
             val venue = doc.get<String?>("venue") ?: "Venue TBC"
+            val city = doc.get<String?>("city") ?: ""
+            val country = doc.get<String?>("country") ?: ""
             val dateLabel = doc.get<String?>("dateLabel") ?: "See event details"
             val seat = doc.get<String?>("seat") ?: "General Admission"
             val status = doc.get<String?>("status") ?: "Ready"
@@ -2872,6 +3461,8 @@ private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
                 id = doc.id,
                 eventTitle = eventTitle,
                 venue = venue,
+                city = city,
+                country = country,
                 dateLabel = dateLabel,
                 seat = seat,
                 status = status,
@@ -2964,6 +3555,8 @@ private fun mapAdminApplicationToEvent(app: AdminApplication, apps: List<AdminAp
         id = app.eventId,
         title = app.title,
         city = app.city,
+        venue = app.venue,
+        country = app.country,
         dateLabel = parsedInstant?.let { friendlyDateLabel(it) } ?: app.eventDateTime.ifBlank { "Date TBC" },
         startsAt = parsedInstant,
         priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
@@ -3025,6 +3618,8 @@ private fun mapEventDocToAdminApplication(doc: DocumentSnapshot, now: Instant): 
         title = title,
         organizer = doc.get<String?>("companyName") ?: doc.get<String?>("organizerName") ?: "Organizer",
         city = doc.get<String?>("city") ?: "",
+        venue = doc.get<String?>("venue") ?: "",
+        country = doc.get<String?>("country") ?: "",
         category = doc.get<String?>("category") ?: "General",
         status = status,
         isApproved = isApproved,
@@ -4887,6 +5482,7 @@ private fun GoTickyRoot() {
     val adminReports = remember { mutableStateListOf<AdminReport>() }
     val adminFlags = remember { mutableStateListOf<AdminFeatureFlag>() }
     val adminRoles = remember { mutableStateListOf<AdminRoleEntry>() }
+    val adminTicketGroups = remember { mutableStateListOf<AdminTicketGroup>() }
     // Admin accents used across dashboard + seeded activity; defined early so helper functions compile.
     val adminPrimaryAccent = MaterialTheme.colorScheme.primary
     val adminSecondaryAccent = MaterialTheme.colorScheme.secondary
@@ -4946,6 +5542,95 @@ private fun GoTickyRoot() {
                     AdminFeatureFlag("ff-admin", "Admin access", GoTickyFeatures.EnableAdmin, "admin"),
                     AdminFeatureFlag("ff-seat-map", "Seat map (real)", GoTickyFeatures.EnableRealSeatMap, "all"),
                     AdminFeatureFlag("ff-payments", "Payments (real)", GoTickyFeatures.EnableRealPayments, "all"),
+                )
+            )
+        }
+        if (adminTicketGroups.isEmpty()) {
+            adminTicketGroups.addAll(
+                listOf(
+                    AdminTicketGroup(
+                        eventId = "evt-neon-night",
+                        eventTitle = "Neon Night Carnival",
+                        venue = "Harare Expo Grounds",
+                        city = "Harare",
+                        dateLabel = "Sat • Feb 22, 8:00 PM",
+                        tickets = listOf(
+                            AdminTicketRow(
+                                id = "TCK-8812",
+                                holderName = "Ruvimbo Moyo",
+                                seat = "GA • Wave A",
+                                type = TicketType.EarlyBird,
+                                priceLabel = "$32.00",
+                                purchaseChannel = "Mobile",
+                                purchaseAt = "Jan 21, 10:12",
+                                qrSeedShort = "8F2A",
+                                scanned = true,
+                                scannedAt = "Feb 22, 19:05",
+                                status = "Valid",
+                            ),
+                            AdminTicketRow(
+                                id = "TCK-8813",
+                                holderName = "Kudzi Chikore",
+                                seat = "GA • Wave A",
+                                type = TicketType.General,
+                                priceLabel = "$42.00",
+                                purchaseChannel = "Web",
+                                purchaseAt = "Jan 22, 15:40",
+                                qrSeedShort = "3C9D",
+                                scanned = false,
+                                scannedAt = null,
+                                status = "Pending entry",
+                            ),
+                            AdminTicketRow(
+                                id = "TCK-8814",
+                                holderName = "Tanya Nyoni",
+                                seat = "VIP • Lounge 2",
+                                type = TicketType.VIP,
+                                priceLabel = "$95.00",
+                                purchaseChannel = "Mobile",
+                                purchaseAt = "Jan 23, 09:03",
+                                qrSeedShort = "6B7F",
+                                scanned = false,
+                                scannedAt = null,
+                                status = "Valid",
+                            ),
+                        )
+                    ),
+                    AdminTicketGroup(
+                        eventId = "evt-vumba-jazz",
+                        eventTitle = "Vumba Sunrise Jazz",
+                        venue = "Skyline Amphitheatre",
+                        city = "Mutare",
+                        dateLabel = "Sun • Mar 2, 5:30 PM",
+                        tickets = listOf(
+                            AdminTicketRow(
+                                id = "TCK-9921",
+                                holderName = "Lerato Maseko",
+                                seat = "Row B • Seat 6",
+                                type = TicketType.GoldenCircle,
+                                priceLabel = "$120.00",
+                                purchaseChannel = "POS",
+                                purchaseAt = "Jan 20, 11:18",
+                                qrSeedShort = "4E11",
+                                scanned = false,
+                                scannedAt = null,
+                                status = "Hold",
+                            ),
+                            AdminTicketRow(
+                                id = "TCK-9922",
+                                holderName = "Panashe Dube",
+                                seat = "Row C • Seat 12",
+                                type = TicketType.General,
+                                priceLabel = "$58.00",
+                                purchaseChannel = "Mobile",
+                                purchaseAt = "Jan 21, 17:22",
+                                qrSeedShort = "9A22",
+                                scanned = true,
+                                scannedAt = "Mar 2, 17:02",
+                                status = "Valid",
+                            ),
+                        )
+                    )
                 )
             )
         }
@@ -6519,20 +7204,11 @@ private fun GoTickyRoot() {
                                                         )
                                                     }
                                                     MainScreen.Alerts -> {
-                                                        AlertsScreen(
+                                                        ModernAlertsScreen(
                                                             notifications = notifications,
-                                                            notificationsLoading = notificationsLoading,
-                                                            notificationsError = notificationsError,
-                                                            recommendations = personalize(recommendations),
-                                                            personalizationPrefs = personalizationPrefs,
                                                             onBack = { currentScreen = MainScreen.Home },
-                                                            onOpenEvent = { eventId -> openEventById(eventId) },
-                                                            onRefreshNotifications = { refreshNotifications() },
-                                                            onMarkRead = { markNotificationReadLocal(it) },
-                                                            onToggleStar = { item, starred -> toggleNotificationStarLocal(item, starred) },
-                                                            onUpdatePersonalization = { newPrefs ->
-                                                                personalizationPrefs = newPrefs
-                                                            },
+                                                            onMarkRead = { item -> markNotificationReadLocal(item) },
+                                                            onToggleStar = { item, starred -> toggleNotificationStarLocal(item, starred) }
                                                         )
                                                     }
                                                     MainScreen.Profile -> {
@@ -6645,10 +7321,12 @@ private fun GoTickyRoot() {
                                                     }
                                                     MainScreen.Admin -> {
                                                         if (hasAdminAccess) {
+                                                            val ticketCategoryColor = IconCategoryColors[IconCategory.Ticket] ?: MaterialTheme.colorScheme.primary
                                                             AdminDashboardScreen(
                                                                 kpis = adminKpis,
                                                                 attention = adminAttention,
                                                                 activity = adminActivity,
+                                                                ticketGroups = adminTicketGroups,
                                                                 applications = adminApplications,
                                                                 applicationsLoading = adminApplicationsLoading,
                                                                 applicationsError = adminApplicationsError,
@@ -6672,6 +7350,13 @@ private fun GoTickyRoot() {
                                                                 onSimulatedHeroBannerChange = { simulatedHeroBannerId = it },
                                                                 adminSurface = adminSurface,
                                                                 onSurfaceChange = { adminSurface = it },
+                                                                onOpenTickets = { adminSurface = AdminSurface.Tickets },
+                                                                onScanTickets = {
+                                                                    addAdminActivity(
+                                                                        text = "Open scanner (stub)",
+                                                                        accent = ticketCategoryColor
+                                                                    )
+                                                                },
                                                                 onBack = { currentScreen = MainScreen.Home },
                                                                 onUpdateApplicationStatus = { id, status -> updateApplicationStatus(id, status, ::addAdminActivity) },
                                                                 onUpdateEarlyBird = { id, enabled, discount, hours, startNow, paused ->
@@ -6969,6 +7654,7 @@ private fun AdminDashboardScreen(
     kpis: List<AdminKpi>,
     attention: List<AdminAttention>,
     activity: List<AdminActivity>,
+    ticketGroups: List<AdminTicketGroup>,
     applications: List<AdminApplication>,
     applicationsLoading: Boolean,
     applicationsError: String?,
@@ -6992,6 +7678,8 @@ private fun AdminDashboardScreen(
     onSimulatedHeroBannerChange: (String?) -> Unit,
     adminSurface: AdminSurface,
     onSurfaceChange: (AdminSurface) -> Unit,
+    onOpenTickets: () -> Unit,
+    onScanTickets: () -> Unit,
     onBack: () -> Unit,
     onUpdateApplicationStatus: (String, String) -> Unit,
     onUpdateEarlyBird: (String, Boolean, Int, Int, Boolean, Boolean) -> Unit,
@@ -7066,6 +7754,7 @@ private fun AdminDashboardScreen(
                 listOf(
                     AdminSurface.Dashboard to "Admin Home",
                     AdminSurface.Applications to "Applications",
+                    AdminSurface.Tickets to "Tickets",
                     AdminSurface.Moderation to "Moderation",
                     AdminSurface.Organizer to "Organizer",
                     AdminSurface.Catalog to "Catalog",
@@ -7118,6 +7807,7 @@ private fun AdminDashboardScreen(
             listOf(
                 AdminSurface.Dashboard to "Admin Home",
                 AdminSurface.Applications to "Applications",
+                AdminSurface.Tickets to "Tickets",
                 AdminSurface.Moderation to "Moderation",
                 AdminSurface.Organizer to "Organizer",
                 AdminSurface.Catalog to "Catalog",
@@ -7243,6 +7933,23 @@ private fun AdminDashboardScreen(
                     }
                 }
 
+                val totalTickets = ticketGroups.sumOf { it.tickets.size }
+                val scannedTickets = ticketGroups.sumOf { group -> group.tickets.count { it.scanned } }
+                val scanProgress = if (totalTickets == 0) 0f else scannedTickets / totalTickets.toFloat()
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Ticket scanning", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                Text("Monitor entry progress across events.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            PrimaryButton(text = "Open Tickets", onClick = onOpenTickets)
+                        }
+                        AnimatedProgressBar(progress = scanProgress, modifier = Modifier.fillMaxWidth())
+                        Text("$scannedTickets of $totalTickets scanned", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
                 SectionHeader(
                     title = "Health KPIs",
                     action = { NeonTextButton(text = "View all", onClick = onOpenApplications) }
@@ -7307,12 +8014,11 @@ private fun AdminDashboardScreen(
                 )
             }
 
-            AdminSurface.Moderation -> {
-                ModerationSection(
-                    reports = reports,
-                    addActivity = addActivity,
-                    onResolve = onResolveReport,
-                    onWarn = onWarnReport
+            AdminSurface.Tickets -> {
+                AdminTicketsSection(
+                    groups = ticketGroups,
+                    onScan = onScanTickets,
+                    addActivity = addActivity
                 )
             }
 
@@ -7376,6 +8082,15 @@ private fun AdminDashboardScreen(
                     newsFlashUploading = newsFlashUploading,
                     newsFlashUploadError = newsFlashUploadError,
                     addActivity = addActivity
+                )
+            }
+
+            AdminSurface.Moderation -> {
+                ModerationSection(
+                    reports = reports,
+                    addActivity = addActivity,
+                    onResolve = { id -> /* TODO: Implement resolve logic */ },
+                    onWarn = { id, template, note -> /* TODO: Implement warn logic */ }
                 )
             }
 
@@ -11608,6 +12323,24 @@ private fun HomeScreen(
                 LaunchedEffect(Unit) { visible = true }
 
                 val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+    val countryOptions = listOf(
+        CountryOption("Zimbabwe", "🇿🇼", "+263"),
+        CountryOption("Botswana", "🇧🇼", "+267"),
+        CountryOption("South Africa", "🇿🇦", "+27"),
+        CountryOption("Namibia", "🇳🇦", "+264"),
+        CountryOption("Zambia", "🇿🇲", "+260"),
+        CountryOption("Mozambique", "🇲🇿", "+258"),
+        CountryOption("Angola", "🇦🇴", "+244"),
+        CountryOption("Malawi", "🇲🇼", "+265"),
+        CountryOption("Lesotho", "🇱🇸", "+266"),
+        CountryOption("Eswatini", "🇸🇿", "+268"),
+        CountryOption("Tanzania", "🇹🇿", "+255"),
+        CountryOption("DR Congo", "🇨🇩", "+243"),
+        CountryOption("Madagascar", "🇲🇬", "+261"),
+        CountryOption("Mauritius", "🇲🇺", "+230"),
+        CountryOption("Seychelles", "🇸🇨", "+248"),
+        CountryOption("Comoros", "🇰🇲", "+269"),
+    )
                 val nowDate = remember(now) { now.toLocalDateTime(tz).date }
                 val defaultMonth = remember(publicEvents, nowDate) {
                     publicEvents.mapNotNull { eventLocalDate(it, tz) }
@@ -15651,7 +16384,9 @@ private fun OrganizerEventDetailScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "${event.city} – ${event.venue}",
+                        text = listOf(event.venue, event.city, event.country)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" • ").ifBlank { "Location TBC" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -15964,7 +16699,9 @@ private fun OrganizerEventCard(
                 }
             }
             Text(
-                text = "${event.city} • ${event.venue}",
+                text = listOf(event.venue, event.city, event.country)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • ").ifBlank { "Location TBC" },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -16881,16 +17618,46 @@ private fun AlertsScreen(
             TopBar(
                 title = "Notifications",
                 onBack = onBack,
-                actions = null,
-                backgroundColor = Color.Transparent
+                backgroundColor = Color.Transparent,
+                titleContent = {
+                    Text(
+                        text = "Notifications",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                actions = {
+                    IconButton(
+                        onClick = onRefreshNotifications
+                    ) {
+                        Box {
+                            Icon(
+                                imageVector = if (unread.isNotEmpty()) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
+                                contentDescription = "Notifications",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            if (unread.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 2.dp, y = (-2).dp)
+                                        .background(Color(0xFFFF6B6B), CircleShape)
+                                )
+                            }
+                        }
+                    }
+                }
             )
         }
+        val filters = listOf(
+            Triple(AlertsFilter.Unread, "Unread", unread.size),
+            Triple(AlertsFilter.Read, "Read", read.size),
+            Triple(AlertsFilter.Starred, "Starred", starred.size),
+        )
+        val filterOrder = remember { filters.map { it.first } }
+        
         GlowCard(modifier = Modifier.fillMaxWidth()) {
-            val filters = listOf(
-                Triple(AlertsFilter.Unread, "Unread", unread.size),
-                Triple(AlertsFilter.Read, "Read", read.size),
-                Triple(AlertsFilter.Starred, "Starred", starred.size),
-            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -16933,13 +17700,6 @@ private fun AlertsScreen(
                         }
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                Icon(
-                    imageVector = Icons.Outlined.NotificationsActive,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
         notificationsError?.let {
@@ -17026,144 +17786,47 @@ private fun AlertsScreen(
             repeat(3) { NotificationSkeleton() }
         }
 
-        when (selectedFilter) {
-            AlertsFilter.Unread -> {
-                if (!notificationsLoading && unread.isEmpty()) {
-                    GlowCard {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                "You’re all caught up",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text("We’ll notify you when something important happens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                unread.forEach { item ->
-                    NotificationCard(
-                        item = item,
-                        fresh = true,
-                        onOpen = {
-                            if (!item.eventId.isNullOrBlank()) {
-                                onOpenEvent(item.eventId)
-                            } else if (!item.actionUrl.isNullOrBlank()) {
-                                uriHandler.openUri(item.actionUrl!!)
+        AnimatedContent(
+            targetState = selectedFilter,
+            transitionSpec = {
+                val fromIdx = filterOrder.indexOf(initialState)
+                val toIdx = filterOrder.indexOf(targetState)
+                val direction = if (toIdx >= fromIdx) 1 else -1
+                slideInHorizontally(
+                    initialOffsetX = { it * direction },
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = FastOutSlowInEasing)
+                ) togetherWith slideOutHorizontally(
+                    targetOffsetX = { -it * direction },
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = FastOutSlowInEasing)
+                )
+            },
+            label = "alerts-tabs"
+        ) { filter ->
+            when (filter) {
+                AlertsFilter.Unread -> {
+                    if (!notificationsLoading && unread.isEmpty()) {
+                        GlowCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    "You’re all caught up",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "We’ll notify you when something important happens.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            onMarkRead(item)
-                        },
-                        onMarkRead = { onMarkRead(item) },
-                        onToggleStar = { starred -> onToggleStar(item, starred) },
-                        now = now
-                    )
-                }
-            }
-
-            AlertsFilter.Read -> {
-                if (!notificationsLoading && read.isEmpty()) {
-                    GlowCard {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                "No read alerts yet",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text("Once you read alerts, they’ll appear here for quick recall.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                }
-                if (groupedRead.today.isNotEmpty()) {
-                    SectionHeader(title = "Today", action = null)
-                    groupedRead.today.forEach { item ->
-                        NotificationCard(
-                            item = item,
-                            fresh = false,
-                            onOpen = {
-                                if (!item.eventId.isNullOrBlank()) {
-                                    onOpenEvent(item.eventId)
-                                } else if (!item.actionUrl.isNullOrBlank()) {
-                                    uriHandler.openUri(item.actionUrl!!)
-                                }
-                            },
-                            onMarkRead = { /* already read */ },
-                            onToggleStar = { starred -> onToggleStar(item, starred) },
-                            now = now
-                        )
-                    }
-                }
-
-                if (groupedRead.thisWeek.isNotEmpty()) {
-                    SectionHeader(title = "This week", action = null)
-                    groupedRead.thisWeek.forEach { item ->
-                        NotificationCard(
-                            item = item,
-                            fresh = false,
-                            onOpen = {
-                                if (!item.eventId.isNullOrBlank()) {
-                                    onOpenEvent(item.eventId)
-                                } else if (!item.actionUrl.isNullOrBlank()) {
-                                    uriHandler.openUri(item.actionUrl!!)
-                                }
-                            },
-                            onMarkRead = { /* already read */ },
-                            onToggleStar = { starred -> onToggleStar(item, starred) },
-                            now = now
-                        )
-                    }
-                }
-
-                if (groupedRead.earlier.isNotEmpty()) {
-                    SectionHeader(title = "Earlier", action = null)
-                    groupedRead.earlier.forEach { item ->
-                        NotificationCard(
-                            item = item,
-                            fresh = false,
-                            onOpen = {
-                                if (!item.eventId.isNullOrBlank()) {
-                                    onOpenEvent(item.eventId)
-                                } else if (!item.actionUrl.isNullOrBlank()) {
-                                    uriHandler.openUri(item.actionUrl!!)
-                                }
-                            },
-                            onMarkRead = { /* already read */ },
-                            onToggleStar = { starred -> onToggleStar(item, starred) },
-                            now = now
-                        )
-                    }
-                }
-            }
-
-            AlertsFilter.Starred -> {
-                if (!notificationsLoading && starred.isEmpty()) {
-                    GlowCard {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text("Star what matters", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-                            Text("Pin key alerts so they’re always a tap away.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                if (starredUnread.isNotEmpty()) {
-                    SectionHeader(title = "Starred · Unread", action = null)
-                    starredUnread.forEach { item ->
+                    unread.forEach { item ->
                         NotificationCard(
                             item = item,
                             fresh = true,
@@ -17182,63 +17845,193 @@ private fun AlertsScreen(
                     }
                 }
 
-                if (groupedStarredRead.today.isNotEmpty()) {
-                    SectionHeader(title = "Starred · Today", action = null)
-                    groupedStarredRead.today.forEach { item ->
-                        NotificationCard(
-                            item = item,
-                            fresh = false,
-                            onOpen = {
-                                if (!item.eventId.isNullOrBlank()) {
-                                    onOpenEvent(item.eventId)
-                                } else if (!item.actionUrl.isNullOrBlank()) {
-                                    uriHandler.openUri(item.actionUrl!!)
-                                }
-                            },
-                            onMarkRead = { /* already read */ },
-                            onToggleStar = { starred -> onToggleStar(item, starred) },
-                            now = now
-                        )
+                AlertsFilter.Read -> {
+                    if (!notificationsLoading && read.isEmpty()) {
+                        GlowCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    "No read alerts yet",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "Once you read alerts, they’ll appear here for quick recall.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    if (groupedRead.today.isNotEmpty()) {
+                        SectionHeader(title = "Today", action = null)
+                        groupedRead.today.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedRead.thisWeek.isNotEmpty()) {
+                        SectionHeader(title = "This week", action = null)
+                        groupedRead.thisWeek.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedRead.earlier.isNotEmpty()) {
+                        SectionHeader(title = "Earlier", action = null)
+                        groupedRead.earlier.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
                     }
                 }
 
-                if (groupedStarredRead.thisWeek.isNotEmpty()) {
-                    SectionHeader(title = "Starred · This week", action = null)
-                    groupedStarredRead.thisWeek.forEach { item ->
-                        NotificationCard(
-                            item = item,
-                            fresh = false,
-                            onOpen = {
-                                if (!item.eventId.isNullOrBlank()) {
-                                    onOpenEvent(item.eventId)
-                                } else if (!item.actionUrl.isNullOrBlank()) {
-                                    uriHandler.openUri(item.actionUrl!!)
-                                }
-                            },
-                            onMarkRead = { /* already read */ },
-                            onToggleStar = { starred -> onToggleStar(item, starred) },
-                            now = now
-                        )
+                AlertsFilter.Starred -> {
+                    if (!notificationsLoading && starred.isEmpty()) {
+                        GlowCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    "Star what matters",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "Pin key alerts so they’re always a tap away.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
-                }
 
-                if (groupedStarredRead.earlier.isNotEmpty()) {
-                    SectionHeader(title = "Starred · Earlier", action = null)
-                    groupedStarredRead.earlier.forEach { item ->
-                        NotificationCard(
-                            item = item,
-                            fresh = false,
-                            onOpen = {
-                                if (!item.eventId.isNullOrBlank()) {
-                                    onOpenEvent(item.eventId)
-                                } else if (!item.actionUrl.isNullOrBlank()) {
-                                    uriHandler.openUri(item.actionUrl!!)
-                                }
-                            },
-                            onMarkRead = { /* already read */ },
-                            onToggleStar = { starred -> onToggleStar(item, starred) },
-                            now = now
-                        )
+                    if (starredUnread.isNotEmpty()) {
+                        SectionHeader(title = "Starred · Unread", action = null)
+                        starredUnread.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = true,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                    onMarkRead(item)
+                                },
+                                onMarkRead = { onMarkRead(item) },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedStarredRead.today.isNotEmpty()) {
+                        SectionHeader(title = "Starred · Today", action = null)
+                        groupedStarredRead.today.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedStarredRead.thisWeek.isNotEmpty()) {
+                        SectionHeader(title = "Starred · This week", action = null)
+                        groupedStarredRead.thisWeek.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedStarredRead.earlier.isNotEmpty()) {
+                        SectionHeader(title = "Starred · Earlier", action = null)
+                        groupedStarredRead.earlier.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
                     }
                 }
             }
@@ -17300,6 +18093,7 @@ private fun AlertsScreen(
         )
     }
 }
+
 
 private data class NotificationDateGroups(
     val today: List<NotificationItem>,
@@ -17518,6 +18312,8 @@ private fun SettingsScreen(
         }
     }
 }
+
+
 
 @Composable
 private fun SettingsToggleRow(
@@ -17941,6 +18737,8 @@ private fun generateTimeSlots(): List<String> {
     return result
 }
 
+
+
 @Composable
 @kotlin.OptIn(kotlin.time.ExperimentalTime::class)
 private fun EventDetailScreen(
@@ -18310,14 +19108,17 @@ private fun EventDetailScreen(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    val locationLines = listOf(event.venue, event.city, event.country)
+                        .filter { it.isNotBlank() }
+                        .ifEmpty { listOf("Location TBC") }
                     val infoRows = listOf(
-                        Pair(Icons.Outlined.Event, event.dateLabel),
-                        Pair(Icons.Outlined.Place, event.city),
-                        Pair(Icons.Outlined.ReceiptLong, event.priceFrom)
+                        Pair(Icons.Outlined.Event, listOf(event.dateLabel)),
+                        Pair(Icons.Outlined.Place, locationLines),
+                        Pair(Icons.Outlined.ReceiptLong, listOf(event.priceFrom))
                     )
-                    infoRows.forEach { (icon, copy) ->
+                    infoRows.forEach { (icon, copies) ->
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Box(
@@ -18329,11 +19130,17 @@ private fun EventDetailScreen(
                             ) {
                                 Icon(icon, contentDescription = null, tint = accent)
                             }
-                            Text(
-                                text = copy,
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                copies.forEachIndexed { idx, line ->
+                                    Text(
+                                        text = line,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (idx == 0) FontWeight.Medium else FontWeight.Normal
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -18857,6 +19664,8 @@ private fun EventDetailScreen(
     }
 }
 
+
+
 @Composable
 private fun CreateEventScreen(
     userProfile: UserProfile,
@@ -18879,7 +19688,8 @@ private fun CreateEventScreen(
     var ticketEarlyBird by remember { mutableStateOf("") }
     var venue by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }
-    var country by remember { mutableStateOf("") }
+    var country by remember { mutableStateOf("Zimbabwe") }
+    var showCountryPicker by remember { mutableStateOf(false) }
     var latInput by remember { mutableStateOf("") }
     var lngInput by remember { mutableStateOf("") }
     var showMapPicker by remember { mutableStateOf(false) }
@@ -18893,6 +19703,7 @@ private fun CreateEventScreen(
     var showDateTimePicker by remember { mutableStateOf(false) }
     val timeSlots: List<String> = remember { generateTimeSlots() }
     val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+    val countries = listOf("Zimbabwe", "South Africa", "Botswana", "Zambia", "Mozambique", "Namibia", "Malawi", "Lesotho", "Eswatini")
     val nowYear = remember { currentInstant().toLocalDateTime(TimeZone.currentSystemDefault()).year }
     var datePickerMonthIndex by remember { mutableStateOf(0) }
     var datePickerDay by remember { mutableStateOf(7) }
@@ -19382,22 +20193,39 @@ private fun CreateEventScreen(
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline
                     )
                 )
-                OutlinedTextField(
-                    value = country,
-                    onValueChange = { country = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Country") },
-                    placeholder = { Text("Where will this event be hosted?") },
-                    isError = countryError,
-                    supportingText = {
-                        if (countryError) Text("Country is required", color = MaterialTheme.colorScheme.error)
-                    },
-                    shape = goTickyShapes.medium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = country,
+                        onValueChange = { country = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Country") },
+                        placeholder = { Text("Tap to pick country") },
+                        isError = countryError,
+                        trailingIcon = {
+                            IconButton(onClick = { showCountryPicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Fingerprint,
+                                    contentDescription = "Pick country",
+                                    tint = IconCategoryColors[IconCategory.Map] ?: MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        readOnly = true,
+                        supportingText = {
+                            if (countryError) Text("Country is required", color = MaterialTheme.colorScheme.error)
+                        },
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
                     )
-                )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clip(goTickyShapes.medium)
+                            .clickable { showCountryPicker = true }
+                    )
             }
         }
         GlowCard {
@@ -19703,6 +20531,92 @@ private fun CreateEventScreen(
          }
      }
 
+    if (showCountryPicker) {
+        AlertDialog(
+            onDismissRequest = { showCountryPicker = false },
+            title = { Text("Pick country") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.94f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "countryDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Supported regions",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    val listState = rememberLazyListState(
+                        initialFirstVisibleItemIndex = countries.indexOf(country).coerceAtLeast(0)
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                            .clip(goTickyShapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(countries) { item ->
+                                val selected = country == item
+                                val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .clip(goTickyShapes.medium)
+                                        .clickable { country = item }
+                                        .padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = item,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = tint
+                                    )
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CheckCircle,
+                                            contentDescription = null,
+                                            tint = tint
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                PrimaryButton(text = "Apply") {
+                    showCountryPicker = false
+                }
+            },
+            dismissButton = {
+                NeonTextButton(
+                    text = "Cancel",
+                    onClick = { showCountryPicker = false }
+                )
+            }
+        )
+    }
+
     if (showDateTimePicker) {
         AlertDialog(
             onDismissRequest = { showDateTimePicker = false },
@@ -19906,6 +20820,8 @@ private fun CreateEventScreen(
             }
         )
     }
+}
+
 }
 
 @Composable

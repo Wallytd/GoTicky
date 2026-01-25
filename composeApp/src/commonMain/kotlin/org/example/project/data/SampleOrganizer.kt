@@ -15,6 +15,7 @@ data class OrganizerEvent(
     val sales: Int,
     val ticketCount: Int,
     val isVerified: Boolean,
+    val country: String = "",
 )
 
 val sampleOrganizerEvents = listOf(

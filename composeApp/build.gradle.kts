@@ -89,6 +89,16 @@ kotlin {
             implementation("androidx.cardview:cardview:1.0.0")
             // Remote image loading for profile previews (Sign-In avatar)
             implementation("io.coil-kt:coil-compose:2.7.0")
+            // CameraX dependencies for QR scanning
+            implementation("androidx.camera:camera-core:1.3.1")
+            implementation("androidx.camera:camera-camera2:1.3.1")
+            implementation("androidx.camera:camera-lifecycle:1.3.1")
+            implementation("androidx.camera:camera-view:1.3.1")
+            implementation("androidx.concurrent:concurrent-futures:1.1.0")
+            // Full Guava (android) so CameraX ProcessCameraProvider.getInstance ListenableFuture resolves
+            implementation("com.google.guava:guava:33.0.0-android")
+            // MLKit barcode scanning
+            implementation("com.google.mlkit:barcode-scanning:17.2.0")
         }
         commonMain.dependencies {
             implementation(compose.runtime)

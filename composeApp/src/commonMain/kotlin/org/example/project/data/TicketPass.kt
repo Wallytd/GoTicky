@@ -15,6 +15,7 @@ data class TicketPass(
     val eventTitle: String,
     val venue: String,
     val city: String = "",
+    val country: String = "",
     val dateLabel: String,
     val seat: String,
     val status: String,
@@ -23,4 +24,15 @@ data class TicketPass(
     val holderInitials: String,
     val qrSeed: String,
     val purchaseAt: String? = null,
+    // Scan tracking fields
+    val eventId: String = "",
+    val ownerId: String = "",
+    val orderId: String? = null,
+    val scanned: Boolean = false,
+    val scannedAt: String? = null,
+    val scannedBy: String? = null,
+    val scanCount: Int = 0,
+    val scanProhibited: Boolean = false,
+    val createdAt: String? = null,
+    val updatedAt: String? = null
 )

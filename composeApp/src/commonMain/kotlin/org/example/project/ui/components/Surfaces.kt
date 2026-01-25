@@ -2,6 +2,8 @@ package org.example.project.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -139,6 +141,47 @@ fun GlowPill(
             text = label,
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+fun NeonSelectablePill(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    centerText: Boolean = false,
+    selectedContainerColor: Color = MaterialTheme.colorScheme.primary,
+    selectedContentColor: Color = MaterialTheme.colorScheme.onPrimary,
+) {
+    val bg = if (selected) {
+        selectedContainerColor.copy(alpha = 0.95f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val fg = if (selected) selectedContentColor else MaterialTheme.colorScheme.onSurface
+
+    Row(
+        modifier = modifier
+            .pressAnimated(scaleDown = 0.95f)
+            .then(
+                if (selected) {
+                    Modifier.border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+                } else {
+                    Modifier
+                }
+            )
+            .background(bg, goTickyShapes.medium)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (centerText) Arrangement.Center else Arrangement.Start
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = fg
         )
     }
 }

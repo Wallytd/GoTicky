@@ -143,7 +143,10 @@ fun TicketCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        "${ticket.venue}, ${ticket.city}",
+                        listOf(ticket.venue, ticket.city, ticket.country)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" • ")
+                            .ifBlank { "Location TBC" },
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontWeight = FontWeight.SemiBold,
                             shadow = Shadow(
@@ -339,7 +342,11 @@ fun TicketCard(
                             .border(1.dp, metallic.darkStroke.copy(alpha = 0.18f), goTickyShapes.medium)
                             .pressAnimated()
                             .clickable {
-                                clipboard.setText(AnnotatedString("${ticket.venue}, ${ticket.city}"))
+                                val location = listOf(ticket.venue, ticket.city, ticket.country)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString(" • ")
+                                    .ifBlank { "Location TBC" }
+                                clipboard.setText(AnnotatedString(location))
                                 venueCopied = true
                             }
                             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -368,7 +375,7 @@ fun TicketCard(
                                     color = metallic.ink.copy(alpha = 0.8f)
                                 )
                                 Text(
-                                    text = "${ticket.venue}, ${ticket.city}",
+                                    text = ticket.venue.ifBlank { "Venue TBC" },
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.SemiBold,
                                         shadow = Shadow(
@@ -378,6 +385,22 @@ fun TicketCard(
                                         )
                                     ),
                                     color = metallic.ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = listOf(ticket.city, ticket.country)
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(", ")
+                                        .ifBlank { "City / Country TBC" },
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        shadow = Shadow(
+                                            color = metallic.darkStroke.copy(alpha = 0.35f),
+                                            offset = Offset(0f, 1.2f),
+                                            blurRadius = 6f
+                                        )
+                                    ),
+                                    color = metallic.ink.copy(alpha = 0.9f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -679,7 +702,10 @@ fun TicketDetailScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = ticket.venue,
+                                text = listOf(ticket.city, ticket.country)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString(", ")
+                                    .ifBlank { "Location TBC" },
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     shadow = Shadow(
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
