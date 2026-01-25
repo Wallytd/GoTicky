@@ -66,7 +66,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.IntOffset
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -127,7 +128,6 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -199,6 +199,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -676,7 +677,6 @@ private fun ReviewsPreview(
 }
 
 @Composable
-@Composable
 private fun CardShuffleReviewsDeck(
     reviews: List<UserReview>,
     goldStar: Color,
@@ -755,8 +755,14 @@ private fun CardShuffleReviewsDeck(
                 formatReviewDate(review.createdAt.toString())
             }
             
+            // Construct tags list from qos fields
+            val reviewTags: List<String> = remember(review) {
+                listOf(review.qos1, review.qos2, review.qos3)
+                    .filter { it.isNotBlank() }
+            }
+
             // Reconstruct the Card UI here to ensure it uses the new Date and style
-            val cardContent = @Composable {
+            val cardContent: @Composable () -> Unit = {
                 Column(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -773,7 +779,7 @@ private fun CardShuffleReviewsDeck(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                review.userTitle.ifEmpty { "Verified Attendee" },
+                                "Verified Attendee",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -801,12 +807,12 @@ private fun CardShuffleReviewsDeck(
                     )
                     
                     // Tags in a FlowRow
-                    if (review.tags.isNotEmpty()) {
+                    if (reviewTags.isNotEmpty()) {
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            review.tags.take(3).forEach { tag ->
+                            reviewTags.take(3).forEach { tag ->
                                 Box(
                                     modifier = Modifier
                                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f), RoundedCornerShape(4.dp))
@@ -11385,6 +11391,9 @@ private fun HomeScreen(
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
     val coroutineScope = rememberCoroutineScope()
+    val reviews = remember { mutableStateListOf<UserReview>() }
+    var reviewsLoading by remember { mutableStateOf(false) }
+    var reviewsError by remember { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
 
     // Recompute public events whenever the adminApplications state list mutates (approvals, edits).
@@ -11438,6 +11447,32 @@ private fun HomeScreen(
         if (forceOpenSearchDialog) {
             showQueryDialog = true
             onConsumeForceOpenSearchDialog()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        reviewsLoading = true
+        reviewsError = null
+        fetchReviewsFromFirestore()
+            .onSuccess { list ->
+                reviews.clear(); reviews.addAll(list)
+            }
+            .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
+        reviewsLoading = false
+    }
+
+    val refreshReviews = remember {
+        {
+            reviewsLoading = true
+            reviewsError = null
+            coroutineScope.launch {
+                fetchReviewsFromFirestore()
+                    .onSuccess { list ->
+                        reviews.clear(); reviews.addAll(list)
+                    }
+                    .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
+                reviewsLoading = false
+            }
         }
     }
 
@@ -11718,6 +11753,17 @@ private fun HomeScreen(
             },
             adminApplications = adminApplications,
             now = now
+        )
+
+        SectionHeader(
+            title = "Reviews update",
+            action = { NeonTextButton(text = "Refresh", onClick = { refreshReviews() }) }
+        )
+        ReviewsPreview(
+            reviews = reviews,
+            loading = reviewsLoading,
+            error = reviewsError,
+            onRefresh = { refreshReviews() }
         )
 
         Spacer(modifier = Modifier.height(96.dp))
@@ -15336,7 +15382,11 @@ private fun ProfileScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                val favoriteItems = publicEvents.filter { favorites.contains(it.id) }
+                val favoriteItems = favorites.mapNotNull { favoriteId ->
+                    publicEvents.find { it.id == favoriteId }
+                        ?: adminApplications.firstOrNull { it.eventId == favoriteId || it.id == favoriteId }
+                            ?.let { app -> mapAdminApplicationToEvent(app, adminApplications) }
+                }.distinctBy { it.id }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
