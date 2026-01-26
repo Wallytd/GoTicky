@@ -229,10 +229,10 @@ import org.example.project.data.NotificationItem
 import org.example.project.location.eventLocationGeoPoint
 import org.example.project.location.rememberNearbyEvents
 import org.example.project.location.rememberDistanceForEvents
-import org.example.project.data.AdminSeed
-import org.example.project.data.adminSeeds
-import org.example.project.data.adminSeedByCredentials
-import org.example.project.data.seedAdminProfilesIfMissing
+import org.example.project.data.AdminProfile
+import org.example.project.data.adminProfileByCredentials
+import org.example.project.data.fetchAdminProfiles
+import org.example.project.data.rememberedAdminProfile
 import org.example.project.data.PriceAlert
 import org.example.project.data.NearbyEvent
 import org.example.project.data.DistanceSample
@@ -3419,6 +3419,7 @@ private fun buildTicketPassFromBooking(
     val holderInitials = initialsFromName(user.fullName)
     return TicketPass(
         id = ticketId,
+        eventId = event?.id ?: "",
         eventTitle = eventTitle,
         venue = venue,
         city = city,
@@ -3452,6 +3453,7 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
             .set(
                 mapOf(
                     "ownerId" to uid,
+                    "eventId" to pass.eventId,
                     "eventTitle" to pass.eventTitle,
                     "venue" to pass.venue,
                     "city" to pass.city,
@@ -3464,6 +3466,11 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
                     "holderInitials" to pass.holderInitials,
                     "qrSeed" to pass.qrSeed,
                     "purchaseAt" to (pass.purchaseAt ?: nowIso),
+                    "scanCount" to 0,
+                    "scanned" to false,
+                    "scannedAt" to null,
+                    "scannedBy" to null,
+                    "scanProhibited" to false,
                     "createdAt" to nowIso,
                     "updatedAt" to nowIso,
                 )
@@ -4336,13 +4343,11 @@ private data class SettingsPrefs(
     val rememberMe: Boolean = false,
 )
 
-private data class AdminSecureConfig(
+// Admin credentials now come from Realtime Database /adminprofiles entries.
+private data class AdminCredentials(
     val email: String,
-    val password: String,
+    val passcode: String,
     val rememberMe: Boolean = true,
-    // Human-friendly admin profile key, e.g. "Kate Mula".
-    // This lets us store admin app_settings under /adminProfiles/{adminName}/app_settings/admin_secure.
-    val adminName: String? = null,
 )
 
 private val SettingsPrefsSaver = listSaver<SettingsPrefs, Any>(
@@ -4525,141 +4530,14 @@ private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPref
     }
 }
 
-private suspend fun fetchAdminSecureConfig(): Result<AdminSecureConfig> {
-    return runCatching {
-        if (!isFirebaseAvailable()) throw IllegalStateException("Firebase unavailable")
-        ensureSettingsSession()
-        val firestore = Firebase.firestore
-
-        // 1) Prefer per-admin app_settings under /adminProfiles/{adminName}/app_settings/admin_secure.
-        // We iterate over the known seeds and return the first valid config we find.
-        val fromPerAdmin: AdminSecureConfig? = adminSeeds.firstNotNullOfOrNull { seed ->
-            val doc = firestore
-                .collection("adminProfiles")
-                .document(seed.fullName)
-                .collection("app_settings")
-                .document("admin_secure")
-                .get()
-
-            if (!doc.exists) return@firstNotNullOfOrNull null
-
-            val email = doc.get<String?>("email")?.trim().orEmpty()
-            val password = doc.get<String?>("password").orEmpty()
-            val rememberMe = doc.get<Boolean?>("rememberMe") ?: true
-            if (email.isBlank() || password.isBlank()) null
-            else AdminSecureConfig(email, password, rememberMe, adminName = seed.fullName)
-        }
-
-        // 2) Legacy fallback: global /app_settings/admin_secure (for backwards compatibility).
-        val fromLegacy: AdminSecureConfig? = runCatching {
-            val legacyDoc = firestore
-                .collection("app_settings")
-                .document("admin_secure")
-                .get()
-
-            if (!legacyDoc.exists) return@runCatching null
-
-            val email = legacyDoc.get<String?>("email")?.trim().orEmpty()
-            val password = legacyDoc.get<String?>("password").orEmpty()
-            val rememberMe = legacyDoc.get<Boolean?>("rememberMe") ?: true
-
-            if (email.isBlank() || password.isBlank()) null else {
-                // Try to infer the adminName from seeds based on email.
-                val seedMatch = adminSeeds.firstOrNull { it.email.equals(email, ignoreCase = true) }
-                AdminSecureConfig(
-                    email = email,
-                    password = password,
-                    rememberMe = rememberMe,
-                    adminName = seedMatch?.fullName
-                ).also {
-                    // Best-effort one-way migration into the new per-admin location.
-                    runCatching { saveAdminSecureConfig(it) }
-                }
-            }
-        }.getOrNull()
-
-        // 3) Seed-based default if nothing is configured yet.
-        val fromSeed = adminSeeds.firstOrNull()?.let { seed ->
-            AdminSecureConfig(
-                email = seed.email,
-                password = seed.password,
-                rememberMe = true,
-                adminName = seed.fullName,
-            ).also {
-                // Best-effort seed into Firestore so subsequent secure clicks have a stored config.
-                runCatching { saveAdminSecureConfig(it) }
-            }
-        }
-
-        fromPerAdmin
-            ?: fromLegacy
-            ?: fromSeed
-            ?: throw IllegalStateException("admin_secure settings unavailable.")
-    }
-}
-
-private suspend fun seedAdminSecureConfig(): AdminSecureConfig? {
-    val seed = adminSeeds.firstOrNull() ?: return null
-    val config = AdminSecureConfig(
-        email = seed.email,
-        password = seed.password,
-        rememberMe = true,
-        adminName = seed.fullName,
-    )
-    runCatching { saveAdminSecureConfig(config) }
-    return config
-}
-
-private suspend fun saveAdminSecureConfig(config: AdminSecureConfig) {
-    runCatching {
-        if (!isFirebaseAvailable()) return@runCatching
-        ensureSettingsSession()
-        val firestore = Firebase.firestore
-
-        // Persist under the admin's profile document: /adminProfiles/{adminName}/app_settings/admin_secure
-        val adminName = config.adminName
-            ?: adminSeeds.firstOrNull { it.email.equals(config.email, ignoreCase = true) }?.fullName
-
-        if (adminName != null) {
-            firestore
-                .collection("adminProfiles")
-                .document(adminName)
-                .collection("app_settings")
-                .document("admin_secure")
-                .set(
-                    mapOf(
-                        "email" to config.email,
-                        "password" to config.password,
-                        "rememberMe" to config.rememberMe,
-                    ),
-                    merge = true
-                )
-        }
-    }
-}
-
-private suspend fun loadAdminSecureConfigForPrefill(): AdminSecureConfig? {
+private suspend fun fetchRememberedAdminCredentials(): AdminCredentials? {
     if (!isFirebaseAvailable()) return null
-    ensureSettingsSession()
-    val firestore = Firebase.firestore
-
-    return adminSeeds.firstNotNullOfOrNull { seed ->
-        val doc = firestore
-            .collection("adminProfiles")
-            .document(seed.fullName)
-            .collection("app_settings")
-            .document("admin_secure")
-            .get()
-
-        if (!doc.exists) return@firstNotNullOfOrNull null
-
-        val rememberMe = doc.get<Boolean?>("rememberMe") ?: true
-        if (!rememberMe) return@firstNotNullOfOrNull null
-
-        val email = doc.get<String?>("email")?.trim().orEmpty()
-        val password = doc.get<String?>("password").orEmpty()
-        if (email.isBlank() || password.isBlank()) null
-        else AdminSecureConfig(email, password, rememberMe, adminName = seed.fullName)
+    return runCatching { rememberedAdminProfile() }.getOrNull()?.let { profile ->
+        AdminCredentials(
+            email = profile.email,
+            passcode = profile.passcode,
+            rememberMe = profile.rememberMe
+        )
     }
 }
 
@@ -5431,10 +5309,6 @@ private fun GoTickyRoot() {
         label = "fabAlpha"
     )
 
-    // Seed admin auth accounts and Firestore profiles once when the app boots.
-    LaunchedEffect(Unit) {
-        runCatching { seedAdminProfilesIfMissing() }
-    }
     var personalizationPrefs by rememberSaveable(stateSaver = PersonalizationPrefsSaver) {
         mutableStateOf(
             PersonalizationPrefs(
@@ -5448,7 +5322,7 @@ private fun GoTickyRoot() {
     var forceOpenSearchDialog by remember { mutableStateOf(false) }
     var settingsPrefs by rememberSaveable(stateSaver = SettingsPrefsSaver) { mutableStateOf(SettingsPrefs()) }
     var authInitDone by rememberSaveable { mutableStateOf(false) }
-    var adminSecurePrefill by remember { mutableStateOf<AdminSecureConfig?>(null) }
+    var adminSecurePrefill by remember { mutableStateOf<AdminCredentials?>(null) }
     LaunchedEffect(Unit) {
         val existing = authRepo.currentUser()
         val uid = existing?.uid
@@ -5588,6 +5462,13 @@ private fun GoTickyRoot() {
                 )
             )
         }
+    }
+
+    // Load admin ticket groups only once admin access is available so the
+    // collectionGroup query runs with an admin-capable Firestore session.
+    LaunchedEffect(hasAdminAccess) {
+        if (!hasAdminAccess) return@LaunchedEffect
+
         if (adminTicketGroups.isEmpty()) {
             // Fetch real tickets from Firestore
             scope.launch {
@@ -5626,7 +5507,6 @@ private fun GoTickyRoot() {
                     addAdminActivity("Failed to load tickets: ${error.message}", Color(0xFFFF6B6B))
                 }
             }
-
         }
     }
 
@@ -5871,14 +5751,14 @@ private fun GoTickyRoot() {
         if (shouldFetch) refreshAdminApplications()
     }
 
-    suspend fun startAdminSessionFromSeed(seed: AdminSeed, rememberMe: Boolean): AuthResult {
+    suspend fun startAdminSessionFromProfile(profile: AdminProfile, rememberMe: Boolean): AuthResult {
         // Ensure we have some Firebase auth session for Firestore rules when possible.
         val auth = Firebase.auth
-        val seedEmailLower = seed.email.trim().lowercase()
+        val emailLower = profile.emailLower
 
         // Prevent clobbering an existing customer profile by switching to a dedicated admin session.
         val existing = auth.currentUser
-        if (existing != null && (existing.email?.trim()?.lowercase() != seedEmailLower)) {
+        if (existing != null && (existing.email?.trim()?.lowercase() != emailLower)) {
             runCatching { auth.signOut() }
         }
         if (auth.currentUser == null) {
@@ -5886,20 +5766,19 @@ private fun GoTickyRoot() {
         }
 
         val currentUser = auth.currentUser
-        val adminUid = currentUser?.uid ?: seedEmailLower
+        val adminUid = currentUser?.uid ?: emailLower
 
-        // Build a local admin profile shell from the seed.
         val adminProfile = UserProfile(
-            fullName = seed.fullName,
-            email = seed.email,
-            countryName = seed.country,
-            countryFlag = "\uD83C\uDDF8\uD83C\uDDFF", // Zimbabwe flag
+            fullName = profile.fullName,
+            email = profile.email,
+            countryName = profile.country.ifBlank { "Zimbabwe" },
+            countryFlag = "🇿🇼",
             phoneCode = "+263",
-            phoneNumber = seed.phoneNumber,
-            birthday = seed.birthday,
-            gender = seed.gender,
+            phoneNumber = profile.phoneNumber,
+            birthday = profile.birthday,
+            gender = profile.gender,
             photoResKey = null,
-            photoUri = seed.photoUri,
+            photoUri = profile.photoUri,
             favorites = emptyList(),
             role = "admin",
         )
@@ -5919,6 +5798,7 @@ private fun GoTickyRoot() {
                     "uid" to adminUid,
                     "displayName" to adminProfile.fullName,
                     "email" to adminProfile.email,
+                    "emailLower" to adminProfile.email.trim().lowercase(),
                     "role" to adminProfile.role,
                     "countryName" to adminProfile.countryName,
                     "countryFlag" to adminProfile.countryFlag,
@@ -5928,47 +5808,28 @@ private fun GoTickyRoot() {
                     "gender" to adminProfile.gender,
                     "photoResKey" to adminProfile.photoResKey,
                     "photoUri" to adminProfile.photoUri,
-                    "favorites" to adminProfile.favorites
+                    "favorites" to adminProfile.favorites,
+                    "rememberMe" to rememberMe,
                 ),
                 merge = true
             )
         }
 
-        // Persist secure admin config under the admin profile document so future secure clicks
-        // can auto-fill and sign in.
-        runCatching {
-            saveAdminSecureConfig(
-                AdminSecureConfig(
-                    email = seed.email,
-                    password = seed.password,
-                    rememberMe = rememberMe,
-                    adminName = seed.fullName,
-                )
-            )
-        }
-
-        // Admin-specific remember-me is handled via AdminSecureConfig only; we intentionally do
-        // not toggle the global SettingsPrefs.rememberMe here so startup behavior for customers
-        // remains predictable.
         syncFavoritesFromBackend()
-        isSignInWarmupActive = true
+        adminSecurePrefill = AdminCredentials(profile.email, profile.passcode, rememberMe)
+
         return AuthResult.Success
     }
 
     suspend fun autoAdminSecureSignIn(): AuthResult {
-        val config = fetchAdminSecureConfig().getOrElse {
-            // Hide low-level Firestore errors and guide the user back to the manual admin flow.
-            return AuthResult.Error(
-                "Secure admin sign-in isn't fully configured yet. Use your admin email and passcode on the next screen."
-            )
-        }
+        val remembered = fetchRememberedAdminCredentials()
+            ?: return AuthResult.Error("Secure admin sign-in isn't configured yet. Use your admin email and passcode.")
 
-        val seed = adminSeedByCredentials(config.email, config.password)
-            ?: return AuthResult.Error(
-                "Secure admin sign-in failed. Use your admin email and passcode on the next screen."
-            )
+        val profile = adminProfileByCredentials(remembered.email, remembered.passcode)
+            ?: return AuthResult.Error("Saved admin credentials are no longer valid. Please sign in again.")
 
-        return startAdminSessionFromSeed(seed, config.rememberMe)
+        adminSecurePrefill = remembered
+        return startAdminSessionFromProfile(profile, remembered.rememberMe)
     }
 
     fun recordSearch(query: String) {
@@ -6554,15 +6415,16 @@ private fun GoTickyRoot() {
                             flagEnabled = adminFeatureFlagEnabled,
                             onBack = { showAdminSignIn = false },
                             prefillEmail = adminSecurePrefill?.email.orEmpty(),
-                            prefillPasscode = adminSecurePrefill?.password.orEmpty(),
+                            prefillPasscode = adminSecurePrefill?.passcode.orEmpty(),
                             prefillRememberMe = adminSecurePrefill?.rememberMe ?: false,
                             onSubmit = { email, passcode, rememberMe ->
-                                val seed = adminSeedByCredentials(email, passcode)
-                                if (seed == null) {
+                                val profile = adminProfileByCredentials(email, passcode)
+                                if (profile == null) {
                                     // Avoid leaking which field is wrong.
                                     AuthResult.Error("Incorrect admin email or passcode.")
                                 } else {
-                                    startAdminSessionFromSeed(seed, rememberMe)
+                                    adminSecurePrefill = AdminCredentials(email, passcode, rememberMe)
+                                    startAdminSessionFromProfile(profile, rememberMe)
                                 }
                             }
                         )
@@ -6715,7 +6577,7 @@ private fun GoTickyRoot() {
                                 secureSignInInProgress = true
                                 scope.launch {
                                     try {
-                                        adminSecurePrefill = loadAdminSecureConfigForPrefill()
+                                        adminSecurePrefill = fetchRememberedAdminCredentials()
                                         showAdminSignIn = true
                                     } finally {
                                         secureSignInInProgress = false

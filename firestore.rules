@@ -24,14 +24,6 @@ service cloud.firestore {
     function isElevatedRole(role) {
       return role in ["admin", "Admin", "Reviewer"];
     }
-    function isSeedAdminEmail(email) {
-      // Hardcoded allowlist for bootstrap admin role assignment (dev-seeded admins).
-      return email in [
-        "kate@goticky.com",
-        "rob@goticky.com",
-        "walter@goticky.com"
-      ];
-    }
     function tokenHasAdminClaim() {
       return ('admin' in request.auth.token && request.auth.token.admin == true) ||
         ('role' in request.auth.token && request.auth.token.role in ["admin", "Admin", "Reviewer"]);
@@ -55,24 +47,8 @@ service cloud.firestore {
             request.auth.token.emailLower != null &&
             exists(/databases/$(database)/documents/users/$(request.auth.token.emailLower)) &&
             get(/databases/$(database)/documents/users/$(request.auth.token.emailLower)).data.role in ["admin", "Admin", "Reviewer"]
-          ) ||
-          (
-            request.auth.token.email != null &&
-            exists(/databases/$(database)/documents/adminProfiles/$(request.auth.token.email)) &&
-            get(/databases/$(database)/documents/adminProfiles/$(request.auth.token.email)).data.role in ["admin", "Admin", "Reviewer"]
-          ) ||
-          (
-            request.auth.token.emailLower != null &&
-            exists(/databases/$(database)/documents/adminProfiles/$(request.auth.token.emailLower)) &&
-            get(/databases/$(database)/documents/adminProfiles/$(request.auth.token.emailLower)).data.role in ["admin", "Admin", "Reviewer"]
           )
         );
-    }
-
-    function validAdminSecure(data) {
-      return ('email' in data && data.email is string && data.email.size() > 0) &&
-             ('password' in data && data.password is string && data.password.size() > 0) &&
-             (!('rememberMe' in data) || data.rememberMe is bool);
     }
 
     function validBanner(data) {
@@ -337,8 +313,7 @@ service cloud.firestore {
              (!('deviceInfo' in data) || data.deviceInfo is string || data.deviceInfo == null);
     }
 
-    // Canonical per-user document keyed by Firebase UID or seeded key.
-    // Write is allowed for the owner OR for signed-in seeders writing role=admin (for initial admin import).
+    // Canonical per-user document keyed by Firebase UID.
     match /users/{userId} {
       // TEMPORARY DEBUG: Allow all reads to diagnose permission issue
       // TODO: Revert to: allow read: if isSignedIn();
@@ -356,7 +331,7 @@ service cloud.firestore {
               request.auth.token.email == userId ||
               ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)
             ))
-        ) &&
+          ) &&
         immutableUid(userId, request.resource.data) &&
         validFavorites(request.resource.data) &&
         roleAllowed(request.resource.data) &&
@@ -364,13 +339,7 @@ service cloud.firestore {
         (
           !('role' in request.resource.data) ||
           !isElevatedRole(request.resource.data.role) ||
-          isAdminUser() ||
-          (
-            isOwner(userId) &&
-            ('emailLower' in request.resource.data) &&
-            request.resource.data.emailLower is string &&
-            isSeedAdminEmail(request.resource.data.emailLower)
-          )
+          isAdminUser()
         );
 
       // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
@@ -386,7 +355,9 @@ service cloud.firestore {
       // Path option A (current app implementation):
       match /tickets/{ticketId} {
         // Allow owner reads even if auth token/path mismatch; still enforce ownership via ownerId field.
-        allow read: if isOwner(userId) || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+        allow read: if isOwner(userId) || isAdminUser() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+
+        // Create/replace by owner (checkout) — full payload validation
         allow write: if
           (
             isOwner(userId) ||
@@ -397,6 +368,15 @@ service cloud.firestore {
             )
           ) &&
           validTicket(request.resource.data, userId);
+
+        // Admin scan updates on immutable ticket payload — only scan fields may change
+        allow update: if
+          (
+            isOwner(userId) && validTicket(request.resource.data, userId)
+          ) ||
+          (
+            isAdminUser() && validTicketScanUpdate(request.resource.data, resource.data)
+          );
       }
       // Path option B (organizational): /users/{uid}/tickets/{ticketId} already covers storage;
       // if a shared collection is ever needed, uncomment below and gate by ownerId and auth.
@@ -436,33 +416,10 @@ service cloud.firestore {
     }
 
 
-    // Global app settings. Keep admin_secure readable for backwards compatibility only.
+    // Global app settings are not publicly readable; legacy admin_secure bootstrap is removed.
     match /app_settings/{docId} {
-      // Allow reads for bootstrapping legacy secure admin sign-in configs even before auth/app-check succeeds.
-      allow read: if docId == "admin_secure";
-      // Writes to the legacy admin_secure document are no longer allowed; new configs live under adminProfiles.
+      allow read: if false;
       allow write: if false;
-    }
-
-    // Admin profiles collection used for admin control room and per-admin settings.
-    match /adminProfiles/{adminName} {
-      allow read: if true;
-      // Admin profile documents are seeded server-side or via the app's seeding utilities while signed in.
-      allow write: if isSignedIn();
-
-      // Per-admin app settings, e.g. /adminProfiles/{adminName}/app_settings/admin_secure
-      match /app_settings/{docId} {
-        // Allow reads for secure admin bootstrap regardless of auth state so the app can fetch
-        // pre-configured secure credentials and then perform its own gating.
-        allow read: if docId == "admin_secure";
-
-        // Writes must pass the same validation as the legacy admin_secure document.
-        // We intentionally do not require auth here so the client can bootstrap secure
-        // admin config even if Firebase Auth is not fully wired yet.
-        allow write: if
-          docId == "admin_secure" &&
-          validAdminSecure(request.resource.data);
-      }
     }
 
     // Hero/marketing banners shown on the public home screen.
@@ -651,10 +608,19 @@ service cloud.firestore {
         validPublicProfile(request.resource.data, emailLower);
     }
 
+
+    // Admin profiles collection for admin authentication
+    // Allow read access for authentication purposes (credentials are still verified server-side)
+    match /adminProfiles/{profileId} {
+      allow read: if true;
+      allow write: if false; // Admins should be managed through Firebase Console or Cloud Functions
+    }
     // Deny everything else.
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
+
+
 
