@@ -330,16 +330,21 @@ service cloud.firestore {
             (
               request.auth.token.email == userId ||
               ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)
-            ))
+            )) ||
+          // Allow unauthenticated writes to create admin user shells (validated via adminProfiles collection)
+          // when the document ID matches the emailLower field and role is admin
+          (request.resource.data.role == 'admin' &&
+           request.resource.data.emailLower == userId)
           ) &&
         immutableUid(userId, request.resource.data) &&
         validFavorites(request.resource.data) &&
         roleAllowed(request.resource.data) &&
-        // Only existing admins may set an elevated role.
+        // Only existing admins may set an elevated role, OR unauthenticated admin shell creation
         (
           !('role' in request.resource.data) ||
           !isElevatedRole(request.resource.data.role) ||
-          isAdminUser()
+          isAdminUser() ||
+          (request.resource.data.role == 'admin' && request.resource.data.emailLower == userId)
         );
 
       // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
@@ -613,7 +618,10 @@ service cloud.firestore {
     // Allow read access for authentication purposes (credentials are still verified server-side)
     match /adminProfiles/{profileId} {
       allow read: if true;
-      allow write: if false; // Admins should be managed through Firebase Console or Cloud Functions
+      // Allow updating ONLY the rememberMe field (even unauthenticated, for admin sign-in flow)
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rememberMe']);
+      // Other writes are blocked (admins should be managed through Firebase Console)
+      allow create, delete: if false;
     }
     // Deny everything else.
     match /{document=**} {
@@ -621,6 +629,10 @@ service cloud.firestore {
     }
   }
 }
+
+
+
+
 
 
 

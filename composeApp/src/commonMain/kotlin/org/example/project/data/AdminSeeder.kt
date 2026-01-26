@@ -94,3 +94,30 @@ suspend fun rememberedAdminProfile(): AdminProfile? {
     val profiles = fetchAdminProfiles()
     return profiles.firstOrNull { it.rememberMe }
 }
+
+
+suspend fun updateAdminRememberMe(adminEmail: String, rememberMe: Boolean) {
+    try {
+        println("DEBUG: Updating rememberMe for $adminEmail to $rememberMe")
+        val profiles = Firebase.firestore.collection("adminProfiles").get()
+        
+        // Find the document with matching email
+        val matchingDoc = profiles.documents.firstOrNull { doc ->
+            val email = doc.stringField("email")
+            email?.trim()?.lowercase() == adminEmail.trim().lowercase()
+        }
+        
+        if (matchingDoc != null) {
+            println("DEBUG: Found admin profile document: ${matchingDoc.id}")
+            Firebase.firestore.collection("adminProfiles")
+                .document(matchingDoc.id)
+                .update(mapOf("rememberMe" to rememberMe))
+            println("DEBUG: Successfully updated rememberMe to $rememberMe")
+        } else {
+            println("DEBUG: No admin profile found with email: $adminEmail")
+        }
+    } catch (e: Exception) {
+        println("DEBUG ERROR: Failed to update rememberMe: ${e.message}")
+        e.printStackTrace()
+    }
+}

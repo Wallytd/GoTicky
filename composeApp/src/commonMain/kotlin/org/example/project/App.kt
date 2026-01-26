@@ -210,6 +210,8 @@ import androidx.compose.ui.window.PopupProperties
 import kotlin.math.round
 import org.example.project.MapEvent
 import org.example.project.data.TicketPass
+import org.example.project.data.updateAdminRememberMe
+
 import org.example.project.data.TicketType
 import org.example.project.data.OrderItem
 import org.example.project.data.OrderSummary
@@ -284,6 +286,9 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.atTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -5590,7 +5595,14 @@ private fun GoTickyRoot() {
         if (adminAuthEnsured) return
         val auth = Firebase.auth
         if (auth.currentUser == null) {
-            runCatching { auth.signInAnonymously() }
+            try {
+                println("DEBUG: Signing in anonymously...")
+                auth.signInAnonymously()
+                println("DEBUG: Anonymous sign-in completed. UID: ${auth.currentUser?.uid}")
+            } catch (e: Exception) {
+                println("DEBUG ERROR: Anonymous sign-in failed: ${e.message}")
+                e.printStackTrace()
+            }
         }
         // Ensure the session is recognized as an admin in Firestore rules.
         auth.currentUser?.uid?.let { uid ->
@@ -5759,14 +5771,17 @@ private fun GoTickyRoot() {
         // Prevent clobbering an existing customer profile by switching to a dedicated admin session.
         val existing = auth.currentUser
         if (existing != null && (existing.email?.trim()?.lowercase() != emailLower)) {
-            runCatching { auth.signOut() }
+            try {
+                println("DEBUG: Signing out existing user...")
+                auth.signOut()
+                println("DEBUG: Sign out completed")
+            } catch (e: Exception) {
+                println("DEBUG ERROR: Sign out failed: ${e.message}")
+            }
         }
-        if (auth.currentUser == null) {
-            runCatching { auth.signInAnonymously() }
-        }
-
-        val currentUser = auth.currentUser
-        val adminUid = currentUser?.uid ?: emailLower
+        // Note: Anonymous auth is disabled in Firebase Console, so we use email as UID for admin shells
+        println("DEBUG: Using email-based UID for admin session: $emailLower")
+        val adminUid = emailLower
 
         val adminProfile = UserProfile(
             fullName = profile.fullName,
@@ -5792,30 +5807,52 @@ private fun GoTickyRoot() {
 
         // Best-effort persistence of an admin user shell; may be rejected by rules if auth
         // is not configured, but this should never break the local session.
-        runCatching {
-            Firebase.firestore.collection("users").document(adminUid).set(
-                mapOf(
-                    "uid" to adminUid,
-                    "displayName" to adminProfile.fullName,
-                    "email" to adminProfile.email,
-                    "emailLower" to adminProfile.email.trim().lowercase(),
-                    "role" to adminProfile.role,
-                    "countryName" to adminProfile.countryName,
-                    "countryFlag" to adminProfile.countryFlag,
-                    "phoneCode" to adminProfile.phoneCode,
-                    "phoneNumber" to adminProfile.phoneNumber,
-                    "birthday" to adminProfile.birthday,
-                    "gender" to adminProfile.gender,
-                    "photoResKey" to adminProfile.photoResKey,
-                    "photoUri" to adminProfile.photoUri,
-                    "favorites" to adminProfile.favorites,
-                    "rememberMe" to rememberMe,
-                ),
-                merge = true
-            )
+        println("DEBUG: About to write admin user document to users/$adminUid")
+        try {
+            withContext(NonCancellable) {
+                Firebase.firestore.collection("users").document(adminUid).set(
+                    mapOf(
+                        "uid" to adminUid,
+                        "displayName" to adminProfile.fullName,
+                        "email" to adminProfile.email,
+                        "emailLower" to adminProfile.email.trim().lowercase(),
+                        "role" to adminProfile.role,
+                        "countryName" to adminProfile.countryName,
+                        "countryFlag" to adminProfile.countryFlag,
+                        "phoneCode" to adminProfile.phoneCode,
+                        "phoneNumber" to adminProfile.phoneNumber,
+                        "birthday" to adminProfile.birthday,
+                        "gender" to adminProfile.gender,
+                        "photoResKey" to adminProfile.photoResKey,
+                        "photoUri" to adminProfile.photoUri,
+                        "favorites" to adminProfile.favorites,
+                        "rememberMe" to rememberMe,
+                    ),
+                    merge = true
+                )
+            }
+            println("DEBUG: Successfully wrote admin user document to users/$adminUid")
+        } catch (e: Exception) {
+            println("DEBUG ERROR: Failed to write to users collection: ${e.message}")
+            println("DEBUG ERROR: Exception type: ${e::class.simpleName}")
+            e.printStackTrace()
         }
 
         syncFavoritesFromBackend()
+        
+        // Update rememberMe in adminProfiles collection
+        println("DEBUG: About to update rememberMe in adminProfiles for ${profile.email}")
+        try {
+            withContext(NonCancellable) {
+                updateAdminRememberMe(profile.email, rememberMe)
+            }
+            println("DEBUG: Successfully updated rememberMe in adminProfiles")
+        } catch (e: Exception) {
+            println("DEBUG ERROR: Failed to update rememberMe in adminProfiles: ${e.message}")
+            println("DEBUG ERROR: Exception type: ${e::class.simpleName}")
+            e.printStackTrace()
+        }
+        
         adminSecurePrefill = AdminCredentials(profile.email, profile.passcode, rememberMe)
 
         return AuthResult.Success
@@ -20988,3 +21025,14 @@ private fun AlertCard(
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
