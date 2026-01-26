@@ -1,10 +1,7 @@
 package org.example.project.data
 
-import kotlinx.datetime.Instant
-
 /**
- * Represents a group of tickets for a specific event in the admin dashboard.
- * Used for organizing and displaying tickets by event.
+ * Admin ticket group - tickets grouped by event
  */
 data class AdminTicketGroup(
     val eventId: String,
@@ -16,8 +13,7 @@ data class AdminTicketGroup(
 )
 
 /**
- * Represents a single ticket record in the admin view with scan tracking.
- * Contains all information needed for admin ticket management and scanning.
+ * Admin ticket record - individual ticket with scan tracking
  */
 data class AdminTicketRecord(
     val id: String,
@@ -31,16 +27,13 @@ data class AdminTicketRecord(
     val purchaseChannel: String,
     val purchaseAt: String,
     val scannedAt: String? = null,
-    val lastScanTime: String? = null,
-    val scanCount: Int = 0
+    val lastScanTime: String? = null
 )
 
 /**
- * Represents a single scan event in the audit trail.
- * Stored in Firestore at /tickets/{ticketId}/scanEvents/{scanEventId}
+ * Ticket scan event - immutable audit trail
  */
 data class TicketScanEvent(
-    val id: String = "",
     val ticketId: String,
     val scannerId: String,
     val scannerName: String,
@@ -48,13 +41,11 @@ data class TicketScanEvent(
     val success: Boolean,
     val failureReason: String? = null,
     val location: String? = null,
-    val deviceInfo: String? = null,
-    val synced: Boolean = false // For offline queue tracking
+    val deviceInfo: String? = null
 )
 
 /**
- * Aggregated statistics for ticket scanning.
- * Can be event-specific or global (eventId = null).
+ * Ticket statistics for analytics
  */
 data class TicketStats(
     val eventId: String?,
@@ -62,32 +53,23 @@ data class TicketStats(
     val scannedTickets: Int,
     val pendingTickets: Int,
     val scanRate: Float,
-    val lastUpdated: String,
-    val scansByHour: Map<String, Int> = emptyMap(), // For analytics
-    val scansByScanner: Map<String, Int> = emptyMap() // For analytics
+    val lastUpdated: String
 )
 
 /**
- * Result of a ticket scan operation.
- * Used to communicate scan outcomes to the UI.
+ * Scan result sealed class
  */
 sealed class ScanResult {
-    data class Success(
-        val ticket: TicketPass,
-        val scanEvent: TicketScanEvent
-    ) : ScanResult()
-    
+    data class Success(val ticket: TicketPass) : ScanResult()
     data class AlreadyScanned(
         val ticket: TicketPass,
         val originalScanTime: String?,
         val originalScanner: String?
     ) : ScanResult()
-    
     data class Error(
         val message: String,
         val errorCode: ScanErrorCode
     ) : ScanResult()
-    
     data class Offline(
         val ticket: TicketPass,
         val queuedForSync: Boolean
@@ -95,7 +77,7 @@ sealed class ScanResult {
 }
 
 /**
- * Error codes for scan failures.
+ * Scan error codes
  */
 enum class ScanErrorCode {
     TICKET_NOT_FOUND,
@@ -109,54 +91,33 @@ enum class ScanErrorCode {
 }
 
 /**
- * Offline scan queue item for syncing when connection is restored.
+ * Scanner engine types
  */
-data class OfflineScanQueueItem(
-    val id: String,
-    val ticketId: String,
-    val scannerId: String,
-    val scannerName: String,
-    val timestamp: String,
-    val qrData: String,
-    val retryCount: Int = 0,
-    val lastRetryAt: String? = null
-)
+enum class ScannerEngine {
+    MLKIT,  // Google MLKit (online)
+    ZXING,  // ZXing (offline)
+    AUTO,   // Automatic selection
+    MANUAL  // Manual entry
+}
 
 /**
- * Scanner configuration for hybrid MLKit/ZXing implementation.
+ * Scanner configuration
  */
 data class ScannerConfig(
     val preferredEngine: ScannerEngine = ScannerEngine.AUTO,
     val enableFlashlight: Boolean = false,
     val enableHapticFeedback: Boolean = true,
-    val enableAudioFeedback: Boolean = true,
-    val autoFocusEnabled: Boolean = true,
-    val scanTimeout: Long = 30000, // 30 seconds
-    val offlineMode: Boolean = false
+    val offlineMode: Boolean = false,
+    val autoSyncInterval: Long = 30000 // 30 seconds
 )
 
 /**
- * Scanner engine selection for hybrid implementation.
+ * Offline scan queue item
  */
-enum class ScannerEngine {
-    AUTO,      // Automatically select based on connectivity
-    MLKIT,     // Google MLKit (requires internet for first use)
-    ZXING,     // ZXing (fully offline)
-    MANUAL     // Manual ticket ID entry
-}
-
-/**
- * Real-time scan session for tracking active scanning.
- */
-data class ScanSession(
-    val id: String,
+data class OfflineScanQueueItem(
+    val ticketId: String,
     val scannerId: String,
     val scannerName: String,
-    val eventId: String?,
-    val startTime: String,
-    val endTime: String? = null,
-    val totalScans: Int = 0,
-    val successfulScans: Int = 0,
-    val failedScans: Int = 0,
-    val duplicateScans: Int = 0
+    val timestamp: String,
+    val retryCount: Int = 0
 )
