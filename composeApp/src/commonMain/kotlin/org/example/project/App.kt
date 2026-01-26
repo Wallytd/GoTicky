@@ -5589,93 +5589,44 @@ private fun GoTickyRoot() {
             )
         }
         if (adminTicketGroups.isEmpty()) {
-            adminTicketGroups.addAll(
-                listOf(
-                    AdminTicketGroup(
-                        eventId = "evt-neon-night",
-                        eventTitle = "Neon Night Carnival",
-                        venue = "Harare Expo Grounds",
-                        city = "Harare",
-                        dateLabel = "Sat • Feb 22, 8:00 PM",
-                        tickets = listOf(
-                            AdminTicketRow(
-                                id = "TCK-8812",
-                                holderName = "Ruvimbo Moyo",
-                                seat = "GA • Wave A",
-                                type = TicketType.EarlyBird,
-                                priceLabel = "$32.00",
-                                purchaseChannel = "Mobile",
-                                purchaseAt = "Jan 21, 10:12",
-                                qrSeedShort = "8F2A",
-                                scanned = true,
-                                scannedAt = "Feb 22, 19:05",
-                                status = "Valid",
-                            ),
-                            AdminTicketRow(
-                                id = "TCK-8813",
-                                holderName = "Kudzi Chikore",
-                                seat = "GA • Wave A",
-                                type = TicketType.General,
-                                priceLabel = "$42.00",
-                                purchaseChannel = "Web",
-                                purchaseAt = "Jan 22, 15:40",
-                                qrSeedShort = "3C9D",
-                                scanned = false,
-                                scannedAt = null,
-                                status = "Pending entry",
-                            ),
-                            AdminTicketRow(
-                                id = "TCK-8814",
-                                holderName = "Tanya Nyoni",
-                                seat = "VIP • Lounge 2",
-                                type = TicketType.VIP,
-                                priceLabel = "$95.00",
-                                purchaseChannel = "Mobile",
-                                purchaseAt = "Jan 23, 09:03",
-                                qrSeedShort = "6B7F",
-                                scanned = false,
-                                scannedAt = null,
-                                status = "Valid",
-                            ),
+            // Fetch real tickets from Firestore
+            scope.launch {
+                val repository = org.example.project.data.TicketRepository()
+                val result = repository.fetchTicketGroups()
+                result.onSuccess { groups ->
+                    adminTicketGroups.clear()
+                    adminTicketGroups.addAll(groups.map { group ->
+                        AdminTicketGroup(
+                            eventId = group.eventId,
+                            eventTitle = group.eventTitle,
+                            venue = group.venue,
+                            city = group.city,
+                            dateLabel = group.dateLabel,
+                            tickets = group.tickets.map { ticket ->
+                                AdminTicketRow(
+                                    id = ticket.id,
+                                    holderName = ticket.holderName,
+                                    seat = ticket.seat,
+                                    type = ticket.type,
+                                    priceLabel = ticket.priceLabel,
+                                    purchaseChannel = ticket.purchaseChannel,
+                                    purchaseAt = ticket.purchaseAt,
+                                    qrSeedShort = ticket.qrSeedShort,
+                                    scanned = ticket.scanned,
+                                    scannedAt = ticket.scannedAt,
+                                    status = ticket.status
+                                )
+                            }
                         )
-                    ),
-                    AdminTicketGroup(
-                        eventId = "evt-vumba-jazz",
-                        eventTitle = "Vumba Sunrise Jazz",
-                        venue = "Skyline Amphitheatre",
-                        city = "Mutare",
-                        dateLabel = "Sun • Mar 2, 5:30 PM",
-                        tickets = listOf(
-                            AdminTicketRow(
-                                id = "TCK-9921",
-                                holderName = "Lerato Maseko",
-                                seat = "Row B • Seat 6",
-                                type = TicketType.GoldenCircle,
-                                priceLabel = "$120.00",
-                                purchaseChannel = "POS",
-                                purchaseAt = "Jan 20, 11:18",
-                                qrSeedShort = "4E11",
-                                scanned = false,
-                                scannedAt = null,
-                                status = "Hold",
-                            ),
-                            AdminTicketRow(
-                                id = "TCK-9922",
-                                holderName = "Panashe Dube",
-                                seat = "Row C • Seat 12",
-                                type = TicketType.General,
-                                priceLabel = "$58.00",
-                                purchaseChannel = "Mobile",
-                                purchaseAt = "Jan 21, 17:22",
-                                qrSeedShort = "9A22",
-                                scanned = true,
-                                scannedAt = "Mar 2, 17:02",
-                                status = "Valid",
-                            ),
-                        )
-                    )
-                )
-            )
+                    })
+                    if (adminTicketGroups.isNotEmpty()) {
+                        addAdminActivity("Loaded ${adminTicketGroups.size} ticket groups from Firestore", adminPrimaryAccent)
+                    }
+                }.onFailure { error ->
+                    addAdminActivity("Failed to load tickets: ${error.message}", Color(0xFFFF6B6B))
+                }
+            }
+
         }
     }
 
@@ -20231,7 +20182,7 @@ private fun CreateEventScreen(
                                 Icon(
                                     imageVector = Icons.Outlined.Fingerprint,
                                     contentDescription = "Pick country",
-                                    tint = IconCategoryColors[IconCategory.Map] ?: MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         },
