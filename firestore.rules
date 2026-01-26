@@ -385,8 +385,18 @@ service cloud.firestore {
       // User-owned tickets generated from checkout.
       // Path option A (current app implementation):
       match /tickets/{ticketId} {
-        allow read: if isOwner(userId);
-        allow write: if isOwner(userId) && validTicket(request.resource.data, userId);
+        // Allow owner reads even if auth token/path mismatch; still enforce ownership via ownerId field.
+        allow read: if isOwner(userId) || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+        allow write: if
+          (
+            isOwner(userId) ||
+            (
+              isSignedIn() &&
+              request.auth.uid == request.resource.data.ownerId &&
+              request.resource.data.ownerId == userId
+            )
+          ) &&
+          validTicket(request.resource.data, userId);
       }
       // Path option B (organizational): /users/{uid}/tickets/{ticketId} already covers storage;
       // if a shared collection is ever needed, uncomment below and gate by ownerId and auth.
