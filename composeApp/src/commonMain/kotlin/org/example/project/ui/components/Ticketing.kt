@@ -142,23 +142,6 @@ fun TicketCard(
                         ),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        listOf(ticket.venue, ticket.city, ticket.country)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" • ")
-                            .ifBlank { "Location TBC" },
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            shadow = Shadow(
-                                color = metallic.darkStroke.copy(alpha = 0.4f),
-                                offset = Offset(0f, 1f),
-                                blurRadius = 6f
-                            )
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Pill(
