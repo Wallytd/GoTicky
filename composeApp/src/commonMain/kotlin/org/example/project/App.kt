@@ -6768,9 +6768,33 @@ private fun GoTickyRoot() {
                                                 }
                                             ) {
                                                 if (logoutInProgress) return@PrimaryButton
+                                                
+                                                // Capture admin status BEFORE entering coroutine
+                                                val wasAdmin = adminAccessRoles.contains(currentUserRole)
+                                                
                                                 logoutInProgress = true
                                                 scope.launch {
                                                     runCatching { authRepo.signOut() }
+                                                    
+                                                    // Update rememberMe to false for admin if they're logging out
+                                                    if (wasAdmin && userProfile.email.isNotEmpty()) {
+                                                        println("DEBUG: Admin logout - setting rememberMe to false for ${userProfile.email}")
+                                                        try {
+                                                            withContext(NonCancellable) {
+                                                                updateAdminRememberMe(userProfile.email, false)
+                                                            }
+                                                            println("DEBUG: Successfully updated rememberMe to false")
+                                                        } catch (e: Exception) {
+                                                            println("DEBUG ERROR: Failed to update rememberMe on logout: ${e.message}")
+                                                        }
+                                                    }
+                                                    
+                                                    // Set navigation flags FIRST before changing auth state
+                                                    // This ensures the correct screen is shown when isAuthenticated triggers recomposition
+                                                    showAdminSignIn = wasAdmin
+                                                    showIntro = !wasAdmin
+                                                    
+                                                    // Now reset authentication and other state
                                                     isAuthenticated = false
                                                     userProfile = defaultUserProfile()
                                                     currentUserRole = "customer"
@@ -6780,9 +6804,8 @@ private fun GoTickyRoot() {
                                                     showCheckout = false
                                                     checkoutSuccess = false
                                                     currentScreen = MainScreen.Home
-                                                    showAdminSignIn = false
-                                                    showIntro = false
                                                     isGuestMode = false
+                                                    adminSecurePrefill = null
                                                     logoutInProgress = false
                                                     showLogoutConfirm = false
                                                 }
@@ -21025,6 +21048,7 @@ private fun AlertCard(
         }
     }
 }
+
 
 
 
