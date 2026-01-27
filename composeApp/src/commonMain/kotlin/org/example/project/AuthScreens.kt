@@ -93,6 +93,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -2056,6 +2057,11 @@ fun AdminSignInScreen(
                             focusedTextColor = neonTextColor,
                             unfocusedTextColor = neonTextColor,
                             cursorColor = neonTextColor
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next,
+                            autoCorrectEnabled = false
                         ),
                         singleLine = true
                     )

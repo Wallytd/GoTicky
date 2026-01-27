@@ -99,6 +99,8 @@ kotlin {
             implementation("com.google.guava:guava:33.0.0-android")
             // MLKit barcode scanning
             implementation("com.google.mlkit:barcode-scanning:17.2.0")
+            // Encrypted SharedPreferences for secure admin credential storage
+            implementation("androidx.security:security-crypto:1.1.0-alpha06")
         }
         commonMain.dependencies {
             implementation(compose.runtime)

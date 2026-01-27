@@ -5,6 +5,7 @@ package org.example.project
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.LinearEasing
@@ -19,15 +20,19 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -61,10 +66,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ArrowForward
@@ -76,11 +84,13 @@ import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.BackHand
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Close
@@ -89,6 +99,8 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Cake
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PhoneAndroid
@@ -96,6 +108,8 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.LocalOffer
@@ -104,6 +118,7 @@ import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Navigation
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
@@ -113,7 +128,6 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -177,12 +191,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -193,6 +210,8 @@ import androidx.compose.ui.window.PopupProperties
 import kotlin.math.round
 import org.example.project.MapEvent
 import org.example.project.data.TicketPass
+// Removed: import org.example.project.data.updateAdminRememberMe (no longer used)
+
 import org.example.project.data.TicketType
 import org.example.project.data.OrderItem
 import org.example.project.data.OrderSummary
@@ -212,10 +231,10 @@ import org.example.project.data.NotificationItem
 import org.example.project.location.eventLocationGeoPoint
 import org.example.project.location.rememberNearbyEvents
 import org.example.project.location.rememberDistanceForEvents
-import org.example.project.data.AdminSeed
-import org.example.project.data.adminSeeds
-import org.example.project.data.adminSeedByCredentials
-import org.example.project.data.seedAdminProfilesIfMissing
+import org.example.project.data.AdminProfile
+import org.example.project.data.adminProfileByCredentials
+import org.example.project.data.fetchAdminProfiles
+import org.example.project.data.rememberedAdminProfile
 import org.example.project.data.PriceAlert
 import org.example.project.data.NearbyEvent
 import org.example.project.data.DistanceSample
@@ -257,13 +276,26 @@ import org.example.project.platform.rememberProfileImageStorage
 import org.example.project.platform.rememberNewsFlashImageStorage
 import org.example.project.platform.rememberEventImageStorage
 import org.example.project.platform.rememberUriPainter
+import org.example.project.platform.SystemBackHandler
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
+import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.atTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
 import org.example.project.GoTickyFeatures
+import org.example.project.platform.isFirebaseAvailable
 import androidx.compose.runtime.mutableStateMapOf
 import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -288,31 +320,745 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.SpanStyle
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.LocalTime
-import kotlinx.datetime.atTime
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.days
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
+import kotlin.time.Duration
 import dev.gitlive.firebase.Firebase
 import dev.gitlive.firebase.auth.auth
 import dev.gitlive.firebase.firestore.Direction
-import dev.gitlive.firebase.firestore.DocumentSnapshot
 import dev.gitlive.firebase.firestore.firestore
+import dev.gitlive.firebase.firestore.DocumentSnapshot
+import dev.gitlive.firebase.firestore.Timestamp
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.time.Clock
+import org.example.project.ui.screens.AlertsScreen as ModernAlertsScreen
+
+fun formatReviewDate(isoString: String): String {
+    try {
+        val instant = Instant.parse(isoString)
+        val localDate = instant.toLocalDateTime(TimeZone.currentSystemDefault()).date
+        val monthName = localDate.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
+        return "${localDate.dayOfMonth} $monthName ${localDate.year}"
+    } catch (e: Exception) {
+        return isoString
+    }
+}
 
 private enum class MainScreen {
     Home, Tickets, Alerts, Profile, Organizer, Admin, Map, PrivacyTerms, FAQ, Settings
+}
+
+@Composable
+private fun AdminTicketsSection(
+    groups: List<AdminTicketGroup>,
+    onScan: () -> Unit,
+    addActivity: (String, Color) -> Unit,
+) {
+    var statusFilter by remember { mutableStateOf("All") }
+    var cityFilter by remember { mutableStateOf("All") }
+    val cities = remember(groups) { listOf("All") + groups.map { it.city }.distinct() }
+    val totalTickets = remember(groups) { groups.sumOf { it.tickets.size } }
+    val scannedTickets = remember(groups) { groups.sumOf { g -> g.tickets.count { it.scanned } } }
+    val pendingTickets = totalTickets - scannedTickets
+    val scanProgress = if (totalTickets == 0) 0f else scannedTickets / totalTickets.toFloat()
+    val ticketCategoryColor = IconCategoryColors[IconCategory.Ticket] ?: MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val primaryColor = MaterialTheme.colorScheme.primary
+
+    val filteredGroups = remember(groups, statusFilter, cityFilter) {
+        groups.map { group ->
+            val filteredTickets = group.tickets
+                .filter {
+                    statusFilter == "All" ||
+                        it.status.equals(statusFilter, ignoreCase = true) ||
+                        (statusFilter == "Scanned" && it.scanned)
+                }
+            group.copy(tickets = filteredTickets)
+        }
+            .filter { cityFilter == "All" || it.city == cityFilter }
+            .filter { it.tickets.isNotEmpty() }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SectionHeader(
+            title = "Tickets & scanning",
+            action = {
+                PrimaryButton(
+                    text = "Open scanner",
+                    icon = { Icon(Icons.Outlined.QrCodeScanner, contentDescription = null) },
+                    onClick = {
+                        addActivity(
+                            "Opened scanner",
+                            ticketCategoryColor
+                        )
+                        onScan()
+                    },
+                    modifier = Modifier.pressAnimated()
+                )
+            }
+        )
+
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "Live entry progress",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                AnimatedProgressBar(progress = scanProgress, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Pill(text = "$scannedTickets scanned")
+                    Pill(text = "$pendingTickets pending")
+                    Pill(text = "$totalTickets total")
+                }
+                GhostButton(
+                    text = "Trigger scan mode",
+                    icon = { Icon(Icons.Outlined.QrCodeScanner, contentDescription = null) },
+                    onClick = onScan,
+                    modifier = Modifier.align(Alignment.End)
+                )
+            }
+        }
+
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("All", "Valid", "Pending entry", "Hold", "Scanned").forEach { status ->
+                NeonSelectablePill(
+                    text = status,
+                    selected = statusFilter == status,
+                    onClick = { statusFilter = status }
+                )
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            cities.forEach { city ->
+                NeonSelectablePill(
+                    text = city,
+                    selected = cityFilter == city,
+                    onClick = { cityFilter = city }
+                )
+            }
+        }
+
+        if (filteredGroups.isEmpty()) {
+            GlowCard(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LoadingSpinner(size = 18)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "No tickets match the current filters.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        } else {
+            filteredGroups.forEach { group ->
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    group.eventTitle,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "${group.venue} • ${group.city}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    group.dateLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Pill(text = "${group.tickets.count { it.scanned }}/${group.tickets.size} scanned")
+                        }
+                        AnimatedProgressBar(
+                            progress = if (group.tickets.isEmpty()) 0f else group.tickets.count { it.scanned } / group.tickets.size.toFloat(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            group.tickets.take(6).forEach { ticket ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressAnimated()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            "${ticket.holderName} • ${ticket.seat}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "${ticket.type.name} • ${ticket.purchaseChannel} • ${ticket.purchaseAt}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(ticket.priceLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                        Pill(text = if (ticket.scanned) "Scanned" else ticket.status)
+                                        Text("QR ${ticket.qrSeedShort}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                            if (group.tickets.size > 6) {
+                                NeonTextButton(
+                                    text = "View all ${group.tickets.size} tickets",
+                                    onClick = {
+                                        addActivity(
+                                            "View all tickets: ${group.eventTitle}",
+                                            secondaryColor
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                        PrimaryButton(
+                            text = "Open scanner for ${group.eventTitle}",
+                            icon = { Icon(Icons.Outlined.QrCodeScanner, contentDescription = null) },
+                            onClick = {
+                                addActivity(
+                                    "Scanner opened for ${group.eventTitle}",
+                                    ticketCategoryColor
+                                )
+                                onScan()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewsPreview(
+    reviews: List<UserReview>,
+    loading: Boolean,
+    error: String?,
+    onRefresh: () -> Unit,
+) {
+    val goldStar = Color(0xFFF5C542)
+    val tz = remember { TimeZone.currentSystemDefault() }
+    // We'll track the current index in the parent to display the counter
+    var currentIndex by remember { mutableStateOf(0) }
+
+    GlowCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressAnimated()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "What people said after their tickets",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Live pulls from Firestore reviews",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                   // Animated Review Counter
+                    if (reviews.isNotEmpty()) {
+                        AnimatedContent(
+                            targetState = currentIndex + 1,
+                            transitionSpec = {
+                                slideInVertically { height -> height } + fadeIn() togetherWith
+                                slideOutVertically { height -> -height } + fadeOut()
+                            }
+                        ) { count ->
+                           Text(
+                               text = "$count/${reviews.size}",
+                               style = MaterialTheme.typography.labelLarge.copy(
+                                   fontWeight = FontWeight.Bold,
+                                   fontFeatureSettings = "tnum"
+                               ),
+                               color = MaterialTheme.colorScheme.primary
+                           )
+                        }
+                    }
+
+                    NeonTextButton(text = "Refresh", onClick = onRefresh)
+               }
+            }
+
+            when {
+                loading -> {
+                    LoadingRow(Modifier.fillMaxWidth())
+                }
+                error != null -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        NeonTextButton(text = "Retry", onClick = onRefresh)
+                    }
+                }
+
+                reviews.isEmpty() -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "No reviews yet. Be the first after your next ticket!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.Star,
+                            contentDescription = null,
+                            tint = goldStar
+                        )
+                    }
+                }
+                else -> {
+                    CardShuffleReviewsDeck(
+                        reviews = reviews,
+                        goldStar = goldStar,
+                        tz = tz,
+                        onIndexChanged = { newIndex -> currentIndex = newIndex }
+                    )
+                }
+
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardShuffleReviewsDeck(
+    reviews: List<UserReview>,
+    goldStar: Color,
+    tz: TimeZone,
+    onIndexChanged: (Int) -> Unit
+) {
+    // State management
+    var currentIndex by remember { mutableStateOf(0) }
+    var isAnimating by remember { mutableStateOf(false) }
+    var lastInteractionTime by remember { mutableStateOf(0L) }
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Sync internal index with parent
+    LaunchedEffect(currentIndex) {
+        onIndexChanged(currentIndex)
+    }
+    
+    // Animation values for the top card
+    val offsetX = remember { Animatable(0f) }
+    val offsetY = remember { Animatable(0f) }
+    val rotation = remember { Animatable(0f) }
+    val scale = remember { Animatable(1f) }
+    
+    // Auto-shuffle effect
+    LaunchedEffect(currentIndex, lastInteractionTime) {
+        delay(6000L) // Wait 6 seconds
+        val timeSinceInteraction = currentInstant().toEpochMilliseconds() - lastInteractionTime
+        if (timeSinceInteraction >= 6000L && !isAnimating && reviews.size > 1) {
+            // Auto-shuffle to next card
+            shuffleToNext(
+                currentIndex = currentIndex,
+                reviewsSize = reviews.size,
+                onIndexChange = { currentIndex = it },
+                isAnimating = isAnimating,
+                onAnimatingChange = { isAnimating = it },
+                offsetX = offsetX,
+                offsetY = offsetY,
+                rotation = rotation,
+                scale = scale,
+                coroutineScope = coroutineScope
+            )
+        }
+    }
+    
+    // Initialize lastInteractionTime once
+    LaunchedEffect(Unit) {
+        lastInteractionTime = currentInstant().toEpochMilliseconds()
+    }
+    
+    // Display only if we have reviews
+    if (reviews.isEmpty()) return
+    
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(260.dp), // Height for the deck
+        contentAlignment = Alignment.Center
+    ) {
+        // Render cards in reverse order so top card is drawn last
+        val maxVisibleCards = minOf(4, reviews.size)
+        
+        for (i in (maxVisibleCards - 1) downTo 0) {
+            val cardIndex = (currentIndex + i) % reviews.size
+            val review = reviews[cardIndex]
+            val isTopCard = i == 0
+            
+            // Calculate card position in stack - Make it more visible/fanned out
+            // Dramatic fanning
+            val stackOffset = (i * 14).dp 
+            val stackScale = 1f - (i * 0.07f)
+            val stackRotation = if (i % 2 == 0) (i * 3f) else -(i * 3f) // Alternating rotation for messy stack look
+            val stackAlpha = 1f - (i * 0.1f)
+            
+            // Use new date formatter
+            val formattedDate = remember(review.createdAt) {
+                formatReviewDate(review.createdAt.toString())
+            }
+            
+            // Construct tags list from qos fields
+            val reviewTags: List<String> = remember(review) {
+                listOf(review.qos1, review.qos2, review.qos3)
+                    .filter { it.isNotBlank() }
+            }
+
+            // Reconstruct the Card UI here to ensure it uses the new Date and style
+            val cardContent: @Composable () -> Unit = {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column {
+                            Text(
+                                review.userName,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Verified Attendee",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            repeat(5) { starIndex ->
+                                Icon(
+                                    imageVector = if (starIndex < review.rating) Icons.Filled.Star else Icons.Outlined.Star,
+                                    contentDescription = null,
+                                    tint = if (starIndex < review.rating) goldStar else MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                    
+                    Text(
+                        review.comment,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    // Tags in a FlowRow
+                    if (reviewTags.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            reviewTags.take(3).forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        tag,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                         Text(
+                            formattedDate,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.7f)
+                        )
+                        Icon(
+                             imageVector = Icons.Outlined.ThumbUp,
+                             contentDescription = "Helpful",
+                             modifier = Modifier.size(16.dp),
+                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.7f)
+                        )
+                    }
+                }
+            }
+            
+            if (isTopCard) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f) // A bit wider
+                        .height(220.dp) // Fixed height for cards
+                        .offset { IntOffset(offsetX.value.roundToInt(), offsetY.value.roundToInt() + stackOffset.roundToPx()) }
+                        .graphicsLayer {
+                            scaleX = stackScale * scale.value
+                            scaleY = stackScale * scale.value
+                            rotationZ = (stackRotation * 0.2f) + rotation.value // Less initial rotation for top card
+                            shadowElevation = 20f // More shadow
+                            transformOrigin = TransformOrigin.Center
+                            shape = RoundedCornerShape(24.dp)
+                            clip = true
+                        }
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp))
+                        .background(GoTickyGradients.GlassWash, RoundedCornerShape(24.dp)) // subtle gradient
+                         // Interaction
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = {
+                                    lastInteractionTime = currentInstant().toEpochMilliseconds()
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    if (!isAnimating) {
+                                        coroutineScope.launch {
+                                            offsetX.snapTo(offsetX.value + dragAmount.x)
+                                            offsetY.snapTo(offsetY.value + dragAmount.y)
+                                            // Dynamic rotation based on drag
+                                            rotation.snapTo((offsetX.value / 15f).coerceIn(-20f, 20f))
+                                        }
+                                    }
+                                },
+                                onDragEnd = {
+                                    coroutineScope.launch {
+                                        if (kotlin.math.abs(offsetX.value) > 150f) {
+                                            // Swipe detected - shuffle to next
+                                            shuffleToNext(
+                                                currentIndex = currentIndex,
+                                                reviewsSize = reviews.size,
+                                                onIndexChange = { currentIndex = it },
+                                                isAnimating = isAnimating,
+                                                onAnimatingChange = { isAnimating = it },
+                                                offsetX = offsetX,
+                                                offsetY = offsetY,
+                                                rotation = rotation,
+                                                scale = scale,
+                                                coroutineScope = coroutineScope
+                                            )
+                                        } else {
+                                            // Return to center
+                                            launch { offsetX.animateTo(0f, tween(400, easing = EaseOutBack)) }
+                                            launch { offsetY.animateTo(0f, tween(400, easing = EaseOutBack)) }
+                                            launch { rotation.animateTo(0f, tween(400, easing = EaseOutBack)) }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        .clickable(
+                             interactionSource = remember { MutableInteractionSource() },
+                             indication = null
+                        ) {
+                             // Tap to shuffle
+                             if (!isAnimating) {
+                                 lastInteractionTime = currentInstant().toEpochMilliseconds()
+                                 shuffleToNext(
+                                     currentIndex = currentIndex,
+                                     reviewsSize = reviews.size,
+                                     onIndexChange = { currentIndex = it },
+                                     isAnimating = isAnimating,
+                                     onAnimatingChange = { isAnimating = it },
+                                     offsetX = offsetX,
+                                     offsetY = offsetY,
+                                     rotation = rotation,
+                                     scale = scale,
+                                     coroutineScope = coroutineScope
+                                 )
+                             }
+                        }
+                ) {
+                    cardContent()
+                }
+            } else {
+                 // Background cards
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .height(220.dp)
+                        .offset(y = stackOffset)
+                        .graphicsLayer {
+                            scaleX = stackScale
+                            scaleY = stackScale
+                            rotationZ = stackRotation
+                            alpha = stackAlpha
+                            shadowElevation = (maxVisibleCards - i) * 4f
+                            shape = RoundedCornerShape(24.dp)
+                            clip = true
+                        }
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp)) // Slightly different color for depth
+                         // Add a scrim to background cards to make top pop more
+                        .drawBehind {
+                            drawRect(Color.Black.copy(alpha = 0.05f * i))
+                        }
+                ) {
+                    // We don't necessarily need to render full content for background cards to save performance, 
+                    // but it helps the effect if they look real.
+                    // We can use a simplified version or the same.
+                    cardContent()
+                }
+            }
+        }
+    }
+}            
+
+
+private fun shuffleToNext(
+    currentIndex: Int,
+    reviewsSize: Int,
+    onIndexChange: (Int) -> Unit,
+    isAnimating: Boolean,
+    onAnimatingChange: (Boolean) -> Unit,
+    offsetX: Animatable<Float, AnimationVector1D>,
+    offsetY: Animatable<Float, AnimationVector1D>,
+    rotation: Animatable<Float, AnimationVector1D>,
+    scale: Animatable<Float, AnimationVector1D>,
+    coroutineScope: CoroutineScope
+) {
+    if (isAnimating) return
+    
+    onAnimatingChange(true)
+    
+    coroutineScope.launch {
+        // Animate card sliding behind the stack
+        launch {
+            // Slight horizontal movement for visual interest
+            offsetX.animateTo(
+                targetValue = -30f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            // Move card downward and behind
+            offsetY.animateTo(
+                targetValue = 80f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            // Rotate as it goes behind
+            rotation.animateTo(
+                targetValue = -8f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            // Scale down as it moves to back
+            scale.animateTo(
+                targetValue = 0.85f,
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            )
+        }
+        
+        // Wait for animation to complete
+        delay(350)
+        
+        // Update index to show next card
+        onIndexChange((currentIndex + 1) % reviewsSize)
+        
+        // Reset animation values instantly
+        offsetX.snapTo(0f)
+        offsetY.snapTo(0f)
+        rotation.snapTo(0f)
+        scale.snapTo(1f)
+        
+        onAnimatingChange(false)
+    }
+}
+
+@Composable
+private fun AnimatedHandNudge(visible: Boolean) {
+    val transition = rememberInfiniteTransition(label = "handNudge")
+    val offsetY by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -6f,
+        animationSpec = infiniteRepeatable(animation = tween(650, easing = EaseOutBack), repeatMode = RepeatMode.Reverse),
+        label = "handOffset"
+    )
+    val alpha by animateFloatAsState(targetValue = if (visible) 1f else 0f, animationSpec = tween(220), label = "handAlpha")
+    AnimatedVisibility(visible = visible, modifier = Modifier.padding(start = 2.dp)) {
+        Box(
+            modifier = Modifier
+                .offset(y = offsetY.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape)
+                .padding(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.BackHand,
+                contentDescription = "Tap to rate",
+                tint = Color(0xFFF5C542).copy(alpha = alpha)
+            )
+        }
+    }
 }
 
 @Composable
@@ -1409,8 +2155,10 @@ private fun NotificationCard(
     fresh: Boolean,
     onOpen: () -> Unit,
     onMarkRead: () -> Unit,
+    onToggleStar: (Boolean) -> Unit,
     now: Instant,
 ) {
+    val isRead = item.status.lowercase() == "read"
     val iconColor = when (item.type.lowercase()) {
         "approved" -> Color(0xFF63FFA6)
         "rejected", "error" -> Color(0xFFFF7B7B)
@@ -1418,7 +2166,36 @@ private fun NotificationCard(
         "offer" -> Color(0xFF7BD7FF)
         else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
     }
-    val backgroundGlow = if (fresh) iconColor.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val backgroundGlow = if (fresh) iconColor.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    val cardGradient = remember(isRead, iconColor, surfaceColor, surfaceVariantColor) {
+        if (isRead) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    surfaceColor.copy(alpha = 0.92f),
+                    surfaceVariantColor.copy(alpha = 0.65f)
+                )
+            )
+        } else {
+            Brush.linearGradient(
+                colors = listOf(
+                    iconColor.copy(alpha = 0.28f),
+                    surfaceColor.copy(alpha = 0.95f)
+                )
+            )
+        }
+    }
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (isRead) 0.85f else 1f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+        label = "notifContentAlpha"
+    )
+    val accentBarColor by animateColorAsState(
+        targetValue = if (isRead) iconColor.copy(alpha = 0.35f) else iconColor.copy(alpha = 0.75f),
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+        label = "notifAccentBar"
+    )
     val pulse by rememberInfiniteTransition(label = "notifPulse").animateFloat(
         initialValue = if (fresh) 0.97f else 1f,
         targetValue = if (fresh) 1.03f else 1f,
@@ -1445,16 +2222,24 @@ private fun NotificationCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(cardGradient)
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .clip(goTickyShapes.small)
+                    .background(accentBarColor)
+            )
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(backgroundGlow)
-                    .border(1.dp, iconColor.copy(alpha = 0.5f), CircleShape),
+                    .border(1.2.dp, iconColor.copy(alpha = 0.55f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -1470,21 +2255,63 @@ private fun NotificationCard(
                     modifier = Modifier.size(22.dp)
                 )
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                Text(item.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-                Text(item.body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .graphicsLayer(alpha = contentAlpha)
+            ) {
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (isRead) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f) else Color(0xFFF7FBFF)
+                )
+                Text(
+                    item.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isRead) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.95f) else Color(0xFFE5F1FF)
+                )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(relativeTime, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.status.lowercase() != "read") {
-                        Pill(text = "New", color = iconColor.copy(alpha = 0.18f), textColor = iconColor)
+                    Text(
+                        relativeTime,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isRead) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f) else iconColor.copy(alpha = 0.9f)
+                    )
+                    if (!isRead) {
+                        Pill(text = "New", color = iconColor.copy(alpha = 0.22f), textColor = iconColor)
+                    } else {
+                        Pill(text = "Seen", color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), textColor = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
-            if (item.status.lowercase() != "read") {
-                NeonTextButton(text = "Mark read", onClick = onMarkRead, modifier = Modifier.pressAnimated())
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (!isRead) {
+                    NeonTextButton(text = "Mark read", onClick = onMarkRead, modifier = Modifier.pressAnimated())
+                }
+                val starColor by animateColorAsState(
+                    targetValue = if (item.starred) Color(0xFFFFC94A) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Quick),
+                    label = "notifStarTint"
+                )
+                val starScale by rememberInfiniteTransition(label = "notifStarPulse").animateFloat(
+                    initialValue = 0.94f,
+                    targetValue = if (item.starred) 1.08f else 1f,
+                    animationSpec = infiniteRepeatable(tween(1400, easing = EaseOutBack), RepeatMode.Reverse),
+                    label = "notifStarScale"
+                )
+                Icon(
+                    imageVector = if (item.starred) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                    contentDescription = "Star alert",
+                    tint = starColor,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .graphicsLayer(scaleX = starScale, scaleY = starScale)
+                        .pressAnimated()
+                        .clickable { onToggleStar(!item.starred) }
+                )
             }
         }
     }
@@ -1556,6 +2383,7 @@ private fun formatRelativeTime(now: Instant, created: Instant): String {
 }
 
 private suspend fun fetchRecommendationsFromFirestore(): List<Recommendation> {
+    if (!isFirebaseAvailable()) return emptyList()
     return try {
         ensureSettingsSession()
         val snap = Firebase.firestore
@@ -1597,23 +2425,25 @@ private suspend fun fetchRecommendationsFromFirestore(): List<Recommendation> {
 }
 
 private suspend fun fetchNotificationsFromFirestore(userId: String): List<NotificationItem> {
+    if (!isFirebaseAvailable()) return emptyList()
     val authUser = Firebase.auth.currentUser ?: throw IllegalStateException("Sign in to load notifications.")
     if (authUser.uid != userId) throw IllegalStateException("Session mismatch. Please sign in again.")
 
-    val snap = Firebase.firestore
-        .collection("notifications")
-        .where { "userId" equalTo userId }
-        .orderBy("createdAt", Direction.DESCENDING)
-        .get()
+    val firestore = Firebase.firestore
 
-    return snap.documents.take(50).mapNotNull { doc ->
+    fun mapNotificationDoc(doc: DocumentSnapshot): NotificationItem? {
         val id = doc.id
-        val title = doc.get<String?>("title") ?: return@mapNotNull null
+        val title = doc.get<String?>("title") ?: return null
         val body = doc.get<String?>("body") ?: ""
         val type = doc.get<String?>("type") ?: "general"
-        val createdAt = doc.get<String?>("createdAt") ?: return@mapNotNull null
-        val user = doc.get<String?>("userId") ?: return@mapNotNull null
-        NotificationItem(
+        val createdAt = doc.get<String?>("createdAt")
+            ?: doc.get<Timestamp?>("createdAt")?.let { ts ->
+                Instant.fromEpochSeconds(ts.seconds, ts.nanoseconds.toLong()).toString()
+            }
+            ?: doc.get<Long?>("createdAt")?.let { millis -> Instant.fromEpochMilliseconds(millis).toString() }
+            ?: return null
+        val user = doc.get<String?>("userId") ?: return null
+        return NotificationItem(
             id = id,
             userId = user,
             title = title,
@@ -1625,8 +2455,29 @@ private suspend fun fetchNotificationsFromFirestore(userId: String): List<Notifi
             status = doc.get<String?>("status") ?: "unread",
             actionUrl = doc.get<String?>("actionUrl"),
             icon = doc.get<String?>("icon"),
+            starred = doc.get<Boolean?>("starred") ?: false,
         )
     }
+
+    suspend fun fetchFromCollection(collectionName: String): List<NotificationItem> {
+        // Avoid composite-index requirement on userId + createdAt; fetch by user and sort locally.
+        val snap = firestore
+            .collection(collectionName)
+            .where { "userId" equalTo userId }
+            .get()
+        return snap.documents.mapNotNull(::mapNotificationDoc)
+    }
+
+    // Prefer canonical notifications collection, but merge any mirrored alerts docs so nothing is lost.
+    val primary = fetchFromCollection("notifications")
+    val mirrored = fetchFromCollection("alerts")
+
+    return (primary + mirrored)
+        .distinctBy { it.id }
+        .sortedWith(compareByDescending<NotificationItem> {
+            runCatching { Instant.parse(it.createdAt) }.getOrNull()
+        }.thenByDescending { it.createdAt })
+        .take(50)
 }
 
 private fun notificationErrorMessage(t: Throwable): String {
@@ -1640,11 +2491,12 @@ private suspend fun addNotificationForUser(
     userId: String,
     title: String,
     body: String,
-    type: String,
+    type: String = "general",
     eventId: String? = null,
     actionUrl: String? = null,
     icon: String? = null,
 ): Result<NotificationItem> {
+    if (!isFirebaseAvailable()) return Result.failure(IllegalStateException("Firebase unavailable"))
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         // Best-effort session so Firestore rules allow the write (covers admin + anon sessions).
@@ -1665,37 +2517,55 @@ private suspend fun addNotificationForUser(
         "status" to "unread",
         "actionUrl" to actionUrl,
         "icon" to icon,
+        "starred" to false,
     )
     return runCatching {
         val firestore = Firebase.firestore
+        if (!isFirebaseAvailable()) return@runCatching Result.failure(IllegalStateException("Firebase unavailable"))
         firestore.collection("notifications").document(notificationId).set(payload)
         firestore.collection("alerts").document(notificationId).set(payload)
-        NotificationItem(
-            id = notificationId,
-            userId = userId,
-            title = title,
-            body = body,
-            type = type,
-            eventId = eventId,
-            createdAt = nowIso,
-            readAt = null,
-            status = "unread",
-            actionUrl = actionUrl,
-            icon = icon,
+        Result.success(
+            NotificationItem(
+                id = notificationId,
+                userId = userId,
+                title = title,
+                body = body,
+                type = type,
+                eventId = eventId,
+                createdAt = nowIso,
+                readAt = null,
+                status = "unread",
+                actionUrl = actionUrl,
+                icon = icon,
+                starred = false,
+            )
         )
-    }
+    }.getOrElse { Result.failure(it) }
 }
 
 private suspend fun markNotificationReadOnFirestore(notificationId: String) {
+    if (!isFirebaseAvailable()) return
     val nowIso = currentInstant().toString()
     runCatching {
         val firestore = Firebase.firestore
+        if (!isFirebaseAvailable()) return@runCatching
         val updatePayload = mapOf(
             "readAt" to nowIso,
             "status" to "read"
         )
         firestore.collection("notifications").document(notificationId).update(updatePayload)
         firestore.collection("alerts").document(notificationId).update(updatePayload)
+    }
+}
+
+private suspend fun updateNotificationStarOnFirestore(notificationId: String, starred: Boolean) {
+    if (!isFirebaseAvailable()) return
+    runCatching {
+        val firestore = Firebase.firestore
+        if (!isFirebaseAvailable()) return@runCatching
+        val payload = mapOf("starred" to starred)
+        firestore.collection("notifications").document(notificationId).update(payload)
+        firestore.collection("alerts").document(notificationId).update(payload)
     }
 }
 
@@ -1709,6 +2579,7 @@ private suspend fun runProactiveAlerts(
     remindersSent: MutableMap<String, MutableSet<String>>,
     markReminderSent: (String, String) -> Unit,
 ) {
+    if (!isFirebaseAvailable()) return
     val uid = Firebase.auth.currentUser?.uid ?: return
     if (publicEvents.isEmpty()) return
     val now = currentInstant()
@@ -2312,7 +3183,30 @@ private data class LaunchCheck(val id: String, val title: String, val desc: Stri
 private data class AdminKpi(val title: String, val value: String, val delta: String, val accent: Color)
 private data class AdminAttention(val title: String, val subtitle: String, val severity: String)
 private data class AdminActivity(val text: String, val time: String, val accent: Color)
-private enum class AdminSurface { Dashboard, Applications, Moderation, Organizer, Catalog, Banners, NewsFlash, Settings }
+private data class AdminTicketRow(
+    val id: String,
+    val holderName: String,
+    val seat: String,
+    val type: TicketType,
+    val priceLabel: String,
+    val purchaseChannel: String,
+    val purchaseAt: String,
+    val qrSeedShort: String,
+    val scanned: Boolean,
+    val scannedAt: String?,
+    val status: String,
+)
+
+private data class AdminTicketGroup(
+    val eventId: String,
+    val eventTitle: String,
+    val venue: String,
+    val city: String,
+    val dateLabel: String,
+    val tickets: List<AdminTicketRow>,
+)
+
+private enum class AdminSurface { Dashboard, Applications, Tickets, Moderation, Organizer, Catalog, Banners, NewsFlash, Settings }
 private enum class BottomNavVisibility { Visible, Hidden }
 private enum class GuestGateTarget { Checkout, Organizer }
 private data class AdminApplication(
@@ -2322,6 +3216,8 @@ private data class AdminApplication(
     val title: String,
     val organizer: String,
     val city: String,
+    val venue: String = "",
+    val country: String = "",
     val category: String,
     var status: String,
     var isApproved: Boolean = false,
@@ -2516,7 +3412,11 @@ private fun buildTicketPassFromBooking(
 ): TicketPass {
     val ticketId = order?.id ?: "T-${(1000..9999).random()}"
     val eventTitle = event?.title ?: order?.items?.firstOrNull()?.label ?: "Your event"
-    val venue = event?.city?.takeIf { it.isNotBlank() } ?: "Venue to be announced"
+    val venue = event?.venue?.takeIf { it.isNotBlank() }
+        ?: event?.city?.takeIf { it.isNotBlank() }
+        ?: "Venue to be announced"
+    val city = event?.city.orEmpty()
+    val country = event?.country.orEmpty()
     val dateLabel = event?.dateLabel ?: "See event details"
     val seatLabel = "${ticketTypeLabel.ifBlank { "General Admission" }} • ${order?.items?.firstOrNull()?.price ?: "Your seat"}"
     val type = ticketTypeFromLabel(ticketTypeLabel)
@@ -2524,8 +3424,11 @@ private fun buildTicketPassFromBooking(
     val holderInitials = initialsFromName(user.fullName)
     return TicketPass(
         id = ticketId,
+        eventId = event?.id ?: "",
         eventTitle = eventTitle,
         venue = venue,
+        city = city,
+        country = country,
         dateLabel = dateLabel,
         seat = seatLabel,
         status = "Ready",
@@ -2538,6 +3441,7 @@ private fun buildTicketPassFromBooking(
 }
 
 private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
+    if (!isFirebaseAvailable()) return Result.success(Unit)
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         runCatching { auth.signInAnonymously() }
@@ -2554,8 +3458,11 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
             .set(
                 mapOf(
                     "ownerId" to uid,
+                    "eventId" to pass.eventId,
                     "eventTitle" to pass.eventTitle,
                     "venue" to pass.venue,
+                    "city" to pass.city,
+                    "country" to pass.country,
                     "dateLabel" to pass.dateLabel,
                     "seat" to pass.seat,
                     "status" to pass.status,
@@ -2564,6 +3471,11 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
                     "holderInitials" to pass.holderInitials,
                     "qrSeed" to pass.qrSeed,
                     "purchaseAt" to (pass.purchaseAt ?: nowIso),
+                    "scanCount" to 0,
+                    "scanned" to false,
+                    "scannedAt" to null,
+                    "scannedBy" to null,
+                    "scanProhibited" to false,
                     "createdAt" to nowIso,
                     "updatedAt" to nowIso,
                 )
@@ -2572,6 +3484,7 @@ private suspend fun persistTicketForUser(pass: TicketPass): Result<Unit> {
 }
 
 private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
+    if (!isFirebaseAvailable()) return Result.success(emptyList())
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         // Best-effort session for Firestore rules; avoid surfacing a snackbar if it fails.
@@ -2588,6 +3501,8 @@ private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
         snap.documents.mapNotNull { doc ->
             val eventTitle = doc.get<String?>("eventTitle") ?: return@mapNotNull null
             val venue = doc.get<String?>("venue") ?: "Venue TBC"
+            val city = doc.get<String?>("city") ?: ""
+            val country = doc.get<String?>("country") ?: ""
             val dateLabel = doc.get<String?>("dateLabel") ?: "See event details"
             val seat = doc.get<String?>("seat") ?: "General Admission"
             val status = doc.get<String?>("status") ?: "Ready"
@@ -2601,6 +3516,8 @@ private suspend fun fetchTicketsForUser(): Result<List<TicketPass>> {
                 id = doc.id,
                 eventTitle = eventTitle,
                 venue = venue,
+                city = city,
+                country = country,
                 dateLabel = dateLabel,
                 seat = seat,
                 status = status,
@@ -2693,6 +3610,8 @@ private fun mapAdminApplicationToEvent(app: AdminApplication, apps: List<AdminAp
         id = app.eventId,
         title = app.title,
         city = app.city,
+        venue = app.venue,
+        country = app.country,
         dateLabel = parsedInstant?.let { friendlyDateLabel(it) } ?: app.eventDateTime.ifBlank { "Date TBC" },
         startsAt = parsedInstant,
         priceFrom = if (priceLabel.isNotBlank()) priceLabel else "Pricing TBC",
@@ -2754,6 +3673,8 @@ private fun mapEventDocToAdminApplication(doc: DocumentSnapshot, now: Instant): 
         title = title,
         organizer = doc.get<String?>("companyName") ?: doc.get<String?>("organizerName") ?: "Organizer",
         city = doc.get<String?>("city") ?: "",
+        venue = doc.get<String?>("venue") ?: "",
+        country = doc.get<String?>("country") ?: "",
         category = doc.get<String?>("category") ?: "General",
         status = status,
         isApproved = isApproved,
@@ -2909,7 +3830,9 @@ private data class AdminOrganizer(
     val countryName: String = "",
     val phoneCode: String = "",
     val phoneNumber: String = "",
+    val gender: String = "",
     val role: String = "",
+    val isVerified: Boolean = false
 )
 private data class AdminRoleEntry(
     val id: String,
@@ -3092,6 +4015,7 @@ private fun applyShade(color: Color, shade: Float): Color {
 }
 
 private suspend fun fetchHeroBannersFromFirestore(): List<HeroSlide> {
+    if (!isFirebaseAvailable()) return emptyList()
     return try {
         ensureSettingsSession()
         val snap = Firebase.firestore
@@ -3228,6 +4152,7 @@ private fun monthNameToNumber(name: String): Int? {
 }
 
 private suspend fun fetchNewsFlashDocuments(): List<NewsFlash> {
+    if (!isFirebaseAvailable()) return emptyList()
     return try {
         ensureSettingsSession()
         val snap = Firebase.firestore
@@ -3301,6 +4226,7 @@ private suspend fun fetchNewsFlashForPublic(): List<EntertainmentNewsItem> {
 }
 
 private suspend fun saveNewsFlashToFirestore(item: NewsFlash) {
+    if (!isFirebaseAvailable()) return
     runCatching {
         ensureSettingsSession()
         Firebase.firestore
@@ -3337,6 +4263,7 @@ private suspend fun saveNewsFlashToFirestore(item: NewsFlash) {
 }
 
 private suspend fun saveHeroBannerToFirestore(slide: HeroSlide) {
+    if (!isFirebaseAvailable()) return
     runCatching {
         ensureSettingsSession()
         Firebase.firestore
@@ -3364,6 +4291,7 @@ private suspend fun saveHeroBannerToFirestore(slide: HeroSlide) {
 }
 
 private suspend fun deleteHeroBannerFromFirestore(id: String) {
+    if (!isFirebaseAvailable()) return
     runCatching {
         ensureSettingsSession()
         Firebase.firestore
@@ -3420,14 +4348,8 @@ private data class SettingsPrefs(
     val rememberMe: Boolean = false,
 )
 
-private data class AdminSecureConfig(
-    val email: String,
-    val password: String,
-    val rememberMe: Boolean = true,
-    // Human-friendly admin profile key, e.g. "Kate Mula".
-    // This lets us store admin app_settings under /adminProfiles/{adminName}/app_settings/admin_secure.
-    val adminName: String? = null,
-)
+// Admin credentials are now stored in device-local secure storage.
+// This data class is kept for compatibility but credentials come from SecureStorage.
 
 private val SettingsPrefsSaver = listSaver<SettingsPrefs, Any>(
     save = { listOf(it.pushEnabled, it.emailUpdates, it.dataSaver, it.hapticsEnabled, it.theme, it.rememberMe) },
@@ -3448,7 +4370,109 @@ private val SearchHistorySaver = listSaver<SnapshotStateList<String>, String>(
     restore = { saved -> mutableStateListOf(*saved.toTypedArray()) }
 )
 
+private val ReviewQosOptions = listOf("Excellent", "Good", "Needs work")
+
+private data class UserReview(
+    val id: String,
+    val userId: String,
+    val userName: String,
+    val eventId: String,
+    val eventTitle: String,
+    val rating: Int,
+    val qos1: String,
+    val qos2: String,
+    val qos3: String,
+    val comment: String,
+    val createdAt: Instant,
+)
+
+private data class ReviewDraft(
+    val rating: Int = 0,
+    val qos1: String = ReviewQosOptions.first(),
+    val qos2: String = ReviewQosOptions.first(),
+    val qos3: String = ReviewQosOptions.first(),
+    val comment: String = "",
+)
+
+private fun reviewDocId(userId: String, eventId: String) = "${userId}_${eventId}"
+
+private suspend fun fetchReviewsFromFirestore(limit: Int = 12): Result<List<UserReview>> = runCatching {
+    if (!isFirebaseAvailable()) return@runCatching emptyList()
+    val firestore = Firebase.firestore
+    val snap = firestore.collection("reviews")
+        .orderBy("createdAt", Direction.DESCENDING)
+        .limit(limit.toLong())
+        .get()
+
+    snap.documents.mapNotNull { doc ->
+        val rating = doc.get<Long>("rating")?.toInt() ?: return@mapNotNull null
+        val userId = doc.get<String>("userId") ?: return@mapNotNull null
+        val eventId = doc.get<String>("eventId") ?: return@mapNotNull null
+        val userName = doc.get<String>("userName") ?: "GoTicky fan"
+        val eventTitle = doc.get<String>("eventTitle") ?: "GoTicky Event"
+        val qos1 = doc.get<String>("qos1") ?: ReviewQosOptions.first()
+        val qos2 = doc.get<String>("qos2") ?: ReviewQosOptions.first()
+        val qos3 = doc.get<String>("qos3") ?: ReviewQosOptions.first()
+        val comment = doc.get<String>("comment") ?: ""
+        val createdAtStr = doc.get<String>("createdAt")
+        val createdAt = createdAtStr?.let { runCatching { Instant.parse(it) }.getOrElse { currentInstant() } } ?: currentInstant()
+
+        UserReview(
+            id = doc.id,
+            userId = userId,
+            userName = userName,
+            eventId = eventId,
+            eventTitle = eventTitle,
+            rating = rating.coerceIn(1, 5),
+            qos1 = qos1,
+            qos2 = qos2,
+            qos3 = qos3,
+            comment = comment,
+            createdAt = createdAt
+        )
+    }
+}
+
+private suspend fun submitReviewToFirestore(
+    userId: String,
+    userName: String,
+    event: EventItem,
+    draft: ReviewDraft,
+): Result<UserReview> = runCatching {
+    if (!isFirebaseAvailable()) throw IllegalStateException("Firebase unavailable")
+    val firestore = Firebase.firestore
+    val docId = reviewDocId(userId, event.id)
+    val nowIso = currentInstant().toString()
+    val payload = mapOf(
+        "userId" to userId,
+        "userName" to userName,
+        "eventId" to event.id,
+        "eventTitle" to event.title,
+        "rating" to draft.rating.coerceIn(1, 5),
+        "qos1" to draft.qos1,
+        "qos2" to draft.qos2,
+        "qos3" to draft.qos3,
+        "comment" to draft.comment,
+        "createdAt" to nowIso,
+    )
+    firestore.collection("reviews").document(docId).set(payload)
+    UserReview(
+        id = docId,
+        userId = userId,
+        userName = userName,
+        eventId = event.id,
+        eventTitle = event.title,
+        rating = draft.rating.coerceIn(1, 5),
+        qos1 = draft.qos1,
+        qos2 = draft.qos2,
+        qos3 = draft.qos3,
+        comment = draft.comment,
+        createdAt = currentInstant()
+    )
+}
+
 private suspend fun ensureSettingsSession() {
+    if (!isFirebaseAvailable()) return
     val auth = Firebase.auth
     if (auth.currentUser == null) {
         // Avoid auto anonymous sign-in here; it can wipe a persisted user session and break remember-me.
@@ -3457,6 +4481,7 @@ private suspend fun ensureSettingsSession() {
 }
 
 private suspend fun loadUserSettingsFromFirestore(uid: String): SettingsPrefs? {
+    if (!isFirebaseAvailable()) return null
     return try {
         val doc = Firebase.firestore
             .collection("users")
@@ -3483,6 +4508,7 @@ private suspend fun loadUserSettingsFromFirestore(uid: String): SettingsPrefs? {
 }
 
 private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPrefs) {
+    if (!isFirebaseAvailable()) return
     try {
         Firebase.firestore
             .collection("users")
@@ -3505,146 +4531,50 @@ private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPref
     }
 }
 
-private suspend fun fetchAdminSecureConfig(): Result<AdminSecureConfig> {
-    return runCatching {
-        ensureSettingsSession()
-        val firestore = Firebase.firestore
-
-        // 1) Prefer per-admin app_settings under /adminProfiles/{adminName}/app_settings/admin_secure.
-        // We iterate over the known seeds and return the first valid config we find.
-        val fromPerAdmin: AdminSecureConfig? = adminSeeds.firstNotNullOfOrNull { seed ->
-            val doc = firestore
-                .collection("adminProfiles")
-                .document(seed.fullName)
-                .collection("app_settings")
-                .document("admin_secure")
-                .get()
-
-            if (!doc.exists) return@firstNotNullOfOrNull null
-
-            val email = doc.get<String?>("email")?.trim().orEmpty()
-            val password = doc.get<String?>("password").orEmpty()
-            val rememberMe = doc.get<Boolean?>("rememberMe") ?: true
-            if (email.isBlank() || password.isBlank()) null
-            else AdminSecureConfig(email, password, rememberMe, adminName = seed.fullName)
-        }
-
-        // 2) Legacy fallback: global /app_settings/admin_secure (for backwards compatibility).
-        val fromLegacy: AdminSecureConfig? = runCatching {
-            val legacyDoc = firestore
-                .collection("app_settings")
-                .document("admin_secure")
-                .get()
-
-            if (!legacyDoc.exists) return@runCatching null
-
-            val email = legacyDoc.get<String?>("email")?.trim().orEmpty()
-            val password = legacyDoc.get<String?>("password").orEmpty()
-            val rememberMe = legacyDoc.get<Boolean?>("rememberMe") ?: true
-
-            if (email.isBlank() || password.isBlank()) null else {
-                // Try to infer the adminName from seeds based on email.
-                val seedMatch = adminSeeds.firstOrNull { it.email.equals(email, ignoreCase = true) }
-                AdminSecureConfig(
-                    email = email,
-                    password = password,
-                    rememberMe = rememberMe,
-                    adminName = seedMatch?.fullName
-                ).also {
-                    // Best-effort one-way migration into the new per-admin location.
-                    runCatching { saveAdminSecureConfig(it) }
-                }
-            }
-        }.getOrNull()
-
-        // 3) Seed-based default if nothing is configured yet.
-        val fromSeed = adminSeeds.firstOrNull()?.let { seed ->
-            AdminSecureConfig(
-                email = seed.email,
-                password = seed.password,
-                rememberMe = true,
-                adminName = seed.fullName,
-            ).also {
-                // Best-effort seed into Firestore so subsequent secure clicks have a stored config.
-                runCatching { saveAdminSecureConfig(it) }
-            }
-        }
-
-        fromPerAdmin
-            ?: fromLegacy
-            ?: fromSeed
-            ?: throw IllegalStateException("admin_secure settings unavailable.")
-    }
-}
-
-private suspend fun seedAdminSecureConfig(): AdminSecureConfig? {
-    val seed = adminSeeds.firstOrNull() ?: return null
-    val config = AdminSecureConfig(
-        email = seed.email,
-        password = seed.password,
-        rememberMe = true,
-        adminName = seed.fullName,
-    )
-    runCatching { saveAdminSecureConfig(config) }
-    return config
-}
-
-private suspend fun saveAdminSecureConfig(config: AdminSecureConfig) {
-    runCatching {
-        ensureSettingsSession()
-        val firestore = Firebase.firestore
-
-        // Persist under the admin's profile document: /adminProfiles/{adminName}/app_settings/admin_secure
-        val adminName = config.adminName
-            ?: adminSeeds.firstOrNull { it.email.equals(config.email, ignoreCase = true) }?.fullName
-
-        if (adminName != null) {
-            firestore
-                .collection("adminProfiles")
-                .document(adminName)
-                .collection("app_settings")
-                .document("admin_secure")
-                .set(
-                    mapOf(
-                        "email" to config.email,
-                        "password" to config.password,
-                        "rememberMe" to config.rememberMe,
-                    ),
-                    merge = true
-                )
-        }
-    }
-}
-
-private suspend fun loadAdminSecureConfigForPrefill(): AdminSecureConfig? {
-    ensureSettingsSession()
-    val firestore = Firebase.firestore
-
-    return adminSeeds.firstNotNullOfOrNull { seed ->
-        val doc = firestore
-            .collection("adminProfiles")
-            .document(seed.fullName)
-            .collection("app_settings")
-            .document("admin_secure")
-            .get()
-
-        if (!doc.exists) return@firstNotNullOfOrNull null
-
-        val rememberMe = doc.get<Boolean?>("rememberMe") ?: true
-        if (!rememberMe) return@firstNotNullOfOrNull null
-
-        val email = doc.get<String?>("email")?.trim().orEmpty()
-        val password = doc.get<String?>("password").orEmpty()
-        if (email.isBlank() || password.isBlank()) null
-        else AdminSecureConfig(email, password, rememberMe, adminName = seed.fullName)
-    }
+private suspend fun fetchRememberedAdminCredentials(): org.example.project.platform.AdminCredentials? {
+    // Fetch from device-local secure storage instead of cloud
+    return runCatching { 
+        org.example.project.platform.getSecureStorage().getAdminCredentials()
+    }.getOrNull()
 }
 
 @Composable
 fun App() {
+    if (!isFirebaseAvailable()) {
+        GoTickyTheme {
+            FallbackOfflineScreen()
+        }
+        return
+    }
+
     LaunchedEffect(Unit) { initFirebase() }
     GoTickyTheme {
         GoTickyRoot()
+    }
+}
+
+@Composable
+private fun FallbackOfflineScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Text(
+                text = "Firebase features are unavailable on this platform.",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Run the Android build for full functionality.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -3874,6 +4804,12 @@ private fun GoTickyRoot() {
     var lastCheckoutAmount by remember { mutableStateOf<Int?>(null) }
     var lastCheckoutPurchaseAt by remember { mutableStateOf<Instant?>(null) }
     var checkoutOrder by remember { mutableStateOf<OrderSummary?>(null) }
+    var pendingReviewEvent by remember { mutableStateOf<org.example.project.data.EventItem?>(null) }
+    var showReviewDialog by remember { mutableStateOf(false) }
+    var reviewDraft by remember { mutableStateOf(ReviewDraft()) }
+    var submittingReview by remember { mutableStateOf(false) }
+    var showRatingNudge by remember { mutableStateOf(false) }
+    val submittedReviewEventIds = remember { mutableStateListOf<String>() }
     var lastCheckoutOrder by remember { mutableStateOf<OrderSummary?>(null) }
     val userTickets = remember { mutableStateListOf<TicketPass>() }
     var showLogoutConfirm by remember { mutableStateOf(false) }
@@ -4038,6 +4974,11 @@ private fun GoTickyRoot() {
     }
 
     fun refreshNotifications() {
+        if (!isFirebaseAvailable()) {
+            notifications.clear()
+            notificationsError = "Firebase not available on this platform."
+            return
+        }
         val uid = Firebase.auth.currentUser?.uid
         if (uid == null) {
             notifications.clear()
@@ -4066,6 +5007,12 @@ private fun GoTickyRoot() {
     }
 
     fun requestPriceAlert(event: org.example.project.data.EventItem) {
+        if (!isFirebaseAvailable()) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Firebase not available on this platform.")
+            }
+            return
+        }
         val uid = Firebase.auth.currentUser?.uid
         if (uid == null) {
             scope.launch {
@@ -4104,6 +5051,46 @@ private fun GoTickyRoot() {
         scope.launch {
             markNotificationReadOnFirestore(item.id)
         }
+    }
+
+    fun toggleNotificationStarLocal(item: NotificationItem, starred: Boolean) {
+        val idx = notifications.indexOfFirst { it.id == item.id }
+        if (idx >= 0) {
+            notifications[idx] = notifications[idx].copy(starred = starred)
+        }
+        scope.launch {
+            updateNotificationStarOnFirestore(item.id, starred)
+        }
+    }
+
+    val backAction: (() -> Unit)? = when {
+        !isAuthenticated -> ({})
+        showLogoutConfirm && !logoutInProgress -> ({ showLogoutConfirm = false })
+        showGuestGateDialog -> ({ showGuestGateDialog = false })
+        showAdminGateDialog -> ({ showAdminGateDialog = false })
+        detailEvent != null -> ({ detailEvent = null })
+        showCheckout -> ({
+            showCheckout = false
+            if (checkoutReturnEvent != null) {
+                detailEvent = checkoutReturnEvent
+            }
+            checkoutReturnEvent = null
+            checkoutOrder = null
+        })
+        checkoutSuccess -> ({
+            checkoutSuccess = false
+            currentScreen = MainScreen.Home
+        })
+        selectedTicket != null -> ({ selectedTicket = null })
+        selectedOrganizerEvent != null -> ({ selectedOrganizerEvent = null })
+        showCreateEvent && !createEventSaving -> ({ showCreateEvent = false })
+        showAdminSignIn -> ({ showAdminSignIn = false })
+        currentScreen != MainScreen.Home -> ({ currentScreen = MainScreen.Home })
+        else -> ({})
+    }
+
+    SystemBackHandler(enabled = backAction != null) {
+        backAction?.invoke()
     }
 
     LaunchedEffect(Unit) {
@@ -4163,6 +5150,12 @@ private fun GoTickyRoot() {
             notifications.clear()
             notificationsError = null
             notificationsLoading = false
+        }
+    }
+
+    LaunchedEffect(currentScreen, isAuthenticated) {
+        if (isAuthenticated && currentScreen == MainScreen.Alerts) {
+            refreshNotifications()
         }
     }
 
@@ -4313,10 +5306,6 @@ private fun GoTickyRoot() {
         label = "fabAlpha"
     )
 
-    // Seed admin auth accounts and Firestore profiles once when the app boots.
-    LaunchedEffect(Unit) {
-        runCatching { seedAdminProfilesIfMissing() }
-    }
     var personalizationPrefs by rememberSaveable(stateSaver = PersonalizationPrefsSaver) {
         mutableStateOf(
             PersonalizationPrefs(
@@ -4330,7 +5319,7 @@ private fun GoTickyRoot() {
     var forceOpenSearchDialog by remember { mutableStateOf(false) }
     var settingsPrefs by rememberSaveable(stateSaver = SettingsPrefsSaver) { mutableStateOf(SettingsPrefs()) }
     var authInitDone by rememberSaveable { mutableStateOf(false) }
-    var adminSecurePrefill by remember { mutableStateOf<AdminSecureConfig?>(null) }
+    var adminSecurePrefill by remember { mutableStateOf<AdminCredentials?>(null) }
     LaunchedEffect(Unit) {
         val existing = authRepo.currentUser()
         val uid = existing?.uid
@@ -4407,6 +5396,7 @@ private fun GoTickyRoot() {
     val adminReports = remember { mutableStateListOf<AdminReport>() }
     val adminFlags = remember { mutableStateListOf<AdminFeatureFlag>() }
     val adminRoles = remember { mutableStateListOf<AdminRoleEntry>() }
+    val adminTicketGroups = remember { mutableStateListOf<AdminTicketGroup>() }
     // Admin accents used across dashboard + seeded activity; defined early so helper functions compile.
     val adminPrimaryAccent = MaterialTheme.colorScheme.primary
     val adminSecondaryAccent = MaterialTheme.colorScheme.secondary
@@ -4468,6 +5458,52 @@ private fun GoTickyRoot() {
                     AdminFeatureFlag("ff-payments", "Payments (real)", GoTickyFeatures.EnableRealPayments, "all"),
                 )
             )
+        }
+    }
+
+    // Load admin ticket groups only once admin access is available so the
+    // collectionGroup query runs with an admin-capable Firestore session.
+    LaunchedEffect(hasAdminAccess) {
+        if (!hasAdminAccess) return@LaunchedEffect
+
+        if (adminTicketGroups.isEmpty()) {
+            // Fetch real tickets from Firestore
+            scope.launch {
+                val repository = org.example.project.data.TicketRepository()
+                val result = repository.fetchTicketGroups()
+                result.onSuccess { groups ->
+                    adminTicketGroups.clear()
+                    adminTicketGroups.addAll(groups.map { group ->
+                        AdminTicketGroup(
+                            eventId = group.eventId,
+                            eventTitle = group.eventTitle,
+                            venue = group.venue,
+                            city = group.city,
+                            dateLabel = group.dateLabel,
+                            tickets = group.tickets.map { ticket ->
+                                AdminTicketRow(
+                                    id = ticket.id,
+                                    holderName = ticket.holderName,
+                                    seat = ticket.seat,
+                                    type = ticket.type,
+                                    priceLabel = ticket.priceLabel,
+                                    purchaseChannel = ticket.purchaseChannel,
+                                    purchaseAt = ticket.purchaseAt,
+                                    qrSeedShort = ticket.qrSeedShort,
+                                    scanned = ticket.scanned,
+                                    scannedAt = ticket.scannedAt,
+                                    status = ticket.status
+                                )
+                            }
+                        )
+                    })
+                    if (adminTicketGroups.isNotEmpty()) {
+                        addAdminActivity("Loaded ${adminTicketGroups.size} ticket groups from Firestore", adminPrimaryAccent)
+                    }
+                }.onFailure { error ->
+                    addAdminActivity("Failed to load tickets: ${error.message}", Color(0xFFFF6B6B))
+                }
+            }
         }
     }
 
@@ -4551,16 +5587,27 @@ private fun GoTickyRoot() {
         if (adminAuthEnsured) return
         val auth = Firebase.auth
         if (auth.currentUser == null) {
-            runCatching { auth.signInAnonymously() }
+            try {
+                println("DEBUG: Signing in anonymously...")
+                auth.signInAnonymously()
+                println("DEBUG: Anonymous sign-in completed. UID: ${auth.currentUser?.uid}")
+            } catch (e: Exception) {
+                println("DEBUG ERROR: Anonymous sign-in failed: ${e.message}")
+                e.printStackTrace()
+            }
         }
         // Ensure the session is recognized as an admin in Firestore rules.
         auth.currentUser?.uid?.let { uid ->
+            val emailLower = userProfile.email.trim().lowercase().takeIf { it.isNotBlank() }
+                ?: auth.currentUser?.email?.trim()?.lowercase()
             runCatching {
                 Firebase.firestore.collection("users").document(uid).set(
                     mapOf(
                         "uid" to uid,
                         "displayName" to "Admin Session",
                         "role" to "Admin",
+                        "email" to (emailLower?.takeIf { it.isNotBlank() } ?: ""),
+                        "emailLower" to (emailLower ?: ""),
                         "countryName" to "Zimbabwe",
                     ),
                     merge = true
@@ -4620,6 +5667,7 @@ private fun GoTickyRoot() {
                                 val phoneCode = orgDoc.get<String?>("phoneCode") ?: ""
                                 val phoneNumber = orgDoc.get<String?>("phoneNumber") ?: ""
                                 val role = orgDoc.get<String?>("role") ?: "organizer"
+                                val isVerified = orgDoc.get<Boolean?>("isVerified") ?: false
 
                                 AdminOrganizer(
                                     id = id,
@@ -4635,6 +5683,7 @@ private fun GoTickyRoot() {
                                     phoneCode = phoneCode,
                                     phoneNumber = phoneNumber,
                                     role = role,
+                                    isVerified = isVerified,
                                 )
                             }
                         }.getOrNull()
@@ -4656,6 +5705,7 @@ private fun GoTickyRoot() {
                                     phoneCode = "",
                                     phoneNumber = "",
                                     role = "organizer",
+                                    isVerified = false,
                                 )
                             }
 
@@ -4705,35 +5755,37 @@ private fun GoTickyRoot() {
         if (shouldFetch) refreshAdminApplications()
     }
 
-    suspend fun startAdminSessionFromSeed(seed: AdminSeed, rememberMe: Boolean): AuthResult {
+    suspend fun startAdminSessionFromProfile(profile: AdminProfile, rememberMe: Boolean): AuthResult {
         // Ensure we have some Firebase auth session for Firestore rules when possible.
         val auth = Firebase.auth
-        val seedEmailLower = seed.email.trim().lowercase()
+        val emailLower = profile.emailLower
 
         // Prevent clobbering an existing customer profile by switching to a dedicated admin session.
         val existing = auth.currentUser
-        if (existing != null && (existing.email?.trim()?.lowercase() != seedEmailLower)) {
-            runCatching { auth.signOut() }
+        if (existing != null && (existing.email?.trim()?.lowercase() != emailLower)) {
+            try {
+                println("DEBUG: Signing out existing user...")
+                auth.signOut()
+                println("DEBUG: Sign out completed")
+            } catch (e: Exception) {
+                println("DEBUG ERROR: Sign out failed: ${e.message}")
+            }
         }
-        if (auth.currentUser == null) {
-            runCatching { auth.signInAnonymously() }
-        }
+        // Note: Anonymous auth is disabled in Firebase Console, so we use email as UID for admin shells
+        println("DEBUG: Using email-based UID for admin session: $emailLower")
+        val adminUid = emailLower
 
-        val currentUser = auth.currentUser
-        val adminUid = currentUser?.uid ?: seedEmailLower
-
-        // Build a local admin profile shell from the seed.
         val adminProfile = UserProfile(
-            fullName = seed.fullName,
-            email = seed.email,
-            countryName = seed.country,
-            countryFlag = "\uD83C\uDDF8\uD83C\uDDFF", // Zimbabwe flag
+            fullName = profile.fullName,
+            email = profile.email,
+            countryName = profile.country.ifBlank { "Zimbabwe" },
+            countryFlag = "🇿🇼",
             phoneCode = "+263",
-            phoneNumber = seed.phoneNumber,
-            birthday = seed.birthday,
-            gender = seed.gender,
+            phoneNumber = profile.phoneNumber,
+            birthday = profile.birthday,
+            gender = profile.gender,
             photoResKey = null,
-            photoUri = seed.photoUri,
+            photoUri = profile.photoUri,
             favorites = emptyList(),
             role = "admin",
         )
@@ -4747,62 +5799,67 @@ private fun GoTickyRoot() {
 
         // Best-effort persistence of an admin user shell; may be rejected by rules if auth
         // is not configured, but this should never break the local session.
-        runCatching {
-            Firebase.firestore.collection("users").document(adminUid).set(
-                mapOf(
-                    "uid" to adminUid,
-                    "displayName" to adminProfile.fullName,
-                    "email" to adminProfile.email,
-                    "role" to adminProfile.role,
-                    "countryName" to adminProfile.countryName,
-                    "countryFlag" to adminProfile.countryFlag,
-                    "phoneCode" to adminProfile.phoneCode,
-                    "phoneNumber" to adminProfile.phoneNumber,
-                    "birthday" to adminProfile.birthday,
-                    "gender" to adminProfile.gender,
-                    "photoResKey" to adminProfile.photoResKey,
-                    "photoUri" to adminProfile.photoUri,
-                    "favorites" to adminProfile.favorites
-                ),
-                merge = true
-            )
-        }
-
-        // Persist secure admin config under the admin profile document so future secure clicks
-        // can auto-fill and sign in.
-        runCatching {
-            saveAdminSecureConfig(
-                AdminSecureConfig(
-                    email = seed.email,
-                    password = seed.password,
-                    rememberMe = rememberMe,
-                    adminName = seed.fullName,
+        println("DEBUG: About to write admin user document to users/$adminUid")
+        try {
+            withContext(NonCancellable) {
+                Firebase.firestore.collection("users").document(adminUid).set(
+                    mapOf(
+                        "uid" to adminUid,
+                        "displayName" to adminProfile.fullName,
+                        "email" to adminProfile.email,
+                        "emailLower" to adminProfile.email.trim().lowercase(),
+                        "role" to adminProfile.role,
+                        "countryName" to adminProfile.countryName,
+                        "countryFlag" to adminProfile.countryFlag,
+                        "phoneCode" to adminProfile.phoneCode,
+                        "phoneNumber" to adminProfile.phoneNumber,
+                        "birthday" to adminProfile.birthday,
+                        "gender" to adminProfile.gender,
+                        "photoResKey" to adminProfile.photoResKey,
+                        "photoUri" to adminProfile.photoUri,
+                        "favorites" to adminProfile.favorites,
+                        "rememberMe" to rememberMe,
+                    ),
+                    merge = true
                 )
-            )
+            }
+            println("DEBUG: Successfully wrote admin user document to users/$adminUid")
+        } catch (e: Exception) {
+            println("DEBUG ERROR: Failed to write to users collection: ${e.message}")
+            println("DEBUG ERROR: Exception type: ${e::class.simpleName}")
+            e.printStackTrace()
         }
 
-        // Admin-specific remember-me is handled via AdminSecureConfig only; we intentionally do
-        // not toggle the global SettingsPrefs.rememberMe here so startup behavior for customers
-        // remains predictable.
         syncFavoritesFromBackend()
-        isSignInWarmupActive = true
+        
+        // Update rememberMe in adminProfiles collection
+        println("DEBUG: Saving admin credentials to device-local secure storage for ${profile.email}")
+        try {
+            withContext(NonCancellable) {
+                org.example.project.platform.getSecureStorage()
+                    .saveAdminCredentials(profile.email, profile.passcode, rememberMe)
+            }
+            println("DEBUG: Successfully saved admin credentials to secure storage (rememberMe=$rememberMe)")
+        } catch (e: Exception) {
+            println("DEBUG ERROR: Failed to save admin credentials to secure storage: ${e.message}")
+            println("DEBUG ERROR: Exception type: ${e::class.simpleName}")
+            e.printStackTrace()
+        }
+        
+        adminSecurePrefill = org.example.project.platform.AdminCredentials(profile.email, profile.passcode, rememberMe)
+
         return AuthResult.Success
     }
 
     suspend fun autoAdminSecureSignIn(): AuthResult {
-        val config = fetchAdminSecureConfig().getOrElse {
-            // Hide low-level Firestore errors and guide the user back to the manual admin flow.
-            return AuthResult.Error(
-                "Secure admin sign-in isn't fully configured yet. Use your admin email and passcode on the next screen."
-            )
-        }
+        val remembered = fetchRememberedAdminCredentials()
+            ?: return AuthResult.Error("Secure admin sign-in isn't configured yet. Use your admin email and passcode.")
 
-        val seed = adminSeedByCredentials(config.email, config.password)
-            ?: return AuthResult.Error(
-                "Secure admin sign-in failed. Use your admin email and passcode on the next screen."
-            )
+        val profile = adminProfileByCredentials(remembered.email, remembered.passcode)
+            ?: return AuthResult.Error("Saved admin credentials are no longer valid. Please sign in again.")
 
-        return startAdminSessionFromSeed(seed, config.rememberMe)
+        adminSecurePrefill = remembered
+        return startAdminSessionFromProfile(profile, remembered.rememberMe)
     }
 
     fun recordSearch(query: String) {
@@ -5014,19 +6071,21 @@ private fun GoTickyRoot() {
                     firestore.collection("events").document(app.eventId).set(publicPayload, merge = true)
 
                     // Mirror approval to organizer's private events collection when we know the organizerId.
-                    if (organizerIdForRule.isNotBlank()) {
-                        val organizerPayload = mapOf(
-                            "isApproved" to approvedFlag,
+                    if (false && organizerIdForRule.isNotBlank()) {
+                        val organizerPayload = mutableMapOf<String, Any?>(
                             "status" to status,
                             "updatedAt" to currentInstant().toString(),
                             "organizerId" to organizerIdForRule,
                         )
+                        if (approvedAtIso != null) {
+                            organizerPayload["approvedAt"] = approvedAtIso
+                        }
                         firestore
                             .collection("organizers")
                             .document(organizerIdForRule)
                             .collection("events")
                             .document(app.eventId)
-                            .set(organizerPayload, merge = true)
+                            .update(organizerPayload)
                     }
 
                     // Fire organizer notification for status changes so they see real-time updates in Alerts.
@@ -5162,6 +6221,36 @@ private fun GoTickyRoot() {
                         payload["verifiedAt"] = currentInstant().toString()
                     }
                     firestore.collection("users").document(id).set(payload, merge = true)
+
+                    // Keep organizer mirror doc in sync
+                    firestore.collection("organizers").document(id).set(
+                        mapOf(
+                            "isVerified" to verified,
+                            "kycStatus" to newStatus,
+                            "updatedAt" to currentInstant().toString(),
+                        ),
+                        merge = true
+                    )
+
+                    // Propagate verification to organizer events (no top-level isVerified/isApproved) and to public events
+                    val orgEvents = firestore.collection("organizers").document(id).collection("events").get()
+                    orgEvents.documents.forEach { doc ->
+                        val eventId = doc.id
+                        val organizerMergePayload = mapOf(
+                            "updatedAt" to currentInstant().toString(),
+                            "organizerProfile" to mapOf(
+                                "uid" to id,
+                                "kycStatus" to newStatus,
+                                "isVerified" to verified,
+                            )
+                        )
+                        doc.reference.set(organizerMergePayload, merge = true)
+
+                        val publicMergePayload = organizerMergePayload.toMutableMap().apply {
+                            this["isVerified"] = verified
+                        }
+                        firestore.collection("events").document(eventId).set(publicMergePayload, merge = true)
+                    }
                 }.onFailure { t ->
                     snackbarHostState.showSnackbar(t.message ?: "Verification saved locally; sync will retry on refresh.")
                 }
@@ -5356,15 +6445,16 @@ private fun GoTickyRoot() {
                             flagEnabled = adminFeatureFlagEnabled,
                             onBack = { showAdminSignIn = false },
                             prefillEmail = adminSecurePrefill?.email.orEmpty(),
-                            prefillPasscode = adminSecurePrefill?.password.orEmpty(),
+                            prefillPasscode = adminSecurePrefill?.passcode.orEmpty(),
                             prefillRememberMe = adminSecurePrefill?.rememberMe ?: false,
                             onSubmit = { email, passcode, rememberMe ->
-                                val seed = adminSeedByCredentials(email, passcode)
-                                if (seed == null) {
+                                val profile = adminProfileByCredentials(email, passcode)
+                                if (profile == null) {
                                     // Avoid leaking which field is wrong.
                                     AuthResult.Error("Incorrect admin email or passcode.")
                                 } else {
-                                    startAdminSessionFromSeed(seed, rememberMe)
+                                    adminSecurePrefill = AdminCredentials(email, passcode, rememberMe)
+                                    startAdminSessionFromProfile(profile, rememberMe)
                                 }
                             }
                         )
@@ -5411,7 +6501,7 @@ private fun GoTickyRoot() {
                                 isGuestIntroActive = true
                             },
                             onBiometricSignIn = {
-                                when (val bio = biometricLauncher.authenticate(
+                                return@AuthScreen when (val bio = biometricLauncher.authenticate(
                                     BiometricPromptConfig(
                                         title = "Unlock GoTicky",
                                         subtitle = "Use your fingerprint to continue",
@@ -5517,7 +6607,7 @@ private fun GoTickyRoot() {
                                 secureSignInInProgress = true
                                 scope.launch {
                                     try {
-                                        adminSecurePrefill = loadAdminSecureConfigForPrefill()
+                                        adminSecurePrefill = fetchRememberedAdminCredentials()
                                         showAdminSignIn = true
                                     } finally {
                                         secureSignInInProgress = false
@@ -5543,8 +6633,12 @@ private fun GoTickyRoot() {
                             if (showRootChrome && !introActive) {
                                 FabGlow(
                                     modifier = Modifier.graphicsLayer(alpha = fabAlpha),
-                                    icon = { Icon(Icons.Outlined.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onPrimary) },
-                                    onClick = { currentScreen = MainScreen.Alerts }
+                                    icon = { Icon(Icons.Outlined.SmartToy, contentDescription = "Assistant bot", tint = MaterialTheme.colorScheme.onPrimary) },
+                                    onClick = {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Coming soon")
+                                        }
+                                    }
                                 )
                             }
                         },
@@ -5667,9 +6761,33 @@ private fun GoTickyRoot() {
                                                 }
                                             ) {
                                                 if (logoutInProgress) return@PrimaryButton
+                                                
+                                                // Capture admin status BEFORE entering coroutine
+                                                val wasAdmin = adminAccessRoles.contains(currentUserRole)
+                                                
                                                 logoutInProgress = true
                                                 scope.launch {
                                                     runCatching { authRepo.signOut() }
+                                                    
+                                                    // Clear admin credentials from device-local storage if logging out as admin
+                                                    if (wasAdmin) {
+                                                        println("DEBUG: Admin logout - clearing credentials from secure storage")
+                                                        try {
+                                                            withContext(NonCancellable) {
+                                                                org.example.project.platform.getSecureStorage().clearAdminCredentials()
+                                                            }
+                                                            println("DEBUG: Successfully cleared admin credentials from secure storage")
+                                                        } catch (e: Exception) {
+                                                            println("DEBUG ERROR: Failed to clear admin credentials on logout: ${e.message}")
+                                                        }
+                                                    }
+                                                    
+                                                    // Set navigation flags FIRST before changing auth state
+                                                    // This ensures the correct screen is shown when isAuthenticated triggers recomposition
+                                                    showAdminSignIn = wasAdmin
+                                                    showIntro = !wasAdmin
+                                                    
+                                                    // Now reset authentication and other state
                                                     isAuthenticated = false
                                                     userProfile = defaultUserProfile()
                                                     currentUserRole = "customer"
@@ -5679,9 +6797,8 @@ private fun GoTickyRoot() {
                                                     showCheckout = false
                                                     checkoutSuccess = false
                                                     currentScreen = MainScreen.Home
-                                                    showAdminSignIn = false
-                                                    showIntro = false
                                                     isGuestMode = false
+                                                    adminSecurePrefill = null
                                                     logoutInProgress = false
                                                     showLogoutConfirm = false
                                                 }
@@ -5871,6 +6988,7 @@ private fun GoTickyRoot() {
                                                                         )
                                                                     }
                                                             }
+                                                            pendingReviewEvent = purchasedEvent
                                                             // Fire a purchase confirmation notification for the buyer.
                                                             Firebase.auth.currentUser?.uid?.let { uid ->
                                                                 scope.launch {
@@ -5907,6 +7025,8 @@ private fun GoTickyRoot() {
                                                             target = GuestGateTarget.Checkout,
                                                             message = "This screen is only accessible to registered customers. Sign up to view and manage your tickets.",
                                                         ) {
+                                                            pendingReviewEvent = lastCheckoutEvent
+                                                            reviewDraft = ReviewDraft()
                                                             currentScreen = MainScreen.Tickets
                                                         }
                                                     },
@@ -5974,6 +7094,12 @@ private fun GoTickyRoot() {
                                                             profilePainter = profilePhotoPainter,
                                                             onTicketSelected = { ticket ->
                                                                 selectedTicket = ticket
+                                                                pendingReviewEvent?.let { pending ->
+                                                                    if (!submittedReviewEventIds.contains(pending.id) && pending.title.equals(ticket.eventTitle, ignoreCase = true)) {
+                                                                        reviewDraft = ReviewDraft()
+                                                                        showReviewDialog = true
+                                                                    }
+                                                                }
                                                             },
                                                             onCheckout = {
                                                                 requireAuth(
@@ -5987,19 +7113,11 @@ private fun GoTickyRoot() {
                                                         )
                                                     }
                                                     MainScreen.Alerts -> {
-                                                        AlertsScreen(
+                                                        ModernAlertsScreen(
                                                             notifications = notifications,
-                                                            notificationsLoading = notificationsLoading,
-                                                            notificationsError = notificationsError,
-                                                            recommendations = personalize(recommendations),
-                                                            personalizationPrefs = personalizationPrefs,
                                                             onBack = { currentScreen = MainScreen.Home },
-                                                            onOpenEvent = { eventId -> openEventById(eventId) },
-                                                            onRefreshNotifications = { refreshNotifications() },
-                                                            onMarkRead = { markNotificationReadLocal(it) },
-                                                            onUpdatePersonalization = { newPrefs ->
-                                                                personalizationPrefs = newPrefs
-                                                            },
+                                                            onMarkRead = { item -> markNotificationReadLocal(item) },
+                                                            onToggleStar = { item, starred -> toggleNotificationStarLocal(item, starred) }
                                                         )
                                                     }
                                                     MainScreen.Profile -> {
@@ -6033,9 +7151,13 @@ private fun GoTickyRoot() {
                                                             onSelectHistoryQuery = { query ->
                                                                 searchQuery = query
                                                                 recordSearch(query)
+                                                                forceOpenSearchDialog = true
                                                             },
                                                             onOpenSettings = { currentScreen = MainScreen.Settings },
-                                                            onLogout = { showLogoutConfirm = true },
+                                                            onLogout = {
+                                                                // Show logout confirmation dialog, then sign out -> Auth screen
+                                                                showLogoutConfirm = true
+                                                            },
                                                             isGuest = isGuestMode,
                                                         )
                                                     }
@@ -6108,10 +7230,12 @@ private fun GoTickyRoot() {
                                                     }
                                                     MainScreen.Admin -> {
                                                         if (hasAdminAccess) {
+                                                            val ticketCategoryColor = IconCategoryColors[IconCategory.Ticket] ?: MaterialTheme.colorScheme.primary
                                                             AdminDashboardScreen(
                                                                 kpis = adminKpis,
                                                                 attention = adminAttention,
                                                                 activity = adminActivity,
+                                                                ticketGroups = adminTicketGroups,
                                                                 applications = adminApplications,
                                                                 applicationsLoading = adminApplicationsLoading,
                                                                 applicationsError = adminApplicationsError,
@@ -6135,6 +7259,13 @@ private fun GoTickyRoot() {
                                                                 onSimulatedHeroBannerChange = { simulatedHeroBannerId = it },
                                                                 adminSurface = adminSurface,
                                                                 onSurfaceChange = { adminSurface = it },
+                                                                onOpenTickets = { adminSurface = AdminSurface.Tickets },
+                                                                onScanTickets = {
+                                                                    addAdminActivity(
+                                                                        text = "Open scanner (stub)",
+                                                                        accent = ticketCategoryColor
+                                                                    )
+                                                                },
                                                                 onBack = { currentScreen = MainScreen.Home },
                                                                 onUpdateApplicationStatus = { id, status -> updateApplicationStatus(id, status, ::addAdminActivity) },
                                                                 onUpdateEarlyBird = { id, enabled, discount, hours, startNow, paused ->
@@ -6228,7 +7359,7 @@ private fun GoTickyRoot() {
                                                         LegalScreen(onBack = { currentScreen = MainScreen.Settings })
                                                     }
                                                     MainScreen.FAQ -> {
-                                                        FaqScreen(onBack = { currentScreen = MainScreen.Settings })
+                                                        FaqScreen(onBack = { currentScreen = MainScreen.Profile })
                                                     }
                                                     MainScreen.Map -> {
                                                         val mapEvents = remember(adminApplications) {
@@ -6255,6 +7386,60 @@ private fun GoTickyRoot() {
                     if (!isGuestMode && isSignInWarmupActive) {
                         SignInWarmupOverlay(progress = signInWarmupProgress)
                     }
+                    if (showReviewDialog && pendingReviewEvent != null) {
+                        ReviewDialog(
+                            event = pendingReviewEvent!!,
+                            draft = reviewDraft,
+                            submitting = submittingReview,
+                            ratingNudge = showRatingNudge,
+                            onDraftChange = {
+                                reviewDraft = it
+                                if (showRatingNudge && it.rating > 0) showRatingNudge = false
+                            },
+                            onDismiss = {
+                                showRatingNudge = false
+                                showReviewDialog = false
+                            },
+                            onSubmit = {
+                                val user = authRepo.currentUser()
+                                val uid = user?.uid
+                                if (uid == null) {
+                                    scope.launch { snackbarHostState.showSnackbar("Sign in to post a review.") }
+                                    showReviewDialog = false
+                                    return@ReviewDialog
+                                }
+                                val event = pendingReviewEvent ?: return@ReviewDialog
+                                if (reviewDraft.rating <= 0) {
+                                    showRatingNudge = true
+                                    scope.launch { snackbarHostState.showSnackbar("Please add a star rating.") }
+                                    return@ReviewDialog
+                                }
+                                if (submittedReviewEventIds.contains(event.id)) {
+                                    showReviewDialog = false
+                                    return@ReviewDialog
+                                }
+                                submittingReview = true
+                                scope.launch {
+                                    submitReviewToFirestore(
+                                        userId = uid,
+                                        userName = userProfile.fullName.ifBlank { user.email ?: "GoTicky fan" },
+                                        event = event,
+                                        draft = reviewDraft
+                                    ).onSuccess {
+                                        submittedReviewEventIds.add(event.id)
+                                        snackbarHostState.showSnackbar("Thanks for reviewing ${event.title}!")
+                                        reviewDraft = ReviewDraft()
+                                        showRatingNudge = false
+                                        showReviewDialog = false
+                                        pendingReviewEvent = null
+                                    }.onFailure { t ->
+                                        snackbarHostState.showSnackbar(t.message ?: "Review failed. Try again.")
+                                    }
+                                    submittingReview = false
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -6262,10 +7447,123 @@ private fun GoTickyRoot() {
 }
 
 @Composable
+private fun ReviewDialog(
+    event: EventItem,
+    draft: ReviewDraft,
+    submitting: Boolean,
+    ratingNudge: Boolean,
+    onDraftChange: (ReviewDraft) -> Unit,
+    onDismiss: () -> Unit,
+    onSubmit: () -> Unit,
+) {
+    val goldStar = Color(0xFFF5C542)
+    var pulsing by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pulsing) 1.0f else 0.95f,
+        animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+        label = "reviewDialogScale"
+    )
+    LaunchedEffect(Unit) { pulsing = true }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("How was ${event.title}?") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    (1..5).forEach { star ->
+                        val filled = draft.rating >= star
+                        Icon(
+                            imageVector = if (filled) Icons.Filled.Star else Icons.Outlined.Star,
+                            contentDescription = "$star star",
+                            tint = if (filled) goldStar else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                .pressAnimated(scaleDown = 0.9f)
+                                .clickable { onDraftChange(draft.copy(rating = star)) }
+                        )
+                    }
+                    AnimatedHandNudge(visible = ratingNudge)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("How was the vibe?", style = MaterialTheme.typography.labelMedium)
+                    ReviewQosOptions.forEach { option ->
+                        val selected = draft.qos1 == option
+                        NeonSelectablePill(
+                            text = option,
+                            selected = selected,
+                            onClick = { onDraftChange(draft.copy(qos1 = option)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            centerText = true
+                        )
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Energy & service", style = MaterialTheme.typography.labelMedium)
+                    ReviewQosOptions.forEach { option ->
+                        val selected = draft.qos2 == option
+                        NeonSelectablePill(
+                            text = option,
+                            selected = selected,
+                            onClick = { onDraftChange(draft.copy(qos2 = option)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            centerText = true
+                        )
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Queues & entry", style = MaterialTheme.typography.labelMedium)
+                    ReviewQosOptions.forEach { option ->
+                        val selected = draft.qos3 == option
+                        NeonSelectablePill(
+                            text = option,
+                            selected = selected,
+                            onClick = { onDraftChange(draft.copy(qos3 = option)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            centerText = true
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = draft.comment,
+                    onValueChange = { onDraftChange(draft.copy(comment = it.take(400))) },
+                    label = { Text("Add a quick note (optional)") },
+                    supportingText = { Text("Up to 400 chars") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressAnimated(),
+                    maxLines = 3,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            PrimaryButton(
+                text = if (submitting) "Submitting..." else "Submit review",
+                enabled = !submitting,
+                modifier = Modifier.pressAnimated()
+            ) { if (!submitting) onSubmit() }
+        },
+        dismissButton = {
+            NeonTextButton(text = "Later", modifier = Modifier.pressAnimated(), onClick = { onDismiss() })
+        }
+    )
+}
+
+@Composable
 private fun AdminDashboardScreen(
     kpis: List<AdminKpi>,
     attention: List<AdminAttention>,
     activity: List<AdminActivity>,
+    ticketGroups: List<AdminTicketGroup>,
     applications: List<AdminApplication>,
     applicationsLoading: Boolean,
     applicationsError: String?,
@@ -6289,6 +7587,8 @@ private fun AdminDashboardScreen(
     onSimulatedHeroBannerChange: (String?) -> Unit,
     adminSurface: AdminSurface,
     onSurfaceChange: (AdminSurface) -> Unit,
+    onOpenTickets: () -> Unit,
+    onScanTickets: () -> Unit,
     onBack: () -> Unit,
     onUpdateApplicationStatus: (String, String) -> Unit,
     onUpdateEarlyBird: (String, Boolean, Int, Int, Boolean, Boolean) -> Unit,
@@ -6363,6 +7663,7 @@ private fun AdminDashboardScreen(
                 listOf(
                     AdminSurface.Dashboard to "Admin Home",
                     AdminSurface.Applications to "Applications",
+                    AdminSurface.Tickets to "Tickets",
                     AdminSurface.Moderation to "Moderation",
                     AdminSurface.Organizer to "Organizer",
                     AdminSurface.Catalog to "Catalog",
@@ -6390,7 +7691,8 @@ private fun AdminDashboardScreen(
                 reviewers = reviewers,
                 reviewerByApp = reviewerByApp,
                 commentsByApp = commentsByApp,
-                organizers = organizers
+                organizers = organizers,
+                onVerifyOrganizer = onVerifyOrganizer
             )
         }
         return
@@ -6414,6 +7716,7 @@ private fun AdminDashboardScreen(
             listOf(
                 AdminSurface.Dashboard to "Admin Home",
                 AdminSurface.Applications to "Applications",
+                AdminSurface.Tickets to "Tickets",
                 AdminSurface.Moderation to "Moderation",
                 AdminSurface.Organizer to "Organizer",
                 AdminSurface.Catalog to "Catalog",
@@ -6539,6 +7842,23 @@ private fun AdminDashboardScreen(
                     }
                 }
 
+                val totalTickets = ticketGroups.sumOf { it.tickets.size }
+                val scannedTickets = ticketGroups.sumOf { group -> group.tickets.count { it.scanned } }
+                val scanProgress = if (totalTickets == 0) 0f else scannedTickets / totalTickets.toFloat()
+                GlowCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Ticket scanning", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                                Text("Monitor entry progress across events.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            PrimaryButton(text = "Open Tickets", onClick = onOpenTickets)
+                        }
+                        AnimatedProgressBar(progress = scanProgress, modifier = Modifier.fillMaxWidth())
+                        Text("$scannedTickets of $totalTickets scanned", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
                 SectionHeader(
                     title = "Health KPIs",
                     action = { NeonTextButton(text = "View all", onClick = onOpenApplications) }
@@ -6598,16 +7918,16 @@ private fun AdminDashboardScreen(
                     reviewers = reviewers,
                     reviewerByApp = reviewerByApp,
                     commentsByApp = commentsByApp,
-                    organizers = organizers
+                    organizers = organizers,
+                    onVerifyOrganizer = onVerifyOrganizer
                 )
             }
 
-            AdminSurface.Moderation -> {
-                ModerationSection(
-                    reports = reports,
-                    addActivity = addActivity,
-                    onResolve = onResolveReport,
-                    onWarn = onWarnReport
+            AdminSurface.Tickets -> {
+                AdminTicketsSection(
+                    groups = ticketGroups,
+                    onScan = onScanTickets,
+                    addActivity = addActivity
                 )
             }
 
@@ -6674,6 +7994,15 @@ private fun AdminDashboardScreen(
                 )
             }
 
+            AdminSurface.Moderation -> {
+                ModerationSection(
+                    reports = reports,
+                    addActivity = addActivity,
+                    onResolve = { id -> /* TODO: Implement resolve logic */ },
+                    onWarn = { id, template, note -> /* TODO: Implement warn logic */ }
+                )
+            }
+
             AdminSurface.Settings -> {
                 SettingsSection(
                     flags = flags,
@@ -6701,9 +8030,12 @@ private fun ApplicationsSection(
     reviewerByApp: MutableMap<String, String>,
     commentsByApp: MutableMap<String, SnapshotStateList<String>>,
     organizers: List<AdminOrganizer>,
+    onVerifyOrganizer: (String, Boolean) -> Unit,
 ) {
     var selectedAppId by remember { mutableStateOf(applications.firstOrNull()?.id) }
     var detailAppId by remember { mutableStateOf<String?>(null) }
+    var showOrganizerProfile by remember { mutableStateOf(false) }
+    var selectedOrganizer by remember { mutableStateOf<AdminOrganizer?>(null) }
     var statusFilter by remember { mutableStateOf("All") }
     var riskFilter by remember { mutableStateOf("All") }
     var cityFilter by remember { mutableStateOf("All") }
@@ -7211,9 +8543,27 @@ private fun ApplicationsSection(
                     },
                     onUpdateEarlyBird = { enabled, discount, duration, startNow, paused ->
                         onUpdateEarlyBird(app.id, enabled, discount, duration, startNow, paused)
+                    },
+                    onViewOrganizerProfile = { org ->
+                        selectedOrganizer = org
+                        showOrganizerProfile = true
                     }
                 )
             }
+        }
+
+        // Render organizer profile sheet at root level so overlay covers entire screen
+        if (selectedOrganizer != null) {
+            OrganizerProfileSheet(
+                organizer = selectedOrganizer!!,
+                visible = showOrganizerProfile,
+                onDismiss = { 
+                    showOrganizerProfile = false
+                    selectedOrganizer = null
+                },
+                isVerified = selectedOrganizer!!.isVerified,
+                onVerifyOrganizer = onVerifyOrganizer
+            )
         }
     }
 }
@@ -7354,13 +8704,14 @@ private fun ApplicationDetailScreen(
     onClose: () -> Unit,
     onUpdateStatus: (String, String) -> Unit,
     onUpdateEarlyBird: (Boolean, Int, Int, Boolean, Boolean) -> Unit,
+    onViewOrganizerProfile: (AdminOrganizer) -> Unit = {},
 ) {
     val comments = remember(app.id) { commentsByApp.getOrPut(app.id) { mutableStateListOf<String>() } }
     var commentDraft by remember { mutableStateOf("") }
     var rationale by remember { mutableStateOf("") }
     var rationaleError by remember { mutableStateOf(false) }
     var showDocs by remember { mutableStateOf(false) }
-    var showOrganizerProfile by remember { mutableStateOf(false) }
+    var fetchedOrganizerProfile by remember { mutableStateOf<AdminOrganizerProfile?>(null) }
     val scrollState = rememberScrollState()
     val statusColor = when (app.risk) {
         "High" -> Color(0xFFFF6B6B)
@@ -7500,135 +8851,51 @@ private fun ApplicationDetailScreen(
                     }
                 }
 
-                GlowCard {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            "Organizer",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        organizer?.let {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                val statusColor = when {
-                                    it.frozen || it.strikes >= 3 -> MaterialTheme.colorScheme.error
-                                    it.kycStatus.equals("Verified", ignoreCase = true) && it.trustScore >= 80 -> MaterialTheme.colorScheme.tertiary
-                                    it.kycStatus.equals("Verified", ignoreCase = true) -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.outlineVariant
-                                }
-                                val statusTransition = rememberInfiniteTransition(label = "organizerStatus-${it.id}")
-                                val highTrustPulse by statusTransition.animateFloat(
-                                    initialValue = 0.9f,
-                                    targetValue = 1.1f,
-                                    animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing))
-                                )
-                                val frozenFlash by statusTransition.animateFloat(
-                                    initialValue = 0.5f,
-                                    targetValue = 1f,
-                                    animationSpec = infiniteRepeatable(tween(700, easing = LinearEasing))
-                                )
-                                val isFrozenOrHighRisk = it.frozen || it.strikes >= 3
-                                val isHighTrustVerified = !isFrozenOrHighRisk &&
-                                    it.kycStatus.equals("Verified", ignoreCase = true) && it.trustScore >= 80
-                                val baseBorderWidth = 2.dp
-                                val borderWidth = if (isHighTrustVerified) baseBorderWidth * highTrustPulse else baseBorderWidth
-                                val animatedStatusColor = if (isFrozenOrHighRisk) statusColor.copy(alpha = frozenFlash) else statusColor
-
-                                val avatarPainter = it.photoUri
-                                    ?.takeIf { uri -> uri.isNotBlank() }
-                                    ?.let { uri -> rememberUriPainter(uri) }
-                                    ?: organizerAvatarRes?.let { res -> painterResource(res) }
-
-                                avatarPainter?.let { painter ->
-                                    Image(
-                                        painter = painter,
-                                        contentDescription = "Organizer avatar",
-                                        modifier = Modifier
-                                            .size(56.dp)
-                                            .clip(CircleShape)
-                                            .border(borderWidth, animatedStatusColor, CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                }
-
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        it.name,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        "KYC: ${it.kycStatus} • Role: ${it.role.ifBlank { "organizer" }}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        "Trust ${it.trustScore} • Strikes ${it.strikes} • Frozen: ${it.frozen}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    if (it.email.isNotBlank()) {
-                                        Text(
-                                            it.email,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-
-                                    val rawCode = it.phoneCode.trim()
-                                    val rawNumber = it.phoneNumber.trim()
-                                    val digitsCode = rawCode.removePrefix("+").replace(" ", "")
-                                    val digitsNumber = rawNumber.removePrefix("+").replace(" ", "")
-                                    val phone = when {
-                                        rawCode.isBlank() && rawNumber.isBlank() -> ""
-                                        rawCode.isBlank() -> rawNumber
-                                        digitsNumber.startsWith(digitsCode) -> rawNumber
-                                        else -> listOf(rawCode, rawNumber)
-                                            .filter { part -> part.isNotBlank() }
-                                            .joinToString(" ")
-                                    }
-
-                                    if (phone.isNotBlank() || it.countryName.isNotBlank()) {
-                                        Text(
-                                            listOf(phone, it.countryName)
-                                                .filter { part -> part.isNotBlank() }
-                                                .joinToString(" • "),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                NeonSelectablePill(
-                                    text = "View profile",
-                                    selected = false,
-                                    onClick = { showOrganizerProfile = true }
-                                )
-                            }
-
-                            if (it.notes.isNotBlank()) {
-                                Text(
-                                    it.notes,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        } ?: Text(
-                            "No organizer record linked",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                val validOrganizerId = app.organizerId.takeIf { it.isNotBlank() } ?: organizer?.id ?: ""
+                
+                if (validOrganizerId.isNotBlank()) {
+                    AdminOrganizerSection(
+                        organizerId = validOrganizerId,
+                        onViewProfile = { profile ->
+                            // Notify parent to show profile sheet using the explicitly passed profile
+                            val profileOrganizer = AdminOrganizer(
+                                id = profile.uid,
+                                name = profile.fullName,
+                                email = profile.email,
+                                role = profile.role,
+                                phoneCode = profile.phoneCode,
+                                phoneNumber = profile.phoneNumber,
+                                countryName = profile.countryName,
+                                photoUri = profile.photoUri,
+                                kycStatus = if (profile.isVerified) "Verified" else "Pending",
+                                trustScore = 70,
+                                strikes = 0,
+                                frozen = false,
+                                notes = profile.notes,
+                                isVerified = profile.isVerified
+                            )
+                            onViewOrganizerProfile(profileOrganizer)
+                        },
+                        onProfileFetched = { profile -> fetchedOrganizerProfile = profile }
+                    )
+                } else {
+                     GlowCard {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                             Text(
+                                "Organizer",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "No organizer ID linked",
+                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                     }
                 }
 
                 GlowCard {
@@ -7828,13 +9095,7 @@ private fun ApplicationDetailScreen(
             }
         }
 
-        if (organizer != null) {
-            OrganizerProfileSheet(
-                organizer = organizer,
-                visible = showOrganizerProfile,
-                onDismiss = { showOrganizerProfile = false }
-            )
-        }
+
     }
 }
 
@@ -7843,153 +9104,360 @@ private fun OrganizerProfileSheet(
     organizer: AdminOrganizer,
     visible: Boolean,
     onDismiss: () -> Unit,
+    isVerified: Boolean = false,
+    onVerifyOrganizer: (String, Boolean) -> Unit = { _, _ -> },
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn() + slideInVertically { it / 5 },
-        exit = fadeOut() + slideOutVertically { it / 5 },
-        modifier = Modifier.fillMaxSize()
+        enter = fadeIn(animationSpec = tween(300)),
+        exit = fadeOut(animationSpec = tween(300)),
+        modifier = Modifier.fillMaxSize().zIndex(999f) // Ensure it's on top
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            // Backdrop (Fades in/out with parent)
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .clickable { onDismiss() }
+                    .background(Color.Black.copy(alpha = 0.85f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null // No ripple on backdrop
+                    ) { onDismiss() }
             )
 
+            // Modern Profile Card (Slides up/down, inherits fade)
             GlowCard(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 16.dp)
+                    .fillMaxWidth(0.96f)
+                    .fillMaxHeight(0.85f)
+                    .animateEnterExit(
+                        enter = slideInVertically(
+                            animationSpec = tween(400, easing = EaseOutBack),
+                            initialOffsetY = { it } // Slide from bottom
+                        ),
+                        exit = slideOutVertically(
+                            animationSpec = tween(300, easing = LinearEasing),
+                            targetOffsetY = { it } // Slide to bottom
+                        )
+                    )
                     .pressAnimated()
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    // Header with Full Background Image
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(380.dp) // Increased height for dramatic effect
                     ) {
-                        Text(
-                            "Organizer profile",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(Modifier.weight(1f))
-                        NeonTextButton(text = "Close", onClick = onDismiss)
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val statusColor = when {
-                            organizer.frozen || organizer.strikes >= 3 -> MaterialTheme.colorScheme.error
-                            organizer.kycStatus.equals("Verified", ignoreCase = true) && organizer.trustScore >= 80 -> MaterialTheme.colorScheme.tertiary
-                            organizer.kycStatus.equals("Verified", ignoreCase = true) -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.outlineVariant
-                        }
-
+                        // Background Image
                         val avatarPainter = organizer.photoUri
                             ?.takeIf { uri -> uri.isNotBlank() }
                             ?.let { uri -> rememberUriPainter(uri) }
-
-                        avatarPainter?.let { painter ->
+                        
+                        if (avatarPainter != null) {
                             Image(
-                                painter = painter,
-                                contentDescription = "Organizer avatar",
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .border(2.dp, statusColor, CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                painter = avatarPainter,
+                                contentDescription = "Organizer Cover",
+                                modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
                             )
-                        } ?: Box(
+                        } else {
+                            // Fallback gradient if no image
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primary,
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            )
+                                        )
+                                    )
+                            ) {
+                                Text(
+                                    organizer.name.take(2).uppercase(),
+                                    style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
+                        }
+
+                        // Gradient Scrim for text readability
+                        Box(
                             modifier = Modifier
-                                .size(56.dp)
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.3f),
+                                            Color.Black.copy(alpha = 0.9f)
+                                        ),
+                                        startY = 0f,
+                                    )
+                                )
+                        )
+
+                        // Close button with interactive animation
+                        val scope = androidx.compose.runtime.rememberCoroutineScope()
+                        val scale = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(1f) }
+                        val rotation = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    launch { scale.animateTo(0.8f, animationSpec = androidx.compose.animation.core.tween(200)) }
+                                    launch { rotation.animateTo(-45f, animationSpec = androidx.compose.animation.core.tween(200)) }
+                                    delay(200)
+                                    onDismiss()
+                                    // Reset visuals not strictly needed as component disappears, 
+                                    // but good practice if it stays. 
+                                    scale.snapTo(1f)
+                                    rotation.snapTo(0f)
+                                }
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(16.dp)
+                                .graphicsLayer {
+                                    scaleX = scale.value
+                                    scaleY = scale.value
+                                    rotationZ = rotation.value
+                                }
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
+                                .background(Color.Black.copy(alpha = 0.4f))
                         ) {
-                            Text(
-                                organizer.name.firstOrNull()?.uppercase() ?: "?",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Close",
+                                tint = Color.White
                             )
                         }
 
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // User Details (Bottom of header)
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Text(
                                 organizer.name,
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurface
+                                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color.White
                             )
-                            Text(
-                                "Role: ${organizer.role.ifBlank { "organizer" }}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                "KYC: ${organizer.kycStatus}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                "Trust ${organizer.trustScore} • Strikes ${organizer.strikes} • Frozen: ${organizer.frozen}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val statusColor = when {
+                                    organizer.frozen || organizer.strikes >= 3 -> MaterialTheme.colorScheme.error
+                                    isVerified -> Color(0xFF4CAF50) // Bright Green for verified
+                                    else -> Color(0xFFFF6B6B) // Red for unverified
+                                }
+
+                                Pill(
+                                    text = organizer.role.ifBlank { "organizer" }.replaceFirstChar { it.uppercase() },
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Pill(
+                                    text = if (isVerified) "Verified" else "Unverified",
+                                    color = statusColor
+                                )
+                                if (organizer.trustScore >= 90) {
+                                     Pill(
+                                        text = "Top Rated",
+                                        color = Color(0xFFFFD700) // Gold
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (organizer.email.isNotBlank()) {
-                            Text(
-                                organizer.email,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface
+                    // Details Section (Below Header)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        // Trust & Status Metrics
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            MetricCard(
+                                label = "Trust Score",
+                                value = "${organizer.trustScore}",
+                                icon = Icons.Outlined.Shield,
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                            MetricCard(
+                                label = "Strikes",
+                                value = "${organizer.strikes}",
+                                icon = Icons.Outlined.Flag,
+                                color = if (organizer.strikes > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            )
+                            MetricCard(
+                                label = "Status",
+                                value = if (organizer.frozen) "Frozen" else "Active",
+                                icon = if (organizer.frozen) Icons.Outlined.Cancel else Icons.Outlined.CheckCircle,
+                                color = if (organizer.frozen) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary
                             )
                         }
 
-                        val rawCode = organizer.phoneCode.trim()
-                        val rawNumber = organizer.phoneNumber.trim()
-                        val digitsCode = rawCode.removePrefix("+").replace(" ", "")
-                        val digitsNumber = rawNumber.removePrefix("+").replace(" ", "")
-                        val phone = when {
-                            rawCode.isBlank() && rawNumber.isBlank() -> ""
-                            rawCode.isBlank() -> rawNumber
-                            digitsNumber.startsWith(digitsCode) -> rawNumber
-                            else -> listOf(rawCode, rawNumber)
-                                .filter { part -> part.isNotBlank() }
-                                .joinToString(" ")
-                        }
-
-                        if (phone.isNotBlank() || organizer.countryName.isNotBlank()) {
+                        // Contact Information
+                        if (organizer.email.isNotBlank() || organizer.phoneNumber.isNotBlank()) {
                             Text(
-                                listOf(phone, organizer.countryName)
-                                    .filter { part -> part.isNotBlank() }
-                                    .joinToString(" • "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                "Contact Information",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary
                             )
+
+                            GlowCard(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    if (organizer.email.isNotBlank()) {
+                                        DetailRow(
+                                            icon = Icons.Outlined.Email,
+                                            label = "Email",
+                                            value = organizer.email
+                                        )
+                                    }
+
+                                    val rawCode = organizer.phoneCode.trim()
+                                    val rawNumber = organizer.phoneNumber.trim()
+                                    val digitsCode = rawCode.removePrefix("+").replace(" ", "")
+                                    val digitsNumber = rawNumber.removePrefix("+").replace(" ", "")
+                                    val phone = when {
+                                        rawCode.isBlank() && rawNumber.isBlank() -> ""
+                                        rawCode.isBlank() -> rawNumber
+                                        digitsNumber.startsWith(digitsCode) -> rawNumber
+                                        else -> listOf(rawCode, rawNumber)
+                                            .filter { part -> part.isNotBlank() }
+                                            .joinToString(" ")
+                                    }
+
+                                    if (phone.isNotBlank()) {
+                                        DetailRow(
+                                            icon = Icons.Outlined.PhoneAndroid,
+                                            label = "Phone",
+                                            value = phone
+                                        )
+                                    }
+
+                                    if (organizer.countryName.isNotBlank()) {
+                                        DetailRow(
+                                            icon = Icons.Outlined.Place,
+                                            label = "Country",
+                                            value = organizer.countryName
+                                        )
+                                    }
+                                }
+                            }
                         }
 
+                        // Notes
                         if (organizer.notes.isNotBlank()) {
                             Text(
-                                organizer.notes,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                "Notes",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary
                             )
+
+                            GlowCard(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    organizer.notes,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MetricCard(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(color.copy(alpha = 0.1f))
+            .padding(12.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(24.dp)
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun DetailRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
@@ -8012,6 +9480,319 @@ private fun InfoRow(label: String, value: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+private data class AdminOrganizerProfile(
+    val uid: String,
+    val fullName: String,
+    val email: String,
+    val role: String,
+    val photoUri: String?,
+    val phoneCode: String,
+    val phoneNumber: String,
+    val countryName: String,
+    val trustScore: Int = 100, // Default or computed
+    val kycStatus: String = "Verified", // Default or fetch if available
+    val notes: String = "",
+    val isVerified: Boolean = false,
+)
+
+@Composable
+private fun AdminOrganizerSection(
+    organizerId: String,
+    onViewProfile: (AdminOrganizerProfile) -> Unit = {},
+    onProfileFetched: (AdminOrganizerProfile?) -> Unit = {},
+    onVerifyOrganizer: (String, Boolean) -> Unit = { _, _ -> },
+) {
+    var profile by remember { mutableStateOf<AdminOrganizerProfile?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    LaunchedEffect(organizerId) {
+        if (organizerId.isBlank()) {
+            println("AdminOrganizerSection: organizerId is blank")
+            loading = false
+            return@LaunchedEffect
+        }
+        
+        println("AdminOrganizerSection: Fetching data for organizerId: $organizerId")
+        
+        try {
+            val doc = Firebase.firestore.collection("users").document(organizerId).get()
+            println("AdminOrganizerSection: Document exists: ${doc.exists}")
+            
+            if (doc.exists) {
+                val displayName = doc.get<String?>("displayName")
+                val fullName = doc.get<String?>("fullName")
+                val email = doc.get<String?>("email")
+                
+                println("AdminOrganizerSection: displayName=$displayName, fullName=$fullName, email=$email")
+                
+                profile = AdminOrganizerProfile(
+                    uid = organizerId,
+                    fullName = displayName ?: fullName ?: "Unknown User",
+                    email = email ?: "",
+                    role = doc.get<String?>("role") ?: "customer",
+                    photoUri = doc.get<String?>("photoUri"),
+                    phoneCode = doc.get<String?>("phoneCode") ?: "",
+                    phoneNumber = doc.get<String?>("phoneNumber") ?: "",
+                    countryName = doc.get<String?>("countryName") ?: "",
+                    notes = doc.get<String?>("notes") ?: "",
+                    isVerified = doc.get<Boolean?>("isVerified") ?: false,
+                )
+                println("AdminOrganizerSection: Profile created successfully")
+            } else {
+                error = "User document not found for ID: $organizerId"
+                println("AdminOrganizerSection: $error")
+            }
+        } catch (e: Throwable) {
+            error = "Failed to load organizer: ${e.message}"
+            println("AdminOrganizerSection error for $organizerId: ${e.message}")
+            e.printStackTrace()
+        } finally {
+            loading = false
+            onProfileFetched(profile)
+            println("AdminOrganizerSection: Loading complete. Profile: $profile, Error: $error")
+        }
+    }
+
+    if (loading) {
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp, 16.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp, 12.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    if (profile == null) {
+        if (error != null) {
+             GlowCard(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Organizer info unavailable: $error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+        return
+    }
+
+    val p = profile!!
+    GlowCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                val avatarPainter = p.photoUri?.let { rememberUriPainter(it) }
+                if (avatarPainter != null) {
+                    Image(
+                        painter = avatarPainter,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = p.fullName.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Organizer",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = p.fullName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = p.role.replaceFirstChar { it.uppercase() },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (p.countryName.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(3.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                            Text(
+                                text = p.countryName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // Verification Status Pill
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Pill(
+                            text = if (p.isVerified) "Verified" else "Unverified",
+                            color = if (p.isVerified) Color(0xFF4CAF50) else Color(0xFFFF6B6B)
+                        )
+                    }
+                }
+            }
+
+            // Contact Actions
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(goTickyShapes.medium)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f))
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f).clickable {
+                        clipboard.setText(AnnotatedString(p.email))
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Email,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = p.email,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                
+                if (p.phoneNumber.isNotBlank()) {
+                     Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(16.dp)
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                    )
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .padding(start = 12.dp)
+                            .clickable {
+                                clipboard.setText(AnnotatedString(p.phoneCode + p.phoneNumber))
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.PhoneAndroid,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (p.phoneNumber.isNotBlank()) "${p.phoneCode} ${p.phoneNumber}" else "No phone",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            // Notes and Action
+            if (p.notes.isNotBlank()) {
+                 Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = p.notes,
+                        style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            NeonSelectablePill(
+                text = "View full profile",
+                selected = false,
+                onClick = { onViewProfile(p) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            // Verification Toggle Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PrimaryButton(
+                    text = if (p.isVerified) "Mark Unverified" else "Mark Verified",
+                    modifier = Modifier.weight(1f)
+                ) {
+                    val newStatus = !p.isVerified
+                    profile = p.copy(isVerified = newStatus)
+                    onProfileFetched(profile)
+                    onVerifyOrganizer(p.uid, newStatus)
+                }
+            }
+        }
     }
 }
 
@@ -8048,6 +9829,43 @@ private fun ApplicationDetailPanel(
             "Awaiting permit upload" + if (app.attachmentsReady) " (received)" else "",
         )
     }
+    
+    // Organizer Profile Section (New)
+    if (app.organizerId.isNotBlank()) {
+        AdminOrganizerSection(
+            organizerId = app.organizerId,
+            onVerifyOrganizer = { organizerId, shouldVerify ->
+                // Update Firestore with verification status
+                kotlinx.coroutines.GlobalScope.launch {
+                    try {
+                        // Update only the events collection - isVerified is maintained per event
+
+                        // Cascade update to all events in the linear structure
+                        val eventsSnapshot = Firebase.firestore.collection("organizers")
+                            .document(organizerId)
+                            .collection("events")
+                            .get()
+
+
+                        eventsSnapshot.documents.forEach { doc ->
+                            doc.reference.update(mapOf(
+                                "isVerified" to shouldVerify,
+                                "organizerProfile.kycStatus" to if (shouldVerify) "Verified" else "Pending",
+                                "updatedAt" to currentInstant().toString()
+                            ))
+                        }
+
+                        
+                        println("Successfully updated organizer verification: $organizerId -> $shouldVerify covering ${eventsSnapshot.documents.size} events")
+                    } catch (e: Exception) {
+                        println("Error updating organizer verification: ${e.message}")
+                        e.printStackTrace()
+                    }
+                }
+            }
+        )
+    }
+
     GlowCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -9438,6 +11256,10 @@ private fun HomeScreen(
     var selectedMonth by remember { mutableStateOf<String?>(null) }
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(IconCategory.Discover) }
+    val coroutineScope = rememberCoroutineScope()
+    val reviews = remember { mutableStateListOf<UserReview>() }
+    var reviewsLoading by remember { mutableStateOf(false) }
+    var reviewsError by remember { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
 
     // Recompute public events whenever the adminApplications state list mutates (approvals, edits).
@@ -9491,6 +11313,32 @@ private fun HomeScreen(
         if (forceOpenSearchDialog) {
             showQueryDialog = true
             onConsumeForceOpenSearchDialog()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        reviewsLoading = true
+        reviewsError = null
+        fetchReviewsFromFirestore()
+            .onSuccess { list ->
+                reviews.clear(); reviews.addAll(list)
+            }
+            .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
+        reviewsLoading = false
+    }
+
+    val refreshReviews = remember {
+        {
+            reviewsLoading = true
+            reviewsError = null
+            coroutineScope.launch {
+                fetchReviewsFromFirestore()
+                    .onSuccess { list ->
+                        reviews.clear(); reviews.addAll(list)
+                    }
+                    .onFailure { t -> reviewsError = t.message ?: "Unable to load reviews" }
+                reviewsLoading = false
+            }
         }
     }
 
@@ -9773,8 +11621,17 @@ private fun HomeScreen(
             now = now
         )
 
-        SectionHeader("Progress preview", action = null)
-        LoadingRow(Modifier.fillMaxWidth())
+        SectionHeader(
+            title = "Reviews update",
+            action = { NeonTextButton(text = "Refresh", onClick = { refreshReviews() }) }
+        )
+        ReviewsPreview(
+            reviews = reviews,
+            loading = reviewsLoading,
+            error = reviewsError,
+            onRefresh = { refreshReviews() }
+        )
+
         Spacer(modifier = Modifier.height(96.dp))
     }
 
@@ -10374,6 +12231,24 @@ private fun HomeScreen(
                 LaunchedEffect(Unit) { visible = true }
 
                 val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+    val countryOptions = listOf(
+        CountryOption("Zimbabwe", "🇿🇼", "+263"),
+        CountryOption("Botswana", "🇧🇼", "+267"),
+        CountryOption("South Africa", "🇿🇦", "+27"),
+        CountryOption("Namibia", "🇳🇦", "+264"),
+        CountryOption("Zambia", "🇿🇲", "+260"),
+        CountryOption("Mozambique", "🇲🇿", "+258"),
+        CountryOption("Angola", "🇦🇴", "+244"),
+        CountryOption("Malawi", "🇲🇼", "+265"),
+        CountryOption("Lesotho", "🇱🇸", "+266"),
+        CountryOption("Eswatini", "🇸🇿", "+268"),
+        CountryOption("Tanzania", "🇹🇿", "+255"),
+        CountryOption("DR Congo", "🇨🇩", "+243"),
+        CountryOption("Madagascar", "🇲🇬", "+261"),
+        CountryOption("Mauritius", "🇲🇺", "+230"),
+        CountryOption("Seychelles", "🇸🇨", "+248"),
+        CountryOption("Comoros", "🇰🇲", "+269"),
+    )
                 val nowDate = remember(now) { now.toLocalDateTime(tz).date }
                 val defaultMonth = remember(publicEvents, nowDate) {
                     publicEvents.mapNotNull { eventLocalDate(it, tz) }
@@ -12922,8 +14797,9 @@ private fun TicketsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(GoTickyGradients.CardGlow)
+            .navigationBarsPadding()
             .padding(start = 16.dp, end = 16.dp, top = 34.dp),
-        contentPadding = PaddingValues(bottom = 96.dp),
+        contentPadding = PaddingValues(bottom = 180.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -13213,27 +15089,6 @@ private fun ProfileScreen(
                     onClick = { showFavorites = true }
                 ),
                 MenuItemSpec(
-                    label = "Reviews",
-                    icon = Icons.Outlined.Star,
-                    tint = Color(0xFFFFD54F),
-                    trailing = {
-                        Box(
-                            modifier = Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "3",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    onClick = { }
-                ),
-                MenuItemSpec(
                     label = "Settings",
                     icon = Icons.Outlined.Settings,
                     tint = Color(0xFFB0BEC5),
@@ -13393,7 +15248,11 @@ private fun ProfileScreen(
                 )
                 LaunchedEffect(Unit) { visible = true }
 
-                val favoriteItems = publicEvents.filter { favorites.contains(it.id) }
+                val favoriteItems = favorites.mapNotNull { favoriteId ->
+                    publicEvents.find { it.id == favoriteId }
+                        ?: adminApplications.firstOrNull { it.eventId == favoriteId || it.id == favoriteId }
+                            ?.let { app -> mapAdminApplicationToEvent(app, adminApplications) }
+                }.distinctBy { it.id }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -14416,7 +16275,9 @@ private fun OrganizerEventDetailScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "${event.city} – ${event.venue}",
+                        text = listOf(event.venue, event.city, event.country)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" • ").ifBlank { "Location TBC" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -14729,7 +16590,9 @@ private fun OrganizerEventCard(
                 }
             }
             Text(
-                text = "${event.city} • ${event.venue}",
+                text = listOf(event.venue, event.city, event.country)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • ").ifBlank { "Location TBC" },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -15425,28 +17288,47 @@ private fun RecommendationsRow(
                     ) {
                         // Resolve image key: explicit on rec; otherwise use bundled hero art
                         val imageKey = rec.imageKey
-                        val photoRes = imageKey?.let { key -> Res.allDrawableResources[key] }
+                        val fallbackRes = remember {
+                            resolveProfilePhotoRes()
+                                ?: Res.allDrawableResources["hero_vic_falls_midnight_lights"]
+                                ?: Res.allDrawableResources.values.firstOrNull()
+                        }
+                        val remotePainter = rec.imageUrl
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { rememberUriPainter(it) }
+                        val photoRes = imageKey?.let { key -> Res.allDrawableResources[key] } ?: fallbackRes
 
-                        if (photoRes != null) {
-                            Image(
-                                painter = painterResource(photoRes),
-                                contentDescription = null,
-                                modifier = Modifier.matchParentSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                                                MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                        when {
+                            remotePainter != null -> {
+                                Image(
+                                    painter = remotePainter,
+                                    contentDescription = null,
+                                    modifier = Modifier.matchParentSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            photoRes != null -> {
+                                Image(
+                                    painter = painterResource(photoRes),
+                                    contentDescription = null,
+                                    modifier = Modifier.matchParentSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            else -> {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                                                    MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                                                )
                                             )
                                         )
-                                    )
-                            )
+                                )
+                            }
                         }
 
                         // Dark overlay + grain for readability
@@ -15589,6 +17471,7 @@ private fun AlertsScreen(
     onOpenEvent: (String) -> Unit,
     onRefreshNotifications: () -> Unit,
     onMarkRead: (NotificationItem) -> Unit,
+    onToggleStar: (NotificationItem, Boolean) -> Unit,
     onUpdatePersonalization: (PersonalizationPrefs) -> Unit,
 ) {
     var showPersonalize by remember { mutableStateOf(false) }
@@ -15597,8 +17480,20 @@ private fun AlertsScreen(
     val (unread, read) = remember(notifications) {
         notifications.partition { it.status.lowercase() != "read" }
     }
-    val groupedRead = remember(read, now) {
-        groupNotificationsByDate(now, read)
+    val starred = remember(notifications) { notifications.filter { it.starred } }
+    val groupedRead = remember(read, now) { groupNotificationsByDate(now, read) }
+    val groupedStarredRead = remember(starred, now) { groupNotificationsByDate(now, starred.filter { it.status.lowercase() == "read" }) }
+    val starredUnread = remember(starred) { starred.filter { it.status.lowercase() != "read" } }
+    var selectedFilter by rememberSaveable { mutableStateOf(AlertsFilter.Unread) }
+
+    LaunchedEffect(unread.size, read.size, starred.size, notificationsLoading) {
+        if (!notificationsLoading && selectedFilter == AlertsFilter.Unread && unread.isEmpty()) {
+            selectedFilter = when {
+                starred.isNotEmpty() -> AlertsFilter.Starred
+                read.isNotEmpty() -> AlertsFilter.Read
+                else -> AlertsFilter.Unread
+            }
+        }
     }
 
     Column(
@@ -15606,52 +17501,145 @@ private fun AlertsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .background(GoTickyGradients.CardGlow)
-            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 120.dp),
+            .navigationBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, top = 34.dp, bottom = 220.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         GlowCard(modifier = Modifier.fillMaxWidth()) {
             TopBar(
                 title = "Notifications",
                 onBack = onBack,
+                backgroundColor = Color.Transparent,
+                titleContent = {
+                    Text(
+                        text = "Notifications",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
                 actions = {
+                    IconButton(
+                        onClick = onRefreshNotifications
+                    ) {
+                        Box {
+                            Icon(
+                                imageVector = if (unread.isNotEmpty()) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
+                                contentDescription = "Notifications",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            if (unread.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 2.dp, y = (-2).dp)
+                                        .background(Color(0xFFFF6B6B), CircleShape)
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+        }
+        val filters = listOf(
+            Triple(AlertsFilter.Unread, "Unread", unread.size),
+            Triple(AlertsFilter.Read, "Read", read.size),
+            Triple(AlertsFilter.Starred, "Starred", starred.size),
+        )
+        val filterOrder = remember { filters.map { it.first } }
+        
+        GlowCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                filters.forEach { (filter, label, count) ->
+                    val selected = selectedFilter == filter
+                    val bg by animateColorAsState(
+                        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "alertTabBg-$label"
+                    )
+                    val contentColor by animateColorAsState(
+                        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        animationSpec = tween(durationMillis = GoTickyMotion.Standard),
+                        label = "alertTabText-$label"
+                    )
                     Row(
+                        modifier = Modifier
+                            .clip(goTickyShapes.medium)
+                            .background(bg)
+                            .border(1.dp, contentColor.copy(alpha = 0.35f), goTickyShapes.medium)
+                            .pressAnimated()
+                            .clickable { selectedFilter = filter }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val unreadCount = unread.size
-                        if (unreadCount > 0) {
-                            Pill(
-                                text = unreadCount.coerceAtMost(99).toString(),
-                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
-                                textColor = MaterialTheme.colorScheme.secondary
-                            )
+                        Text(label, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = contentColor)
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(contentColor.copy(alpha = 0.14f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = contentColor)
                         }
-                        NeonTextButton(
-                            text = "Refresh",
-                            onClick = onRefreshNotifications,
-                            modifier = Modifier.pressAnimated()
-                        )
                     }
-                },
-                backgroundColor = Color.Transparent
-            )
+                }
+            }
         }
-        notificationsError?.let { err ->
-            GlowCard {
+        notificationsError?.let {
+            GlowCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pressAnimated(scaleDown = 0.97f)
+                    .clickable { onRefreshNotifications() }
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Outlined.NotificationsActive, contentDescription = null, tint = Color(0xFFFF6B6B))
-                    Column {
-                        Text("Notifications unavailable", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-                        Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (notificationsLoading) {
+                            LoadingSpinner(size = 18)
+                        } else {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            notificationsError ?: "Tap to refresh alerts",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            when {
+                                notificationsLoading -> "Syncing…"
+                                !notificationsError.isNullOrBlank() -> notificationsError!!
+                                else -> "Manual refresh keeps you in control."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    NeonTextButton(text = "Retry", onClick = onRefreshNotifications)
+                    NeonTextButton(text = if (notificationsLoading) "Loading" else "Refresh", onClick = onRefreshNotifications)
                 }
             }
         }
@@ -15686,95 +17674,257 @@ private fun AlertsScreen(
             }
         )
         if (notificationsLoading && notifications.isEmpty()) {
-            repeat(3) {
-                NotificationSkeleton()
-            }
+            repeat(3) { NotificationSkeleton() }
         }
-        if (!notificationsLoading && unread.isEmpty()) {
-            GlowCard {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("You’re all caught up", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-                    Text("We’ll notify you when something important happens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        unread.forEach { item ->
-            NotificationCard(
-                item = item,
-                fresh = true,
-                onOpen = {
-                    if (!item.eventId.isNullOrBlank()) {
-                        onOpenEvent(item.eventId)
-                    } else if (!item.actionUrl.isNullOrBlank()) {
-                        uriHandler.openUri(item.actionUrl!!)
+
+        AnimatedContent(
+            targetState = selectedFilter,
+            transitionSpec = {
+                val fromIdx = filterOrder.indexOf(initialState)
+                val toIdx = filterOrder.indexOf(targetState)
+                val direction = if (toIdx >= fromIdx) 1 else -1
+                slideInHorizontally(
+                    initialOffsetX = { it * direction },
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = FastOutSlowInEasing)
+                ) togetherWith slideOutHorizontally(
+                    targetOffsetX = { -it * direction },
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = FastOutSlowInEasing)
+                )
+            },
+            label = "alerts-tabs"
+        ) { filter ->
+            when (filter) {
+                AlertsFilter.Unread -> {
+                    if (!notificationsLoading && unread.isEmpty()) {
+                        GlowCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    "You’re all caught up",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "We’ll notify you when something important happens.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
-                    onMarkRead(item)
-                },
-                onMarkRead = { onMarkRead(item) },
-                now = now
-            )
-        }
+                    unread.forEach { item ->
+                        NotificationCard(
+                            item = item,
+                            fresh = true,
+                            onOpen = {
+                                if (!item.eventId.isNullOrBlank()) {
+                                    onOpenEvent(item.eventId)
+                                } else if (!item.actionUrl.isNullOrBlank()) {
+                                    uriHandler.openUri(item.actionUrl!!)
+                                }
+                                onMarkRead(item)
+                            },
+                            onMarkRead = { onMarkRead(item) },
+                            onToggleStar = { starred -> onToggleStar(item, starred) },
+                            now = now
+                        )
+                    }
+                }
 
-        if (groupedRead.today.isNotEmpty()) {
-            SectionHeader(title = "Today", action = null)
-            groupedRead.today.forEach { item ->
-                NotificationCard(
-                    item = item,
-                    fresh = false,
-                    onOpen = {
-                        if (!item.eventId.isNullOrBlank()) {
-                            onOpenEvent(item.eventId)
-                        } else if (!item.actionUrl.isNullOrBlank()) {
-                            uriHandler.openUri(item.actionUrl!!)
+                AlertsFilter.Read -> {
+                    if (!notificationsLoading && read.isEmpty()) {
+                        GlowCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    "No read alerts yet",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "Once you read alerts, they’ll appear here for quick recall.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                    },
-                    onMarkRead = { /* already read */ },
-                    now = now
-                )
-            }
-        }
+                    }
+                    if (groupedRead.today.isNotEmpty()) {
+                        SectionHeader(title = "Today", action = null)
+                        groupedRead.today.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
 
-        if (groupedRead.thisWeek.isNotEmpty()) {
-            SectionHeader(title = "This week", action = null)
-            groupedRead.thisWeek.forEach { item ->
-                NotificationCard(
-                    item = item,
-                    fresh = false,
-                    onOpen = {
-                        if (!item.eventId.isNullOrBlank()) {
-                            onOpenEvent(item.eventId)
-                        } else if (!item.actionUrl.isNullOrBlank()) {
-                            uriHandler.openUri(item.actionUrl!!)
+                    if (groupedRead.thisWeek.isNotEmpty()) {
+                        SectionHeader(title = "This week", action = null)
+                        groupedRead.thisWeek.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
                         }
-                    },
-                    onMarkRead = { /* already read */ },
-                    now = now
-                )
-            }
-        }
+                    }
 
-        if (groupedRead.earlier.isNotEmpty()) {
-            SectionHeader(title = "Earlier", action = null)
-            groupedRead.earlier.forEach { item ->
-                NotificationCard(
-                    item = item,
-                    fresh = false,
-                    onOpen = {
-                        if (!item.eventId.isNullOrBlank()) {
-                            onOpenEvent(item.eventId)
-                        } else if (!item.actionUrl.isNullOrBlank()) {
-                            uriHandler.openUri(item.actionUrl!!)
+                    if (groupedRead.earlier.isNotEmpty()) {
+                        SectionHeader(title = "Earlier", action = null)
+                        groupedRead.earlier.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
                         }
-                    },
-                    onMarkRead = { /* already read */ },
-                    now = now
-                )
+                    }
+                }
+
+                AlertsFilter.Starred -> {
+                    if (!notificationsLoading && starred.isEmpty()) {
+                        GlowCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    "Star what matters",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "Pin key alerts so they’re always a tap away.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    if (starredUnread.isNotEmpty()) {
+                        SectionHeader(title = "Starred · Unread", action = null)
+                        starredUnread.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = true,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                    onMarkRead(item)
+                                },
+                                onMarkRead = { onMarkRead(item) },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedStarredRead.today.isNotEmpty()) {
+                        SectionHeader(title = "Starred · Today", action = null)
+                        groupedStarredRead.today.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedStarredRead.thisWeek.isNotEmpty()) {
+                        SectionHeader(title = "Starred · This week", action = null)
+                        groupedStarredRead.thisWeek.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+
+                    if (groupedStarredRead.earlier.isNotEmpty()) {
+                        SectionHeader(title = "Starred · Earlier", action = null)
+                        groupedStarredRead.earlier.forEach { item ->
+                            NotificationCard(
+                                item = item,
+                                fresh = false,
+                                onOpen = {
+                                    if (!item.eventId.isNullOrBlank()) {
+                                        onOpenEvent(item.eventId)
+                                    } else if (!item.actionUrl.isNullOrBlank()) {
+                                        uriHandler.openUri(item.actionUrl!!)
+                                    }
+                                },
+                                onMarkRead = { /* already read */ },
+                                onToggleStar = { starred -> onToggleStar(item, starred) },
+                                now = now
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -15835,11 +17985,14 @@ private fun AlertsScreen(
     }
 }
 
+
 private data class NotificationDateGroups(
     val today: List<NotificationItem>,
     val thisWeek: List<NotificationItem>,
     val earlier: List<NotificationItem>,
 )
+
+private enum class AlertsFilter { Unread, Read, Starred }
 
 private fun groupNotificationsByDate(now: Instant, items: List<NotificationItem>): NotificationDateGroups {
     if (items.isEmpty()) return NotificationDateGroups(emptyList(), emptyList(), emptyList())
@@ -16051,6 +18204,8 @@ private fun SettingsScreen(
     }
 }
 
+
+
 @Composable
 private fun SettingsToggleRow(
     title: String,
@@ -16147,7 +18302,29 @@ private fun SettingsLinkRow(
 private fun LegalScreen(onBack: () -> Unit) {
     val scrollState = rememberScrollState()
     val uriHandler = LocalUriHandler.current
-    val pdfUrl = "https://goticky.app/legal/goticky-privacy-terms.pdf"
+    val termsUrl = "https://github.com/Wallytd/GoTicky/blob/master/TERMS_OF_SERVICE.md"
+    val privacyUrl = "https://github.com/Wallytd/GoTicky/blob/master/PRIVACY_POLICY.md"
+    val privacySections = listOf(
+        "Who controls your data" to "GoTicky is the controller. Reach us at privacy@goticky.app or legal@goticky.app. We honor local rights (GDPR/EEA, UK, CCPA/CPRA, POPIA).",
+        "Data we collect" to "Account identity, preferences & activity, transaction metadata (no full card storage), device/network diagnostics, optional location, and support communications.",
+        "How we use data" to "Run ticketing, alerts, recommendations, maps; process payments; prevent fraud; send transactional messages; analyze performance. Marketing is opt-in.",
+        "Sharing" to "Payment processors, organizers/venues, service providers (hosting, analytics, crash, email/push), and legal/safety. We do not sell personal data.",
+        "Your choices" to "Access/correct/delete/export data; opt out of marketing; control location; withdraw consent where used; contact privacy@goticky.app for requests.",
+        "Security & retention" to "TLS in transit, encrypted tokens, restricted access, fraud monitoring. We retain data while needed for service/legal/security, then delete or de-identify.",
+        "International transfers" to "Data may move across regions; we apply safeguards (e.g., SCCs where applicable).",
+        "Children" to "Not directed to under 16; we delete known child data without consent.",
+        "Changes" to "We will highlight material updates in-app or on-site; continued use means acceptance."
+    )
+    val termsSections = listOf(
+        "Eligibility & accounts" to "You must be 16+ and able to contract. Keep info accurate; you are responsible for account activity.",
+        "Ticketing, pricing, and fees" to "Organizers set availability, pricing, seating, and refund/transfer rules. Payments go through PCI-compliant providers; we do not store full cards.",
+        "User conduct" to "No fraud, bots/scalping abuse, harassment, scraping, reverse engineering, or violating venue/organizer rules.",
+        "Liability" to "We are not liable for indirect or consequential damages or for event changes/cancellations outside our control. Remedies follow organizer policies.",
+        "Indemnity" to "You will indemnify GoTicky for misuse, terms violations, or IP/right infringements you cause.",
+        "Termination" to "You may stop anytime; we may suspend/terminate for violations, fraud risk, or legal reasons. Certain clauses survive.",
+        "Changes" to "We may update terms; material changes will be highlighted. Continued use accepts updates.",
+        "Governing law" to "Zimbabwe law (or as required locally); venue is courts where we are based unless consumer law requires otherwise."
+    )
     val sections = listOf(
         "Overview" to "GoTicky is a ticket discovery and purchase experience. We use your data to process orders, prevent fraud, personalize recommendations, and keep you informed about events you engage with.",
         "Data we collect" to "Account data (name, email, phone), preferences (genres, cities), device signals for fraud prevention, and transaction metadata. We do not store card details—payments are handled by PCI-compliant providers.",
@@ -16174,10 +18351,27 @@ private fun LegalScreen(onBack: () -> Unit) {
                     title = "Privacy & Terms",
                     onBack = onBack,
                     actions = {
-                        NeonTextButton(text = "Download", onClick = { uriHandler.openUri(pdfUrl) })
+                        NeonTextButton(text = "Privacy", onClick = { uriHandler.openUri(privacyUrl) })
+                        NeonTextButton(text = "Terms", onClick = { uriHandler.openUri(termsUrl) })
                     },
                     backgroundColor = Color.Transparent
                 )
+            }
+            GlowCard {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Open full documents",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        NeonTextButton(text = "View Privacy on GitHub", onClick = { uriHandler.openUri(privacyUrl) })
+                        NeonTextButton(text = "View Terms on GitHub", onClick = { uriHandler.openUri(termsUrl) })
+                    }
+                }
             }
             GlowCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -16225,38 +18419,78 @@ private fun LegalScreen(onBack: () -> Unit) {
                 }
             }
             GlowCard {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val openPrivacy = remember { mutableStateMapOf<Int, Boolean>() }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Terms (high level)",
+                        "Privacy policy (in-app view)",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    val terms = listOf(
-                        "Use of service" to "You agree to truthful info, no scalping abuse, and compliance with venue rules.",
-                        "Tickets & refunds" to "All sales are subject to organizer policies; we surface refund/transfer options where supported.",
-                        "Liability" to "We are not responsible for event changes or cancellations beyond our control; we facilitate organizer remedies.",
-                        "User conduct" to "No fraud, harassment, or platform abuse. Violations may lead to suspension.",
-                        "Changes" to "We may update these terms; continued use means acceptance. Material changes will be highlighted."
-                    )
-                    terms.forEach { (t, desc) ->
-                        Row(
+                    privacySections.forEachIndexed { idx, (title, desc) ->
+                        val expanded = openPrivacy[idx] ?: false
+                        val rotation by updateTransition(expanded, label = "privacy$idx").animateFloat(
+                            transitionSpec = { tween(durationMillis = 240, easing = EaseOutBack) }, label = "privacyArrow$idx"
+                        ) { if (it) 90f else 0f }
+                        GlowCard(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(goTickyShapes.medium)
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .pressAnimated(scaleDown = 0.97f)
+                                .clickable { openPrivacy[idx] = !expanded }
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                            Column {
-                                Text(t, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                                Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+                                    Icon(imageVector = Icons.Outlined.ArrowForward, contentDescription = null, modifier = Modifier.rotate(rotation), tint = MaterialTheme.colorScheme.tertiary)
+                                }
+                                AnimatedVisibility(
+                                    visible = expanded,
+                                    enter = fadeIn(animationSpec = tween(200)) + slideInVertically { it / 4 }
+                                ) {
+                                    Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            GlowCard {
+                val openTerms = remember { mutableStateMapOf<Int, Boolean>() }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Terms of service (in-app view)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    termsSections.forEachIndexed { idx, (title, desc) ->
+                        val expanded = openTerms[idx] ?: false
+                        val rotation by updateTransition(expanded, label = "terms$idx").animateFloat(
+                            transitionSpec = { tween(durationMillis = 240, easing = EaseOutBack) }, label = "termsArrow$idx"
+                        ) { if (it) 90f else 0f }
+                        GlowCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressAnimated(scaleDown = 0.97f)
+                                .clickable { openTerms[idx] = !expanded }
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+                                    Icon(imageVector = Icons.Outlined.ArrowForward, contentDescription = null, modifier = Modifier.rotate(rotation), tint = MaterialTheme.colorScheme.secondary)
+                                }
+                                AnimatedVisibility(
+                                    visible = expanded,
+                                    enter = fadeIn(animationSpec = tween(200)) + slideInVertically { it / 4 }
+                                ) {
+                                    Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                     }
@@ -16393,6 +18627,8 @@ private fun generateTimeSlots(): List<String> {
     }
     return result
 }
+
+
 
 @Composable
 @kotlin.OptIn(kotlin.time.ExperimentalTime::class)
@@ -16763,14 +18999,17 @@ private fun EventDetailScreen(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    val locationLines = listOf(event.venue, event.city, event.country)
+                        .filter { it.isNotBlank() }
+                        .ifEmpty { listOf("Location TBC") }
                     val infoRows = listOf(
-                        Pair(Icons.Outlined.Event, event.dateLabel),
-                        Pair(Icons.Outlined.Place, event.city),
-                        Pair(Icons.Outlined.ReceiptLong, event.priceFrom)
+                        Pair(Icons.Outlined.Event, listOf(event.dateLabel)),
+                        Pair(Icons.Outlined.Place, locationLines),
+                        Pair(Icons.Outlined.ReceiptLong, listOf(event.priceFrom))
                     )
-                    infoRows.forEach { (icon, copy) ->
+                    infoRows.forEach { (icon, copies) ->
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Box(
@@ -16782,11 +19021,17 @@ private fun EventDetailScreen(
                             ) {
                                 Icon(icon, contentDescription = null, tint = accent)
                             }
-                            Text(
-                                text = copy,
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                copies.forEachIndexed { idx, line ->
+                                    Text(
+                                        text = line,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (idx == 0) FontWeight.Medium else FontWeight.Normal
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -17310,6 +19555,8 @@ private fun EventDetailScreen(
     }
 }
 
+
+
 @Composable
 private fun CreateEventScreen(
     userProfile: UserProfile,
@@ -17332,7 +19579,8 @@ private fun CreateEventScreen(
     var ticketEarlyBird by remember { mutableStateOf("") }
     var venue by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }
-    var country by remember { mutableStateOf("") }
+    var country by remember { mutableStateOf("Zimbabwe") }
+    var showCountryPicker by remember { mutableStateOf(false) }
     var latInput by remember { mutableStateOf("") }
     var lngInput by remember { mutableStateOf("") }
     var showMapPicker by remember { mutableStateOf(false) }
@@ -17346,6 +19594,7 @@ private fun CreateEventScreen(
     var showDateTimePicker by remember { mutableStateOf(false) }
     val timeSlots: List<String> = remember { generateTimeSlots() }
     val months = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+    val countries = listOf("Zimbabwe", "South Africa", "Botswana", "Zambia", "Mozambique", "Namibia", "Malawi", "Lesotho", "Eswatini")
     val nowYear = remember { currentInstant().toLocalDateTime(TimeZone.currentSystemDefault()).year }
     var datePickerMonthIndex by remember { mutableStateOf(0) }
     var datePickerDay by remember { mutableStateOf(7) }
@@ -17835,22 +20084,39 @@ private fun CreateEventScreen(
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline
                     )
                 )
-                OutlinedTextField(
-                    value = country,
-                    onValueChange = { country = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Country") },
-                    placeholder = { Text("Where will this event be hosted?") },
-                    isError = countryError,
-                    supportingText = {
-                        if (countryError) Text("Country is required", color = MaterialTheme.colorScheme.error)
-                    },
-                    shape = goTickyShapes.medium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = country,
+                        onValueChange = { country = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Country") },
+                        placeholder = { Text("Tap to pick country") },
+                        isError = countryError,
+                        trailingIcon = {
+                            IconButton(onClick = { showCountryPicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Fingerprint,
+                                    contentDescription = "Pick country",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        readOnly = true,
+                        supportingText = {
+                            if (countryError) Text("Country is required", color = MaterialTheme.colorScheme.error)
+                        },
+                        shape = goTickyShapes.medium,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
                     )
-                )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clip(goTickyShapes.medium)
+                            .clickable { showCountryPicker = true }
+                    )
             }
         }
         GlowCard {
@@ -18156,6 +20422,92 @@ private fun CreateEventScreen(
          }
      }
 
+    if (showCountryPicker) {
+        AlertDialog(
+            onDismissRequest = { showCountryPicker = false },
+            title = { Text("Pick country") },
+            text = {
+                var visible by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (visible) 1f else 0.94f,
+                    animationSpec = tween(durationMillis = GoTickyMotion.Standard, easing = EaseOutBack),
+                    label = "countryDialogScale"
+                )
+                LaunchedEffect(Unit) { visible = true }
+
+                Column(
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Supported regions",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    val listState = rememberLazyListState(
+                        initialFirstVisibleItemIndex = countries.indexOf(country).coerceAtLeast(0)
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                            .clip(goTickyShapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.large)
+                            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(countries) { item ->
+                                val selected = country == item
+                                val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .clip(goTickyShapes.medium)
+                                        .clickable { country = item }
+                                        .padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = item,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = tint
+                                    )
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CheckCircle,
+                                            contentDescription = null,
+                                            tint = tint
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                PrimaryButton(text = "Apply") {
+                    showCountryPicker = false
+                }
+            },
+            dismissButton = {
+                NeonTextButton(
+                    text = "Cancel",
+                    onClick = { showCountryPicker = false }
+                )
+            }
+        )
+    }
+
     if (showDateTimePicker) {
         AlertDialog(
             onDismissRequest = { showDateTimePicker = false },
@@ -18359,6 +20711,8 @@ private fun CreateEventScreen(
             }
         )
     }
+}
+
 }
 
 @Composable
@@ -18687,4 +21041,15 @@ private fun AlertCard(
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
 

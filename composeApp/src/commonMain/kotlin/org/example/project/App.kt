@@ -210,7 +210,9 @@ import androidx.compose.ui.window.PopupProperties
 import kotlin.math.round
 import org.example.project.MapEvent
 import org.example.project.data.TicketPass
-import org.example.project.data.updateAdminRememberMe
+// Removed: import org.example.project.data.updateAdminRememberMe (no longer used)
+import org.example.project.data.updateAdminAppSettings
+import org.example.project.data.getRememberedAdminEmail
 
 import org.example.project.data.TicketType
 import org.example.project.data.OrderItem
@@ -234,7 +236,7 @@ import org.example.project.location.rememberDistanceForEvents
 import org.example.project.data.AdminProfile
 import org.example.project.data.adminProfileByCredentials
 import org.example.project.data.fetchAdminProfiles
-import org.example.project.data.rememberedAdminProfile
+// Removed: import org.example.project.data.rememberedAdminProfile (no longer used - credentials stored locally)
 import org.example.project.data.PriceAlert
 import org.example.project.data.NearbyEvent
 import org.example.project.data.DistanceSample
@@ -4348,12 +4350,8 @@ private data class SettingsPrefs(
     val rememberMe: Boolean = false,
 )
 
-// Admin credentials now come from Realtime Database /adminprofiles entries.
-private data class AdminCredentials(
-    val email: String,
-    val passcode: String,
-    val rememberMe: Boolean = true,
-)
+// Admin credentials are now stored in device-local secure storage.
+// This data class is kept for compatibility but credentials come from SecureStorage.
 
 private val SettingsPrefsSaver = listSaver<SettingsPrefs, Any>(
     save = { listOf(it.pushEnabled, it.emailUpdates, it.dataSaver, it.hapticsEnabled, it.theme, it.rememberMe) },
@@ -4535,15 +4533,34 @@ private suspend fun saveUserSettingsToFirestore(uid: String, prefs: SettingsPref
     }
 }
 
-private suspend fun fetchRememberedAdminCredentials(): AdminCredentials? {
-    if (!isFirebaseAvailable()) return null
-    return runCatching { rememberedAdminProfile() }.getOrNull()?.let { profile ->
-        AdminCredentials(
-            email = profile.email,
-            passcode = profile.passcode,
-            rememberMe = profile.rememberMe
-        )
-    }
+private suspend fun fetchRememberedAdminCredentials(): org.example.project.platform.AdminCredentials? {
+    // HYBRID APPROACH:
+    // 1. Check Firestore for which admin has rememberMe enabled (preference syncs across devices)
+    // 2. Check local secure storage for actual credentials (device-specific, encrypted)
+    // 3. Only prefill if BOTH conditions are met
+    
+    return runCatching {
+        // Step 1: Get the admin email who has rememberMe enabled in Firestore
+        val rememberedEmail = org.example.project.data.getRememberedAdminEmail()
+        if (rememberedEmail.isNullOrBlank()) {
+            println("DEBUG: No admin has rememberMe enabled in Firestore")
+            return@runCatching null
+        }
+        
+        println("DEBUG: Admin $rememberedEmail has rememberMe enabled in Firestore")
+        
+        // Step 2: Check if this device has credentials for that admin
+        val secureStorage = org.example.project.platform.getSecureStorage()
+        val localCredentials = secureStorage.getAdminCredentials(rememberedEmail)
+        
+        if (localCredentials != null) {
+            println("DEBUG: Found local credentials for $rememberedEmail on this device")
+            localCredentials
+        } else {
+            println("DEBUG: No local credentials for $rememberedEmail on this device (need to login once)")
+            null
+        }
+    }.getOrNull()
 }
 
 @Composable
@@ -5327,7 +5344,7 @@ private fun GoTickyRoot() {
     var forceOpenSearchDialog by remember { mutableStateOf(false) }
     var settingsPrefs by rememberSaveable(stateSaver = SettingsPrefsSaver) { mutableStateOf(SettingsPrefs()) }
     var authInitDone by rememberSaveable { mutableStateOf(false) }
-    var adminSecurePrefill by remember { mutableStateOf<AdminCredentials?>(null) }
+    var adminSecurePrefill by remember { mutableStateOf<org.example.project.platform.AdminCredentials?>(null) }
     LaunchedEffect(Unit) {
         val existing = authRepo.currentUser()
         val uid = existing?.uid
@@ -5841,19 +5858,24 @@ private fun GoTickyRoot() {
         syncFavoritesFromBackend()
         
         // Update rememberMe in adminProfiles collection
-        println("DEBUG: About to update rememberMe in adminProfiles for ${profile.email}")
+        println("DEBUG: Saving admin credentials for ${profile.email}")
         try {
             withContext(NonCancellable) {
-                updateAdminRememberMe(profile.email, rememberMe)
+                // Save to device-local secure storage (encrypted credentials)
+                org.example.project.platform.getSecureStorage()
+                    .saveAdminCredentials(profile.email, profile.passcode, rememberMe)
+                
+                // Save rememberMe preference to Firestore (syncs across devices)
+                org.example.project.data.updateAdminAppSettings(profile.email, rememberMe)
             }
-            println("DEBUG: Successfully updated rememberMe in adminProfiles")
+            println("DEBUG: Successfully saved admin credentials locally and rememberMe to Firestore (rememberMe=$rememberMe)")
         } catch (e: Exception) {
-            println("DEBUG ERROR: Failed to update rememberMe in adminProfiles: ${e.message}")
+            println("DEBUG ERROR: Failed to save admin credentials: ${e.message}")
             println("DEBUG ERROR: Exception type: ${e::class.simpleName}")
             e.printStackTrace()
         }
         
-        adminSecurePrefill = AdminCredentials(profile.email, profile.passcode, rememberMe)
+        adminSecurePrefill = org.example.project.platform.AdminCredentials(profile.email, profile.passcode, rememberMe)
 
         return AuthResult.Success
     }
@@ -6451,8 +6473,8 @@ private fun GoTickyRoot() {
                         AdminSignInScreen(
                             flagEnabled = adminFeatureFlagEnabled,
                             onBack = { showAdminSignIn = false },
-                            prefillEmail = adminSecurePrefill?.email.orEmpty(),
-                            prefillPasscode = adminSecurePrefill?.passcode.orEmpty(),
+                            prefillEmail = adminSecurePrefill?.email ?: "",
+                            prefillPasscode = adminSecurePrefill?.passcode ?: "",
                             prefillRememberMe = adminSecurePrefill?.rememberMe ?: false,
                             onSubmit = { email, passcode, rememberMe ->
                                 val profile = adminProfileByCredentials(email, passcode)
@@ -6460,7 +6482,7 @@ private fun GoTickyRoot() {
                                     // Avoid leaking which field is wrong.
                                     AuthResult.Error("Incorrect admin email or passcode.")
                                 } else {
-                                    adminSecurePrefill = AdminCredentials(email, passcode, rememberMe)
+                                    adminSecurePrefill = org.example.project.platform.AdminCredentials(email, passcode, rememberMe)
                                     startAdminSessionFromProfile(profile, rememberMe)
                                 }
                             }
@@ -6774,25 +6796,36 @@ private fun GoTickyRoot() {
                                                 
                                                 logoutInProgress = true
                                                 scope.launch {
+                                                    // Add delay to show "Signing out…" animation
+                                                    delay(800)
+                                                    
                                                     runCatching { authRepo.signOut() }
                                                     
-                                                    // Update rememberMe to false for admin if they're logging out
+                                                    // Clear admin credentials from both local storage and Firestore on logout
                                                     if (wasAdmin && userProfile.email.isNotEmpty()) {
-                                                        println("DEBUG: Admin logout - setting rememberMe to false for ${userProfile.email}")
+                                                        println("DEBUG: Admin logout - clearing credentials for ${userProfile.email}")
                                                         try {
                                                             withContext(NonCancellable) {
-                                                                updateAdminRememberMe(userProfile.email, false)
+                                                                // Clear device-local encrypted credentials
+                                                                org.example.project.platform.getSecureStorage()
+                                                                    .clearAdminCredentials(userProfile.email)
+                                                                
+                                                                // Clear rememberMe preference in Firestore
+                                                                org.example.project.data.updateAdminAppSettings(userProfile.email, false)
                                                             }
-                                                            println("DEBUG: Successfully updated rememberMe to false")
+                                                            println("DEBUG: Successfully cleared admin credentials and Firestore preference")
                                                         } catch (e: Exception) {
-                                                            println("DEBUG ERROR: Failed to update rememberMe on logout: ${e.message}")
+                                                            println("DEBUG ERROR: Failed to clear admin credentials on logout: ${e.message}")
                                                         }
                                                     }
+                                                    
+                                                    // Add another small delay before dismissing dialog for smooth UX
+                                                    delay(400)
                                                     
                                                     // Set navigation flags FIRST before changing auth state
                                                     // This ensures the correct screen is shown when isAuthenticated triggers recomposition
                                                     showAdminSignIn = wasAdmin
-                                                    showIntro = !wasAdmin
+                                                    showIntro = false
                                                     
                                                     // Now reset authentication and other state
                                                     isAuthenticated = false

@@ -25,7 +25,7 @@ actual fun initFirebase(appContext: Any?) {
     // App Check temporarily disabled to unblock local/admin flows. Re-enable when ready.
 }
 
-private object InitState {
+internal object InitState {
     var firebaseInitialized: Boolean = false
     var context: Context? = null
 }

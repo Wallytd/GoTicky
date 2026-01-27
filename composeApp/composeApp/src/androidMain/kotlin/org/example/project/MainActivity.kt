@@ -1,0 +1,26 @@
+package org.example.project
+
+import android.os.Bundle
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.fragment.app.FragmentActivity
+
+class MainActivity : FragmentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Ensure Firebase is initialized with a valid application context before Compose launches.
+        initFirebase(applicationContext)
+
+        setContent {
+            App()
+        }
+    }
+}
+
+@Preview
+@Composable
+fun AppAndroidPreview() {
+    App()
+}

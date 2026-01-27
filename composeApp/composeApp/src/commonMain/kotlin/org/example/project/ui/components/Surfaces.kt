@@ -1,0 +1,187 @@
+package org.example.project.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import org.example.project.ui.theme.GoTickyGradients
+import org.example.project.ui.theme.GoTickyTextures
+import org.example.project.ui.theme.goTickyShapes
+
+@Composable
+fun GlowCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .shadow(10.dp, goTickyShapes.extraLarge)
+            .clip(goTickyShapes.extraLarge)
+            .background(GoTickyGradients.CardGlow)
+            .background(GoTickyGradients.GlassWash)
+            .drawBehind { drawRect(GoTickyTextures.GrainTint) }
+            .padding(16.dp)
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun NeonBanner(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    val pulse = infinitePulseAmplitude(
+        minScale = 0.98f,
+        maxScale = 1.05f,
+        durationMillis = 3400,
+    )
+    Column(
+        modifier = modifier
+            .graphicsLayer(scaleX = pulse, scaleY = pulse)
+            .clip(RoundedCornerShape(18.dp))
+            .background(GoTickyGradients.Cta)
+            .padding(16.dp)
+            ,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.onPrimary,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onPrimary,
+            textAlign = TextAlign.Center
+        )
+    }
+    // Subtle halo edge to align with Stage 9 neon direction
+    Row(
+        modifier = Modifier
+            .padding(top = 6.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, GoTickyGradients.EdgeHalo, RoundedCornerShape(18.dp))
+    ) {}
+}
+
+@Composable
+fun Pill(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surfaceVariant,
+    textColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    val isBright = color.luminance() > 0.7f
+    val resolvedTextColor = if (textColor == MaterialTheme.colorScheme.onSurface) {
+        if (isBright) Color(0xFF0B0F16) else Color.White
+    } else textColor
+
+    Row(
+        modifier = modifier
+            .clip(goTickyShapes.medium)
+            .background(color)
+            .then(
+                if (isBright) Modifier.border(1.dp, Color.Black.copy(alpha = 0.08f), goTickyShapes.medium)
+                else Modifier
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.35f),
+                    offset = Offset(0f, 0.5f),
+                    blurRadius = 1.5f
+                )
+            ),
+            color = resolvedTextColor
+        )
+    }
+}
+
+@Composable
+fun GlowPill(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(goTickyShapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
+            .border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+fun NeonSelectablePill(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    centerText: Boolean = false,
+    selectedContainerColor: Color = MaterialTheme.colorScheme.primary,
+    selectedContentColor: Color = MaterialTheme.colorScheme.onPrimary,
+) {
+    val bg = if (selected) {
+        selectedContainerColor.copy(alpha = 0.95f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val fg = if (selected) selectedContentColor else MaterialTheme.colorScheme.onSurface
+
+    Row(
+        modifier = modifier
+            .pressAnimated(scaleDown = 0.95f)
+            .then(
+                if (selected) {
+                    Modifier.border(1.dp, GoTickyGradients.EdgeHalo, goTickyShapes.medium)
+                } else {
+                    Modifier
+                }
+            )
+            .background(bg, goTickyShapes.medium)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (centerText) Arrangement.Center else Arrangement.Start
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = fg
+        )
+    }
+}

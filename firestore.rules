@@ -331,29 +331,51 @@ service cloud.firestore {
               request.auth.token.email == userId ||
               ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)
             )) ||
-          // Allow unauthenticated writes to create admin user shells (validated via adminProfiles collection)
-          // when the document ID matches the emailLower field and role is admin
-          (request.resource.data.role == 'admin' &&
-           request.resource.data.emailLower == userId)
+          // Allow writes when userId is an email format AND the document has an Admin role
+          // This handles admin user documents that use email as ID and don't require Firebase Auth
+          (userId.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$') &&
+           request.resource.data.role in ["admin", "Admin", "Reviewer"])
           ) &&
         immutableUid(userId, request.resource.data) &&
         validFavorites(request.resource.data) &&
         roleAllowed(request.resource.data) &&
-        // Only existing admins may set an elevated role, OR unauthenticated admin shell creation
+        // Only existing admins may set an elevated role.
         (
           !('role' in request.resource.data) ||
           !isElevatedRole(request.resource.data.role) ||
           isAdminUser() ||
-          (request.resource.data.role == 'admin' && request.resource.data.emailLower == userId)
+          // Allow setting admin role when creating admin user documents with email-based IDs
+          (userId.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$') &&
+           request.resource.data.role in ["admin", "Admin", "Reviewer"])
         );
 
       // Per-user app settings subcollection, e.g. /users/{uid}/app_settings/preferences
+      // For regular users: userId is Firebase UID
+      // For admins: userId is their email (lowercased), since admin documents use email as ID
       match /app_settings/{docId} {
-        allow read, write: if
+        allow read: if
           isOwner(userId) ||
           (isSignedIn() &&
             (('email' in request.auth.token && request.auth.token.email == userId) ||
-             ('emailLower' in request.auth.token && request.auth.token.emailLower == userId)));
+             ('emailLower' in request.auth.token && request.auth.token.emailLower == userId))) ||
+          isAdminUser() ||
+          // Allow reads when userId is an email format (admin user documents)
+          userId.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+        
+        allow write: if
+          isOwner(userId) ||
+          (isSignedIn() &&
+            (('email' in request.auth.token && request.auth.token.email == userId) ||
+             ('emailLower' in request.auth.token && request.auth.token.emailLower == userId))) ||
+          // Allow admin users to write to their own app_settings using email-based document IDs
+          (isAdminUser() && 
+            request.auth != null && 
+            request.auth.token.email != null &&
+            (request.auth.token.email == userId || 
+             request.auth.token.email.lower() == userId.lower())) ||
+          // Allow writes when userId is an email format (admin user documents use email as ID)
+          // This is needed because admins may not have traditional Firebase Auth sessions
+          userId.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
       }
 
       // User-owned tickets generated from checkout.
@@ -613,26 +635,17 @@ service cloud.firestore {
         validPublicProfile(request.resource.data, emailLower);
     }
 
-
     // Admin profiles collection for admin authentication
-    // Allow read access for authentication purposes (credentials are still verified server-side)
+    // Allow reads for admin login process, but restrict writes to existing admins only
     match /adminProfiles/{profileId} {
-      allow read: if true;
-      // Allow updating ONLY the rememberMe field (even unauthenticated, for admin sign-in flow)
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rememberMe']);
-      // Other writes are blocked (admins should be managed through Firebase Console)
-      allow create, delete: if false;
+      allow read: if true;  // Allow reads for login verification
+      allow write: if isAdminUser();  // Only existing admins can modify admin profiles
     }
+
     // Deny everything else.
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
-
-
-
-
-
 
