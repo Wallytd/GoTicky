@@ -279,6 +279,11 @@ import org.example.project.platform.rememberNewsFlashImageStorage
 import org.example.project.platform.rememberEventImageStorage
 import org.example.project.platform.rememberUriPainter
 import org.example.project.platform.SystemBackHandler
+import org.example.project.ui.components.TicketScanner
+import org.example.project.data.ScanProcessor
+import org.example.project.data.ScannerConfig
+import org.example.project.data.ScannerEngine
+import org.example.project.data.ScanResult
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
@@ -5939,6 +5944,13 @@ private fun GoTickyRoot() {
     }
 
     var adminSurface by remember { mutableStateOf(AdminSurface.Dashboard) }
+    var showTicketScanner by remember { mutableStateOf(false) }
+    
+    // Capture MaterialTheme colors for non-composable contexts
+    val scanSuccessColor = MaterialTheme.colorScheme.primary
+    val scanAlreadyScannedColor = MaterialTheme.colorScheme.tertiary
+    val scanErrorColor = MaterialTheme.colorScheme.error
+    val scanOfflineColor = MaterialTheme.colorScheme.secondary
 
     LaunchedEffect(adminSurface, hasAdminAccess, adminApplicationsInitialized, adminOrganizers.size) {
         val needsAdminData = !adminApplicationsInitialized || adminOrganizers.isEmpty()
@@ -6920,6 +6932,45 @@ private fun GoTickyRoot() {
                                         }
                                     )
                                 }
+                                showTicketScanner -> {
+                                    TicketScanner(
+                                        scannerConfig = ScannerConfig(
+                                            preferredEngine = ScannerEngine.AUTO,
+                                            enableHapticFeedback = true,
+                                            offlineMode = false
+                                        ),
+                                        onClose = { showTicketScanner = false },
+                                        onScanResult = { result ->
+                                            when (result) {
+                                                is ScanResult.Success -> {
+                                                    addAdminActivity(
+                                                        text = "✓ Scanned: ${result.ticket.id}",
+                                                        accent = scanSuccessColor
+                                                    )
+                                                    showTicketScanner = false
+                                                }
+                                                is ScanResult.AlreadyScanned -> {
+                                                    addAdminActivity(
+                                                        text = "⚠ Already scanned: ${result.ticket.id}",
+                                                        accent = scanAlreadyScannedColor
+                                                    )
+                                                }
+                                                is ScanResult.Error -> {
+                                                    addAdminActivity(
+                                                        text = "✗ Error: ${result.message}",
+                                                        accent = scanErrorColor
+                                                    )
+                                                }
+                                                is ScanResult.Offline -> {
+                                                    addAdminActivity(
+                                                        text = "📴 Offline scan: ${result.ticket.id}",
+                                                        accent = scanOfflineColor
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
                                 else -> {
                                     val blurredContentModifier = if (introActive) Modifier.blur(22.dp) else Modifier
 
@@ -7301,8 +7352,9 @@ private fun GoTickyRoot() {
                                                                 onSurfaceChange = { adminSurface = it },
                                                                 onOpenTickets = { adminSurface = AdminSurface.Tickets },
                                                                 onScanTickets = {
+                                                                    showTicketScanner = true
                                                                     addAdminActivity(
-                                                                        text = "Open scanner (stub)",
+                                                                        text = "Opened ticket scanner",
                                                                         accent = ticketCategoryColor
                                                                     )
                                                                 },
